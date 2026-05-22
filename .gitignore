@@ -1,0 +1,17 @@
+# Xcode
+xcuserdata/
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+build/
+.build/
+
+# Local config overrides
+NemaraCaregiver/Local.xcconfig
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
