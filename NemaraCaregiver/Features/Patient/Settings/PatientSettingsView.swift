@@ -9,6 +9,10 @@ struct PatientSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingAddDetector = false
     @State private var showingFeedback = false
+    @State private var pairingRoomDraft = ""
+    @State private var showingRoomPrompt = false
+    @State private var showingPairingCode = false
+    @State private var pairingRoom = ""
 
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
@@ -32,9 +36,12 @@ struct PatientSettingsView: View {
                 }
                 .padding(.horizontal, 16)
                 camerasSection
-                NemaraButton("Pair a new phone", variant: .ghost, size: .sm, systemImage: "plus") {}
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
+                NemaraButton("Pair a new phone", variant: .ghost, size: .sm, systemImage: "plus") {
+                    pairingRoomDraft = nextDefaultRoomName()
+                    showingRoomPrompt = true
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
                 feedbackEntry
                 NemaraButton("Remove this patient", variant: .ghost, size: .sm) {
                     guard let id = patient?.id else { return }
@@ -52,9 +59,54 @@ struct PatientSettingsView: View {
         .sheet(isPresented: $showingAddDetector) {
             AddDetectorView(patientId: patientId)
         }
+        .alert("Name the new camera", isPresented: $showingRoomPrompt) {
+            TextField("Room", text: $pairingRoomDraft)
+                .textInputAutocapitalization(.words)
+            Button("Cancel", role: .cancel) {}
+            Button("Generate code") {
+                pairingRoom = pairingRoomDraft.trimmingCharacters(in: .whitespaces)
+                guard !pairingRoom.isEmpty else { return }
+                showingPairingCode = true
+            }
+        } message: {
+            Text("e.g. Kitchen, Living room, Bedroom")
+        }
+        .sheet(isPresented: $showingPairingCode) {
+            PairingCodeSheet(
+                patientId: patientId,
+                room: pairingRoom,
+                iconName: defaultIcon(for: pairingRoom),
+            )
+            .presentationDetents([.medium, .large])
+        }
         .navigationDestination(isPresented: $showingFeedback) {
             FeedbackView()
         }
+    }
+
+    // ── Pairing helpers ───────────────────────────────────────────
+
+    /// Suggested next room name: "Camera N" where N is the next free
+    /// integer. Caregiver typically renames to something semantic
+    /// like "Kitchen" before tapping Generate.
+    private func nextDefaultRoomName() -> String {
+        "Camera \(cameras.count + 1)"
+    }
+
+    /// Best-guess SF Symbol for a room. Caregiver can override later
+    /// (Phase 1: surface in CameraRow). Falls back to `tv` for unknown
+    /// rooms.
+    private func defaultIcon(for room: String) -> String {
+        let lower = room.lowercased()
+        if lower.contains("kitchen") { return "fork.knife" }
+        if lower.contains("bed") { return "bed.double" }
+        if lower.contains("bath") { return "shower" }
+        if lower.contains("living") || lower.contains("family") { return "tv" }
+        if lower.contains("hall") || lower.contains("entry") || lower.contains("door") {
+            return "door.left.hand.open"
+        }
+        if lower.contains("garage") { return "car" }
+        return "tv"
     }
 
     // MARK: - sections

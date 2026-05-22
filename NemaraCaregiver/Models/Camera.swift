@@ -27,3 +27,28 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case createdAt = "created_at"
     }
 }
+
+/// Body for `POST /v1/patients/{id}/cameras/pairing-code`.
+struct CreatePairingCodeRequest: Encodable, Sendable {
+    var room: String
+    var iconName: String
+
+    enum CodingKeys: String, CodingKey {
+        case room
+        case iconName = "icon_name"
+    }
+}
+
+/// Response from the same. Caregiver app displays the code +
+/// countdown to expiry.
+struct CreatePairingCodeResponse: Decodable, Sendable {
+    let pairingCode: String  // 6 digits, 100000–999999
+    let expiresAt: Date
+    let cameraId: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case pairingCode = "pairing_code"
+        case expiresAt = "expires_at"
+        case cameraId = "camera_id"
+    }
+}

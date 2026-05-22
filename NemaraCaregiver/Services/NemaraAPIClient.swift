@@ -155,13 +155,34 @@ final class NemaraAPIClient {
         eventsByPatient.removeValue(forKey: id)
     }
 
-    // MARK: - Cameras (GET /v1/patients/{id}/cameras, DELETE /v1/cameras/{id})
+    // MARK: - Cameras (GET / DELETE / POST pairing-code)
 
     func loadCameras(forPatient pid: UUID) async throws {
         let cams: [Camera] = try await sendNoBody(
             method: "GET", path: "/v1/patients/\(pid.uuidString.lowercased())/cameras",
         )
         camerasByPatient[pid] = cams
+    }
+
+    /// Mint a 6-digit pairing code for a new wall phone on this
+    /// patient. Server inserts a placeholder `cameras` row with
+    /// `online=false` + the code valid for ~10min; the wall phone
+    /// completes the exchange via `POST /v1/cameras/pair`. We
+    /// optimistically refresh the patient's camera list so the
+    /// placeholder row appears (it'll flip to `online=true` once the
+    /// phone connects, via Realtime).
+    func createPairingCode(
+        forPatient pid: UUID,
+        room: String,
+        iconName: String = "tv",
+    ) async throws -> CreatePairingCodeResponse {
+        let response: CreatePairingCodeResponse = try await sendJSON(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/pairing-code",
+            body: CreatePairingCodeRequest(room: room, iconName: iconName),
+        )
+        try await loadCameras(forPatient: pid)
+        return response
     }
 
     func deleteCamera(_ id: UUID) async throws {
