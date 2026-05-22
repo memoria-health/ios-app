@@ -35,8 +35,13 @@ nemara-backend.
 - **Home tab** — patient roster, live state (calm / critical /
   offline), status line, last-event time, battery %. Updates via
   Supabase Realtime when wall phones / detector pipeline push.
-- **Patient → Live tab** — *(Phase 1, not wired yet)* will subscribe
-  to the patient's LiveKit room and render the active camera feed.
+- **Patient → Live tab** — subscribes to the patient's
+  `patient_<id>` LiveKit room as a viewer, renders the first
+  remote video track in the 16:9 feed card. The LIVE pill mirrors
+  connection state (LIVE / CONNECTING / hidden). Includes a
+  **Talk** toggle (Phase 3) that flips the caregiver mic on, routes
+  audio to the active camera via the backend's `/talk/start`
+  endpoint, and surfaces an "ON AIR" timer until tapped again.
 - **Patient → Events tab** — review fired events; PATCH `opened` /
   `reviewed` / `review_choice` to mark caregiver actions.
 - **Patient → Settings tab** — tune detector sensitivity, toggle
@@ -63,7 +68,8 @@ nemara-caregiver-app/
 │   │   └── JSONCoders.swift               # multi-format date strategy
 │   ├── Services/
 │   │   ├── SupabaseAuthService.swift      # signUp / signIn / restoreSession
-│   │   └── NemaraAPIClient.swift          # CRUD + Realtime + pairing
+│   │   ├── LiveKitClient.swift            # Observable wrapper around LiveKit Room
+│   │   └── NemaraAPIClient.swift          # CRUD + Realtime + pairing + LiveKit token + Talk
 │   ├── Models/                            # Caregiver, Patient, Camera, Detector, DetectionEvent
 │   ├── DesignSystem/
 │   │   ├── Tokens/                        # Color / Font / Radius / Spacing
@@ -76,7 +82,8 @@ nemara-caregiver-app/
 │       ├── AppSettings/                   # caregiver settings, daily-summary preview
 │       ├── Patient/
 │       │   ├── PatientShell.swift         # pinned PHeader + native iOS 26 TabView
-│       │   ├── Live/PatientLiveView.swift # Phase 1: LiveKit subscriber
+│       │   ├── Live/PatientLiveView.swift # LiveKit subscriber + Talk toggle
+│       │   ├── Live/LiveKitVideoView.swift # SwiftUI bridge to LiveKit VideoView
 │       │   ├── Events/                    # EventCard, EventDetailView, EventReviewView
 │       │   └── Settings/
 │       │       ├── PatientSettingsView.swift  # detector list, monitoring toggle, "Pair a new phone"

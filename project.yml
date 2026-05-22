@@ -11,6 +11,14 @@ packages:
     # single shared copy across both apps.
     url: https://github.com/supabase/supabase-swift
     from: "2.44.1"
+  LiveKit:
+    # LiveKit Cloud client SDK — used by the Live tab to subscribe to
+    # the patient's `patient_<id>` room (Phase 1) and by Talk mode to
+    # publish caregiver mic audio (Phase 3). Same major version as the
+    # wall-phone (`nemara-camera-app`); pinned to 2.x so SwiftPM picks
+    # the latest 2.y.z without breaking on a future 3.x rev.
+    url: https://github.com/livekit/client-sdk-swift
+    from: "2.0.0"
 
 options:
   bundleIdPrefix: co.elephantlabs
@@ -39,6 +47,8 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+      - package: LiveKit
+        product: LiveKit
     sources:
       - path: NemaraCaregiver
     resources:

@@ -274,6 +274,66 @@ final class NemaraAPIClient {
         return updated
     }
 
+    // MARK: - LiveKit (POST /v1/livekit/token) + Talk
+
+    /// Mint a viewer JWT for the patient's `patient_<id>` room. Used by
+    /// the Live tab to subscribe to wall-phone publishers.
+    func mintViewerToken(forPatient pid: UUID) async throws -> MintTokenResponse {
+        try await mintToken(forPatient: pid, role: "viewer")
+    }
+
+    /// Mint a broadcaster JWT — same room, plus `canPublish=true` so
+    /// the caregiver can stream their mic during Talk mode.
+    func mintBroadcasterToken(forPatient pid: UUID) async throws -> MintTokenResponse {
+        try await mintToken(forPatient: pid, role: "broadcaster")
+    }
+
+    private func mintToken(forPatient pid: UUID, role: String) async throws -> MintTokenResponse {
+        // Identity is informational — server validates the prefix and
+        // re-mints with whatever we send. `caregiver_<id>` makes audit
+        // logs on the LiveKit side legible.
+        guard let caregiverID = await tokenProviderCaregiverId() else {
+            throw APIError.unauthorized
+        }
+        let body = MintTokenRequest(
+            room: "patient_\(pid.uuidString.lowercased())",
+            identity: "caregiver_\(caregiverID.uuidString.lowercased())",
+            role: role,
+        )
+        return try await sendJSON(method: "POST", path: "/v1/livekit/token", body: body)
+    }
+
+    /// Per-caregiver identity helper. Reaches into the auth service via
+    /// the same token-provider closure so we don't widen the constructor.
+    /// Returns nil if there's no signed-in caregiver — the caller maps
+    /// that to `APIError.unauthenticated`.
+    private func tokenProviderCaregiverId() async -> UUID? {
+        // The token-provider closure can't return a UUID, so we peek at
+        // the Supabase client we already hold. `auth.session.user.id` is
+        // the canonical caregiver UUID for the current JWT.
+        let user = try? await supabase.auth.session.user
+        return user?.id
+    }
+
+    /// Open Talk mode for this patient. Server picks the active camera
+    /// (or fans out to all when no active is known) and sends LiveKit
+    /// data messages to flip each camera's playback gate.
+    func startTalk(forPatient pid: UUID) async throws -> TalkStartResponse {
+        try await sendNoBody(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/talk/start",
+        )
+    }
+
+    /// Close Talk mode. Sends `is_active=false` to every camera in the
+    /// room so playback gates re-close.
+    func endTalk(forPatient pid: UUID) async throws {
+        try await sendNoBodyVoid(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/talk/end",
+        )
+    }
+
     // MARK: - HTTP plumbing
 
     private func makeRequest(

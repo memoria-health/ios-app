@@ -4,19 +4,24 @@ import Observation
 /// Top-level dependency container. Lives once for the lifetime of the
 /// app, injected via `.environment(_:)` from `NemaraCaregiverApp`.
 ///
-/// - `auth` — Supabase Auth (sessions, sign-in / sign-up / sign-out).
-/// - `api`  — nemara-backend HTTP client + observable state + Supabase
-///   Realtime subscriptions. Views read from `api.patients`,
-///   `api.eventsByPatient[id]`, etc.
+/// - `auth`     — Supabase Auth (sessions, sign-in / sign-up / sign-out).
+/// - `api`      — nemara-backend HTTP client + observable state +
+///                Supabase Realtime subscriptions. Views read from
+///                `api.patients`, `api.eventsByPatient[id]`, etc.
+/// - `liveKit`  — Single LiveKit Room wrapper reused across patients.
+///                Live tab connects on appear, disconnects on disappear;
+///                Talk mode (Phase 3) reuses the same connection.
 @MainActor
 @Observable
 final class AppEnvironment {
     let auth: SupabaseAuthService
     let api: NemaraAPIClient
+    let liveKit: LiveKitClient
 
-    init(auth: SupabaseAuthService, api: NemaraAPIClient) {
+    init(auth: SupabaseAuthService, api: NemaraAPIClient, liveKit: LiveKitClient) {
         self.auth = auth
         self.api = api
+        self.liveKit = liveKit
     }
 
     /// Build the live environment used by `@main`. Wires the auth
@@ -29,7 +34,8 @@ final class AppEnvironment {
             supabaseClient: auth.client,
             tokenProvider: { [weak auth] in await auth?.currentAccessToken() },
         )
-        let env = AppEnvironment(auth: auth, api: api)
+        let liveKit = LiveKitClient()
+        let env = AppEnvironment(auth: auth, api: api, liveKit: liveKit)
 
         // Provisioning + bootstrap pipeline. AppEnvironment owns the
         // composition; auth + api stay decoupled.
