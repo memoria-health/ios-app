@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Step 2 of 2. Caregiver marks the event correct / not correct / unsure
-/// and can leave free-text notes. Submit calls back into `MockStore`
-/// which flips the event to `reviewed: true`.
+/// and can leave free-text notes. Submit PATCHes the event row through
+/// `NemaraAPIClient` — the backend stamps `reviewed_at = now()` when
+/// `reviewed` flips false → true.
 struct EventReviewView: View {
     let event: DetectionEvent
     let patientId: UUID
@@ -147,8 +148,19 @@ struct EventReviewView: View {
 
     private var footer: some View {
         NemaraButton("Submit review", variant: .primary, size: .lg, block: true) {
-            env.mockStore.submitReview(patientId, event.id, choice: choice, notes: notes.isEmpty ? nil : notes)
-            dismiss()
+            let trimmedNotes = notes.isEmpty ? nil : notes
+            Task {
+                _ = try? await env.api.updateEvent(
+                    event.id,
+                    UpdateEventRequest(
+                        opened: true,
+                        reviewed: true,
+                        reviewChoice: choice,
+                        reviewNotes: trimmedNotes,
+                    ),
+                )
+                dismiss()
+            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -169,10 +181,10 @@ struct EventReviewView: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    let pid = env.mockStore.patients[0].id
+    let env = AppEnvironment.preview()
+    let pid = env.api.patients[0].id
     return NavigationStack {
-        EventReviewView(event: env.mockStore.events[pid]![0], patientId: pid)
+        EventReviewView(event: env.api.eventsByPatient[pid]![0], patientId: pid)
     }
     .environment(env)
 }

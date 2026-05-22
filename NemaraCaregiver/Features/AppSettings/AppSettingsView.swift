@@ -5,6 +5,12 @@ import SwiftUI
 struct AppSettingsView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var showingDailySummary = false
+    // Notifications backend isn't wired yet — these are local-only
+    // toggles for now and will be swapped to caregiver-row settings in
+    // a later plan.
+    @State private var pushEnabled: Bool = true
+    @State private var callEnabled: Bool = true
+    @State private var dailyEmailEnabled: Bool = false
 
     var body: some View {
         ScrollView {
@@ -75,13 +81,13 @@ struct AppSettingsView: View {
     private var patientsCard: some View {
         NemaraCard(padding: 0) {
             VStack(spacing: 0) {
-                ForEach(env.mockStore.patients.indices, id: \.self) { i in
-                    let p = env.mockStore.patients[i]
+                ForEach(env.api.patients.indices, id: \.self) { i in
+                    let p = env.api.patients[i]
                     HStack(spacing: 12) {
                         NemaraAvatar(letter: p.avatarLetter, size: 40)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(p.fullName).font(NemaraFont.bodySemibold).foregroundStyle(NemaraColor.ink)
-                            Text(p.relation.rawValue).font(NemaraFont.caption).foregroundStyle(NemaraColor.ink3)
+                            Text(p.relation.displayName).font(NemaraFont.caption).foregroundStyle(NemaraColor.ink3)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
@@ -89,7 +95,7 @@ struct AppSettingsView: View {
                             .foregroundStyle(NemaraColor.ink3)
                     }
                     .padding(12)
-                    if i < env.mockStore.patients.count - 1 {
+                    if i < env.api.patients.count - 1 {
                         NemaraColor.line.frame(height: 1)
                     }
                 }
@@ -100,22 +106,21 @@ struct AppSettingsView: View {
     private var notificationsCard: some View {
         NemaraCard(padding: 0) {
             VStack(spacing: 0) {
-                @Bindable var store = env.mockStore
-                rowToggle(icon: "bell.fill", title: "Push notifications", isOn: $store.pushEnabled)
+                rowToggle(icon: "bell.fill", title: "Push notifications", isOn: $pushEnabled)
                 NemaraColor.line.frame(height: 1)
-                rowToggle(icon: "phone.fill", title: "Phone calls for critical events", isOn: $store.callEnabled)
+                rowToggle(icon: "phone.fill", title: "Phone calls for critical events", isOn: $callEnabled)
                 NemaraColor.line.frame(height: 1)
                 HStack(spacing: 12) {
                     iconTile("envelope.fill")
                     Text("Daily email summary").font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
                     Spacer()
                     NemaraToggle(isOn: Binding(
-                        get: { store.dailyEmailEnabled },
+                        get: { dailyEmailEnabled },
                         set: { newValue in
-                            if newValue && !store.dailyEmailEnabled {
+                            if newValue && !dailyEmailEnabled {
                                 showingDailySummary = true
                             }
-                            store.dailyEmailEnabled = newValue
+                            dailyEmailEnabled = newValue
                         }
                     ))
                 }
@@ -187,9 +192,5 @@ struct AppSettingsView: View {
 
 #Preview {
     NavigationStack { AppSettingsView() }
-        .environment({
-            let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-            env.auth.currentCaregiver = Caregiver(id: UUID(), displayName: "Jane Patel", email: "jane@patel.co")
-            return env
-        }())
+        .environment(AppEnvironment.preview())
 }

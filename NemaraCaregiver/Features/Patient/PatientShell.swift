@@ -11,21 +11,14 @@ struct PatientShell: View {
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
-    @State private var tab: PatientTab = {
-        #if DEBUG
-        let args = ProcessInfo.processInfo.arguments
-        if args.contains("-startTab=events") { return .events }
-        if args.contains("-startTab=settings") { return .settings }
-        #endif
-        return .live
-    }()
+    @State private var tab: PatientTab = .live
 
     enum PatientTab: Hashable {
         case live, events, settings
     }
 
     var body: some View {
-        let patient = env.mockStore.patients.first(where: { $0.id == patientId })
+        let patient = env.api.patients.first(where: { $0.id == patientId })
 
         TabView(selection: $tab) {
             Tab("Live", systemImage: "video.fill", value: PatientTab.live) {
@@ -77,8 +70,7 @@ struct PatientShell: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    env.auth.currentCaregiver = Caregiver(id: UUID(), displayName: "Jane Patel", email: "jane@patel.co")
-    return PatientShell(patientId: env.mockStore.patients[0].id)
+    let env = AppEnvironment.preview()
+    return PatientShell(patientId: env.api.patients[0].id)
         .environment(env)
 }

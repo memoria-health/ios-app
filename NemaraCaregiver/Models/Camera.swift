@@ -1,13 +1,29 @@
 import Foundation
 
 /// A wall-mounted phone acting as a camera + microphone for one room.
+/// Mirrors `nemara-backend/src/schemas/camera.py` `CameraResponse`.
 ///
-/// Each patient has 1–N cameras. The patient Live tab picks the
-/// `active` camera (whichever room the patient is currently in) and
-/// renders only that single landscape feed.
-struct Camera: Identifiable, Hashable, Sendable {
-    let id: Int             // 1, 2, 3, … display as CAM 01 / 02
+/// `id` is the persistent UUID assigned by the backend (used for
+/// DELETE + cross-table references). `displayId` is the 1-based integer
+/// rendered as "CAM 01" in the UI.
+struct Camera: Identifiable, Hashable, Sendable, Codable {
+    let id: UUID
+    var patientId: UUID
+    var displayId: Int
     var room: String
-    var iconName: String    // SF Symbol or design-system icon name
+    var iconName: String
     var online: Bool
+    var lastSeenAt: Date?
+    var createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case patientId = "patient_id"
+        case displayId = "display_id"
+        case room
+        case iconName = "icon_name"
+        case online
+        case lastSeenAt = "last_seen_at"
+        case createdAt = "created_at"
+    }
 }

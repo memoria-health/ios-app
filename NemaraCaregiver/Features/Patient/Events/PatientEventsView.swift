@@ -16,7 +16,7 @@ struct PatientEventsView: View {
     @State private var openedEvent: DetectionEvent?
 
     private var events: [DetectionEvent] {
-        env.mockStore.events[patientId] ?? []
+        env.api.eventsByPatient[patientId] ?? []
     }
     private var counts: [Filter: Int] {
         [
@@ -40,7 +40,13 @@ struct PatientEventsView: View {
                 filterChips
                 ForEach(visible) { ev in
                     Button {
-                        env.mockStore.markOpened(patientId, ev.id)
+                        if !ev.opened {
+                            Task {
+                                _ = try? await env.api.updateEvent(
+                                    ev.id, UpdateEventRequest(opened: true),
+                                )
+                            }
+                        }
                         openedEvent = ev
                     } label: {
                         EventCard(event: ev)
@@ -112,7 +118,7 @@ struct PatientEventsView: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    return PatientEventsView(patientId: env.mockStore.patients[0].id)
+    let env = AppEnvironment.preview()
+    return PatientEventsView(patientId: env.api.patients[0].id)
         .environment(env)
 }

@@ -205,9 +205,5 @@ struct DailySummaryPreviewView: View {
 
 #Preview {
     DailySummaryPreviewView()
-        .environment({
-            let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-            env.auth.currentCaregiver = Caregiver(id: UUID(), displayName: "Jane Patel", email: "jane@patel.co")
-            return env
-        }())
+        .environment(AppEnvironment.preview())
 }

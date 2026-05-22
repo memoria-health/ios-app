@@ -167,10 +167,10 @@ struct EventDetailView: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    let pid = env.mockStore.patients[0].id
+    let env = AppEnvironment.preview()
+    let pid = env.api.patients[0].id
     return NavigationStack {
-        EventDetailView(event: env.mockStore.events[pid]![0], patientId: pid)
+        EventDetailView(event: env.api.eventsByPatient[pid]![0], patientId: pid)
     }
     .environment(env)
 }

@@ -87,5 +87,5 @@ private func nemaraGhostLabel(_ title: String) -> some View {
 
 #Preview {
     NavigationStack { WelcomeView() }
-        .environment(AppEnvironment(auth: MockAuthService(), mockStore: MockStore()))
+        .environment(AppEnvironment.preview())
 }

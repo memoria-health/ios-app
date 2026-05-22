@@ -141,7 +141,7 @@ struct SignUpView: View {
             do {
                 errorMessage = nil
                 try await env.auth.signUp(displayName: name, email: email, password: password)
-            } catch let e as AuthError {
+            } catch let e as APIError {
                 errorMessage = e.errorDescription
             } catch {
                 errorMessage = error.localizedDescription
@@ -152,5 +152,5 @@ struct SignUpView: View {
 
 #Preview {
     NavigationStack { SignUpView() }
-        .environment(AppEnvironment(auth: MockAuthService(), mockStore: MockStore()))
+        .environment(AppEnvironment.preview())
 }

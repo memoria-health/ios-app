@@ -50,7 +50,13 @@ struct DetectorRow: View {
                 Spacer()
                 NemaraToggle(isOn: Binding(
                     get: { detector.isOn },
-                    set: { _ in env.mockStore.toggleDetector(patientId, detector.id) }
+                    set: { newValue in
+                        Task {
+                            _ = try? await env.api.updateDetector(
+                                detector.id, UpdateDetectorRequest(isOn: newValue),
+                            )
+                        }
+                    }
                 ))
             }
             .padding(14)
@@ -69,7 +75,7 @@ struct DetectorRow: View {
 
     private var fourAxisCaption: some View {
         HStack(spacing: 6) {
-            Text(detector.shape.rawValue)
+            Text(detector.shape.displayName)
             Text("·").foregroundStyle(NemaraColor.line)
             Text(detector.whereScope)
             Text("·").foregroundStyle(NemaraColor.line)
@@ -102,9 +108,13 @@ struct DetectorRow: View {
                 ForEach(tunableLevels, id: \.self) { level in
                     let on = detector.sensitivity == level
                     Button {
-                        env.mockStore.setSensitivity(patientId, detector.id, level)
+                        Task {
+                            _ = try? await env.api.updateDetector(
+                                detector.id, UpdateDetectorRequest(sensitivity: level),
+                            )
+                        }
                     } label: {
-                        Text(level.rawValue)
+                        Text(level.displayName)
                             .font(NemaraFont.bodySmallStrong.weight(on ? .semibold : .medium))
                             .foregroundStyle(on ? NemaraColor.ink : NemaraColor.ink3)
                             .frame(maxWidth: .infinity)

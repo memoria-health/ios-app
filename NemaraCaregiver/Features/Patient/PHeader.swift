@@ -15,7 +15,7 @@ struct PHeader: View {
                     .font(NemaraFont.serif(size: 19, weight: .regular))
                     .kerning(-0.3)
                     .foregroundStyle(NemaraColor.ink)
-                Text(patient.relation.rawValue)
+                Text(patient.relation.displayName)
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
             }
@@ -33,6 +33,8 @@ struct PHeader: View {
 }
 
 #Preview {
-    PHeader(patient: MockStore().patients[0], onHome: {})
+    let env = AppEnvironment.preview()
+    return PHeader(patient: env.api.patients[0], onHome: {})
         .background(NemaraColor.paper)
+        .environment(env)
 }

@@ -33,6 +33,11 @@
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Nemara would use the camera to take a quick photo of the patient for their profile.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

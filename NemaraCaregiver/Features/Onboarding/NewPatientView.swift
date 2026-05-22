@@ -144,7 +144,7 @@ struct NewPatientView: View {
                 ForEach(Patient.Relation.allCases, id: \.self) { rel in
                     let on = rel == relation
                     Button { relation = rel } label: {
-                        Text(rel.rawValue)
+                        Text(rel.displayName)
                             .font(NemaraFont.bodyMedium)
                             .foregroundStyle(on ? NemaraColor.terraInk : NemaraColor.ink2)
                             .padding(.horizontal, 14)
@@ -202,21 +202,18 @@ struct NewPatientView: View {
         let pref = preferredName.trimmingCharacters(in: .whitespaces).isEmpty
             ? (fullName.split(separator: " ").first.map(String.init) ?? fullName)
             : preferredName
-        let newP = Patient(
-            id: UUID(),
+        let body = CreatePatientRequest(
             fullName: fullName,
             preferredName: pref,
-            dateOfBirth: dateOfBirth,
-            gender: gender,
             relation: relation,
+            dateOfBirth: dateOfBirth,
+            gender: gender.isEmpty ? nil : gender,
             homeAddress: homeAddress.isEmpty ? nil : homeAddress,
-            state: .calm,
-            statusLine: "All quiet",
-            lastEventAt: nil,
-            batteryPercent: nil
         )
-        env.mockStore.addPatient(newP)
-        dismiss()
+        Task {
+            _ = try? await env.api.createPatient(body)
+            dismiss()
+        }
     }
 }
 
@@ -272,5 +269,5 @@ struct FlowLayout: Layout {
 
 #Preview {
     NewPatientView()
-        .environment(AppEnvironment(auth: MockAuthService(), mockStore: MockStore()))
+        .environment(AppEnvironment.preview())
 }

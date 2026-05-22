@@ -302,5 +302,5 @@ struct FeedbackView: View {
 
 #Preview {
     NavigationStack { FeedbackView() }
-        .environment(AppEnvironment(auth: MockAuthService(), mockStore: MockStore()))
+        .environment(AppEnvironment.preview())
 }

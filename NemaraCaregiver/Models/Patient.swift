@@ -1,52 +1,140 @@
 import Foundation
 
-/// A patient under care. The home roster lists these; tapping one opens
-/// the patient bundle (Live / Events / Settings).
+/// A patient under care. Mirrors `nemara-backend/src/schemas/patient.py`
+/// `PatientResponse`.
 ///
-/// `state` is the latest aggregated status surfaced on the roster row —
-/// it's a derived value, but we cache it on the model so the row can
-/// render without joining against events at every refresh.
-struct Patient: Identifiable, Hashable, Sendable {
-    enum State: String, Sendable {
+/// `state`, `statusLine`, `lastEventAt`, `batteryPercent`, `camerasPaused`
+/// are server-managed — wall phones / backend services own these. iOS
+/// never PATCHes them directly except via `cameras_paused` (the explicit
+/// Monitoring toggle).
+struct Patient: Identifiable, Hashable, Sendable, Codable {
+    /// Aggregated patient status surfaced on the roster row.
+    enum State: String, Sendable, Codable {
         case calm
         case critical
         case offline
     }
 
-    enum Relation: String, CaseIterable, Sendable {
-        case parent     = "Parent"
-        case spouse     = "Spouse"
-        case grandparent = "Grandparent"
-        case sibling    = "Sibling"
-        case client     = "Client"
-        case other      = "Other"
+    /// Patient's relation to the caregiver. Backend stores these as a
+    /// `relation_kind` Postgres enum; raw values match the wire.
+    enum Relation: String, CaseIterable, Sendable, Codable {
+        case parent
+        case spouse
+        case grandparent
+        case sibling
+        case client
+        case other
+
+        /// Capitalized text used in UI rows (e.g. "Parent").
+        var displayName: String {
+            rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+        }
     }
 
     let id: UUID
-    var fullName: String        // "Margaret O'Brien"
-    var preferredName: String   // "Maggie"
-    var dateOfBirth: Date
-    var gender: String          // free text "Female" / "Male" / "Non-binary" / etc.
+    var caregiverId: UUID
+    var fullName: String
+    var preferredName: String
+    var dateOfBirth: Date?
+    var gender: String?
     var relation: Relation
     var homeAddress: String?
     var state: State
-    var statusLine: String      // "Possible fall, living room" / "Resting in living room" / etc.
+    var statusLine: String
     var lastEventAt: Date?
-    var batteryPercent: Int?    // wall phone battery, nil when offline
+    var batteryPercent: Int?
+    var camerasPaused: Bool
+    var createdAt: Date
+    var updatedAt: Date
 
-    /// When `true`, every wall-mounted phone in this patient's home
-    /// stops streaming and stops running detectors. Surfaces on the
-    /// Patient Settings "Monitoring" toggle and is reflected in the
-    /// roster row (PAUSED pill) and Live tab (paused overlay).
-    var camerasPaused: Bool = false
+    enum CodingKeys: String, CodingKey {
+        case id
+        case caregiverId = "caregiver_id"
+        case fullName = "full_name"
+        case preferredName = "preferred_name"
+        case dateOfBirth = "date_of_birth"
+        case gender
+        case relation
+        case homeAddress = "home_address"
+        case state
+        case statusLine = "status_line"
+        case lastEventAt = "last_event_at"
+        case batteryPercent = "battery_percent"
+        case camerasPaused = "cameras_paused"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
 
-    /// First letter used for `NemaraAvatar` while we don't have real photos.
+    /// First letter for the avatar tile while we don't have real photos.
     var avatarLetter: String {
         String(preferredName.first ?? fullName.first ?? "?")
     }
 
-    /// Age computed from `dateOfBirth`. Years only.
+    /// Age computed from `dateOfBirth`. Years only; 0 when DOB is unknown.
     var age: Int {
-        Calendar.current.dateComponents([.year], from: dateOfBirth, to: Date()).year ?? 0
+        guard let dob = dateOfBirth else { return 0 }
+        return Calendar.current.dateComponents([.year], from: dob, to: Date()).year ?? 0
+    }
+}
+
+/// Body of `POST /v1/patients`. Server-managed state/status fields
+/// are not settable at creation.
+struct CreatePatientRequest: Encodable, Sendable {
+    var fullName: String
+    var preferredName: String
+    var relation: Patient.Relation
+    var dateOfBirth: Date?
+    var gender: String?
+    var homeAddress: String?
+
+    enum CodingKeys: String, CodingKey {
+        case fullName = "full_name"
+        case preferredName = "preferred_name"
+        case relation
+        case dateOfBirth = "date_of_birth"
+        case gender
+        case homeAddress = "home_address"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(fullName, forKey: .fullName)
+        try c.encode(preferredName, forKey: .preferredName)
+        try c.encode(relation, forKey: .relation)
+        try c.encodeIfPresent(dateOfBirth, forKey: .dateOfBirth)
+        try c.encodeIfPresent(gender, forKey: .gender)
+        try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
+    }
+}
+
+/// Body of `PATCH /v1/patients/{id}`. Nil = field omitted.
+struct UpdatePatientRequest: Encodable, Sendable {
+    var fullName: String?
+    var preferredName: String?
+    var dateOfBirth: Date?
+    var gender: String?
+    var relation: Patient.Relation?
+    var homeAddress: String?
+    var camerasPaused: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case fullName = "full_name"
+        case preferredName = "preferred_name"
+        case dateOfBirth = "date_of_birth"
+        case gender
+        case relation
+        case homeAddress = "home_address"
+        case camerasPaused = "cameras_paused"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(fullName, forKey: .fullName)
+        try c.encodeIfPresent(preferredName, forKey: .preferredName)
+        try c.encodeIfPresent(dateOfBirth, forKey: .dateOfBirth)
+        try c.encodeIfPresent(gender, forKey: .gender)
+        try c.encodeIfPresent(relation, forKey: .relation)
+        try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
+        try c.encodeIfPresent(camerasPaused, forKey: .camerasPaused)
     }
 }

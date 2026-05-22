@@ -148,7 +148,7 @@ struct AddDetectorView: View {
                 ForEach([Detector.Sensitivity.low, .standard, .high], id: \.self) { lvl in
                     let on = sensitivity == lvl
                     Button { sensitivity = lvl } label: {
-                        Text(lvl.rawValue)
+                        Text(lvl.displayName)
                             .font(NemaraFont.bodySmallStrong)
                             .foregroundStyle(on ? NemaraColor.ink : NemaraColor.ink3)
                             .frame(maxWidth: .infinity)
@@ -182,21 +182,21 @@ struct AddDetectorView: View {
     }
 
     private func create() {
-        let det = Detector(
-            id: UUID(),
+        let body = CreateDetectorRequest(
             name: derivedName(),
             iconName: category == .safety ? "exclamationmark.triangle" : "leaf",
             description: prompt,
             category: category,
-            source: .custom,
             shape: .pointInTime,
             whereScope: "ALL ROOMS",
             whenScope: "CUSTOM",
+            customPrompt: prompt,
             sensitivity: sensitivity,
-            isOn: true
         )
-        env.mockStore.addDetector(patientId, det)
-        dismiss()
+        Task {
+            _ = try? await env.api.createCustomDetector(forPatient: patientId, body)
+            dismiss()
+        }
     }
 
     private func derivedName() -> String {
@@ -206,7 +206,7 @@ struct AddDetectorView: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    return AddDetectorView(patientId: env.mockStore.patients[0].id)
+    let env = AppEnvironment.preview()
+    return AddDetectorView(patientId: env.api.patients[0].id)
         .environment(env)
 }

@@ -5,7 +5,7 @@ import SwiftUI
 /// card so the next action is the only thing on the screen.
 ///
 /// Not a top-level route: this is a state of the Home tab, rendered
-/// inline from `RosterView` when `mockStore.patients.isEmpty`.
+/// inline from `RosterView` when `api.patients.isEmpty`.
 struct EmptyRosterView: View {
     @Environment(AppEnvironment.self) private var env
     @Binding var showingNewPatient: Bool
@@ -97,11 +97,8 @@ func roster_largeTitle(sub: String? = nil, title: String, trailing: (() -> AnyVi
 }
 
 #Preview {
-    EmptyRosterView(showingNewPatient: .constant(false))
-        .environment({
-            let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-            env.auth.currentCaregiver = Caregiver(id: UUID(), displayName: "Jane Patel", email: "jane@patel.co")
-            env.mockStore.patients = []
-            return env
-        }())
+    let env = AppEnvironment.preview()
+    env.api.patients = []
+    return EmptyRosterView(showingNewPatient: .constant(false))
+        .environment(env)
 }

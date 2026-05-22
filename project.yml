@@ -1,5 +1,17 @@
 name: NemaraCaregiver
 
+packages:
+  Supabase:
+    # Auth + Postgrest + Realtime + Storage SDK. We use the `Auth` and
+    # `Realtime` products: Auth signs caregivers in; Realtime drives the
+    # live roster / events updates so the app reflects backend state
+    # without polling. SwiftPM resolves the latest 2.x.x at
+    # `swift package update` time — pin floor to current latest so we
+    # don't silently regress. Same pin as range so SwiftPM resolves a
+    # single shared copy across both apps.
+    url: https://github.com/supabase/supabase-swift
+    from: "2.44.1"
+
 options:
   bundleIdPrefix: co.elephantlabs
   deploymentTarget:
@@ -24,6 +36,9 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "18.0"
+    dependencies:
+      - package: Supabase
+        product: Supabase
     sources:
       - path: NemaraCaregiver
     resources:
@@ -49,6 +64,19 @@ targets:
         UIRequiresFullScreen: true
         UIStatusBarStyle: UIStatusBarStyleDefault
         ITSAppUsesNonExemptEncryption: false
+        # Allow plain HTTP to non-routable addresses (127.0.0.1, ::1,
+        # 10.x, 192.168.x, fe80::/10, etc.) so the app can talk to a
+        # local nemara-backend + Supabase stack during development.
+        # Production hosts (HTTPS) are unaffected; ATS still enforces
+        # TLS for routable destinations.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # iOS 14+ requires this key (with a purpose string shown in the
+        # one-time permission prompt) for an app to talk to RFC1918
+        # private IPs like 10.0.0.x — the Mac's LAN address during dev.
+        # Without it the OS silently blocks the connection and surfaces
+        # it as "Internet connection appears to be offline" in the SDK.
+        NSLocalNetworkUsageDescription: Nemara connects to your Mac's local nemara-backend during development. Allow to test on a physical device.
         # `nemara://` URL scheme reserved for future Supabase password-
         # reset deep links. Wired in MenoraApp pattern when real auth
         # ships — not handled in v0.
@@ -83,13 +111,54 @@ targets:
         ENABLE_PREVIEWS: YES
         GENERATE_INFOPLIST_FILE: NO
 
+  NemaraCaregiverTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NemaraCaregiverTests
+    dependencies:
+      - target: NemaraCaregiver
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: co.elephantlabs.nemara.caregiver.tests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG"
+        # The host app's PRODUCT_NAME is "Nemara" (set in Defaults.xcconfig),
+        # not the target name "NemaraCaregiver". The test host has to point
+        # at the actual .app bundle name on disk, otherwise xcodebuild
+        # fails with "Could not find test host".
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Nemara.app/Nemara"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
 schemes:
   NemaraCaregiver:
     build:
       targets:
         NemaraCaregiver: all
+        NemaraCaregiverTests: [test]
+    test:
+      targets:
+        - NemaraCaregiverTests
+      gatherCoverageData: false
     run:
       config: Debug
+      # The env vars below put the app on the live local stack out of
+      # the box. AppConfig reads them via ProcessInfo at launch.
+      #
+      # The anon key here is the well-known LOCAL Supabase anon key —
+      # generated deterministically from the local JWT secret
+      # (`super-secret-jwt-token-with-at-least-32-characters-long`)
+      # and identical across every developer's `supabase start`. Not
+      # a real secret. Production keys come from the build environment.
+      #
+      # OS_ACTIVITY_MODE silences the simulator's verbose os_log
+      # chatter (variant selector, RTIInputSystemClient, persona /
+      # runningboard) without affecting our own logs.
+      environmentVariables:
+        OS_ACTIVITY_MODE: disable
+        NEMARA_BACKEND_URL: http://127.0.0.1:8002
+        SUPABASE_URL: http://127.0.0.1:54341
+        SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
     profile:
       config: Release
     archive:

@@ -25,12 +25,11 @@ struct RootView: View {
 }
 
 #Preview("Signed out") {
-    RootView()
-        .environment(AppEnvironment(auth: MockAuthService(), mockStore: MockStore()))
+    let env = AppEnvironment.preview()
+    env.auth.currentCaregiver = nil
+    return RootView().environment(env)
 }
 
 #Preview("Signed in") {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    env.auth.currentCaregiver = Caregiver(id: UUID(), displayName: "Jane Patel", email: "jane@patel.co")
-    return RootView().environment(env)
+    RootView().environment(AppEnvironment.preview())
 }

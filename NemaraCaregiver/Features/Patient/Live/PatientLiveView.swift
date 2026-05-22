@@ -194,7 +194,7 @@ struct PatientLiveView: View {
                             .frame(width: 26, height: 26)
                             Text(cam.room).font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink)
                             Spacer()
-                            Text(String(format: "Cam %02d", cam.id))
+                            Text(String(format: "Cam %02d", cam.displayId))
                                 .font(NemaraFont.monoSmall)
                                 .foregroundStyle(NemaraColor.ink3)
                             Circle()
@@ -211,10 +211,10 @@ struct PatientLiveView: View {
     // MARK: - data
 
     private var patient: Patient? {
-        env.mockStore.patients.first(where: { $0.id == patientId })
+        env.api.patients.first(where: { $0.id == patientId })
     }
     private var cameras: [Camera] {
-        env.mockStore.cameras[patientId] ?? []
+        env.api.camerasByPatient[patientId] ?? []
     }
     private var activeRoom: String {
         cameras.first(where: \.online)?.room ?? "Living room"
@@ -222,7 +222,7 @@ struct PatientLiveView: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    return PatientLiveView(patientId: env.mockStore.patients[0].id)
+    let env = AppEnvironment.preview()
+    return PatientLiveView(patientId: env.api.patients[0].id)
         .environment(env)
 }

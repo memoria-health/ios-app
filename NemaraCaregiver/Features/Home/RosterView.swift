@@ -11,7 +11,7 @@ struct RosterView: View {
 
     var body: some View {
         Group {
-            if env.mockStore.patients.isEmpty {
+            if env.api.patients.isEmpty {
                 EmptyRosterView(showingNewPatient: $showingNewPatient)
             } else {
                 ScrollView {
@@ -31,7 +31,7 @@ struct RosterView: View {
                         }
 
                         VStack(spacing: 10) {
-                            ForEach(env.mockStore.patients) { p in
+                            ForEach(env.api.patients) { p in
                                 Button { openPatientId = p.id } label: {
                                     PatientRow(patient: p)
                                 }
@@ -57,14 +57,6 @@ struct RosterView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-openFirstPatient"),
-               openPatientId == nil {
-                openPatientId = env.mockStore.patients.first?.id
-            }
-            #endif
-        }
     }
 
     private var firstName: String {
@@ -82,9 +74,5 @@ private struct IdentifiableUUID: Identifiable, Hashable {
 
 #Preview {
     NavigationStack { RosterView() }
-        .environment({
-            let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-            env.auth.currentCaregiver = Caregiver(id: UUID(), displayName: "Jane Patel", email: "jane@patel.co")
-            return env
-        }())
+        .environment(AppEnvironment.preview())
 }

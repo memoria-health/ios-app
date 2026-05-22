@@ -134,12 +134,13 @@ private struct BatteryGlyph: View {
 }
 
 #Preview {
-    VStack(spacing: 10) {
-        PatientRow(patient: MockStore().patients[0])
-        PatientRow(patient: MockStore().patients[1])
-        PatientRow(patient: MockStore().patients[2])
-        PatientRow(patient: MockStore().patients[3])
+    let env = AppEnvironment.preview()
+    return VStack(spacing: 10) {
+        ForEach(env.api.patients) { p in
+            PatientRow(patient: p)
+        }
     }
     .padding()
     .background(NemaraColor.paper)
+    .environment(env)
 }

@@ -27,7 +27,5 @@ struct MainTabView: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
-    env.auth.currentCaregiver = Caregiver(id: UUID(), displayName: "Jane Patel", email: "jane@patel.co")
-    return MainTabView().environment(env)
+    MainTabView().environment(AppEnvironment.preview())
 }

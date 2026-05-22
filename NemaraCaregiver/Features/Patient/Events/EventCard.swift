@@ -93,7 +93,8 @@ struct EventCard: View {
 }
 
 #Preview {
-    let events = MockStore().events.values.first ?? []
+    let env = AppEnvironment.preview()
+    let events = env.api.eventsByPatient.values.first ?? []
     return ScrollView {
         VStack(spacing: 12) {
             ForEach(events) { ev in EventCard(event: ev) }
@@ -101,4 +102,5 @@ struct EventCard: View {
         .padding()
     }
     .background(NemaraColor.paper)
+    .environment(env)
 }

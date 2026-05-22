@@ -11,13 +11,13 @@ struct PatientSettingsView: View {
     @State private var showingFeedback = false
 
     private var patient: Patient? {
-        env.mockStore.patients.first(where: { $0.id == patientId })
+        env.api.patients.first(where: { $0.id == patientId })
     }
     private var detectors: [Detector] {
-        env.mockStore.detectors[patientId] ?? []
+        env.api.detectorsByPatient[patientId] ?? []
     }
     private var cameras: [Camera] {
-        env.mockStore.cameras[patientId] ?? []
+        env.api.camerasByPatient[patientId] ?? []
     }
     private var activeCount: Int { detectors.filter(\.isOn).count }
 
@@ -37,7 +37,11 @@ struct PatientSettingsView: View {
                     .padding(.horizontal, 16)
                 feedbackEntry
                 NemaraButton("Remove this patient", variant: .ghost, size: .sm) {
-                    if let id = patient?.id { env.mockStore.removePatient(id); dismiss() }
+                    guard let id = patient?.id else { return }
+                    Task {
+                        try? await env.api.deletePatient(id)
+                        dismiss()
+                    }
                 }
                 .foregroundStyle(NemaraColor.terra)
                 .padding(.top, 4)
@@ -93,7 +97,11 @@ struct PatientSettingsView: View {
                     get: { !(patient?.camerasPaused ?? false) },
                     set: { newValue in
                         guard let id = patient?.id else { return }
-                        env.mockStore.setCamerasPaused(id, !newValue)
+                        Task {
+                            _ = try? await env.api.updatePatient(
+                                id, UpdatePatientRequest(camerasPaused: !newValue),
+                            )
+                        }
                     }
                 ))
             }
@@ -111,7 +119,7 @@ struct PatientSettingsView: View {
                         .foregroundStyle(NemaraColor.ink)
                         .kerning(-0.4)
                     if let p = patient {
-                        Text("\(p.relation.rawValue) · Goes by \(p.preferredName) · \(p.age) yrs")
+                        Text("\(p.relation.displayName) · Goes by \(p.preferredName) · \(p.age) yrs")
                             .font(NemaraFont.caption)
                             .foregroundStyle(NemaraColor.ink3)
                     }
@@ -166,7 +174,7 @@ struct PatientSettingsView: View {
                             .frame(width: 32, height: 32)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(cam.room).font(NemaraFont.bodySmallStrong).foregroundStyle(NemaraColor.ink)
-                                Text("CAM \(String(format: "%02d", cam.id)) · \(cam.online ? "ONLINE" : "OFFLINE")")
+                                Text("CAM \(String(format: "%02d", cam.displayId)) · \(cam.online ? "ONLINE" : "OFFLINE")")
                                     .font(NemaraFont.monoSmall)
                                     .foregroundStyle(NemaraColor.ink3)
                             }
@@ -224,9 +232,9 @@ struct PatientSettingsView: View {
 }
 
 #Preview {
-    let env = AppEnvironment(auth: MockAuthService(), mockStore: MockStore())
+    let env = AppEnvironment.preview()
     return NavigationStack {
-        PatientSettingsView(patientId: env.mockStore.patients[0].id)
+        PatientSettingsView(patientId: env.api.patients[0].id)
     }
     .environment(env)
 }
