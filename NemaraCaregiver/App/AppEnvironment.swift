@@ -98,13 +98,19 @@ final class AppEnvironment {
         env.api.patients = [patient]
         env.api.camerasByPatient[pID] = [
             Camera(id: UUID(), patientId: pID, displayId: 1, room: "Living room",
-                   iconName: "tv", online: true, lastSeenAt: now,
+                   iconName: "tv", online: true,
+                   livekitIdentity: "cam_preview1",
+                   lastSeenAt: now,
                    createdAt: now.addingTimeInterval(-86_400 * 30)),
             Camera(id: UUID(), patientId: pID, displayId: 2, room: "Kitchen",
-                   iconName: "fork.knife", online: true, lastSeenAt: now,
+                   iconName: "fork.knife", online: true,
+                   livekitIdentity: "cam_preview2",
+                   lastSeenAt: now,
                    createdAt: now.addingTimeInterval(-86_400 * 30)),
             Camera(id: UUID(), patientId: pID, displayId: 3, room: "Bedroom",
-                   iconName: "bed.double", online: false, lastSeenAt: nil,
+                   iconName: "bed.double", online: false,
+                   livekitIdentity: nil,
+                   lastSeenAt: nil,
                    createdAt: now.addingTimeInterval(-86_400 * 30)),
         ]
         env.api.detectorsByPatient[pID] = [

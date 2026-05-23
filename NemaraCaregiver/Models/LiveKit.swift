@@ -30,18 +30,24 @@ struct MintTokenResponse: Decodable, Sendable {
     }
 }
 
-/// Response from `POST /v1/patients/{id}/talk/start`. Tells the
-/// caregiver UI which camera audio is being routed to so it can
-/// label the on-air banner ("Talking to Kitchen" vs "Talking to all
-/// rooms").
-struct TalkStartResponse: Decodable, Sendable {
-    /// The camera the backend judged to be "active" (most recent
-    /// analyses row with `people_present=true` in the last 30s). Nil
-    /// when no active camera is known — backend falls back to fan-out
-    /// across every paired camera.
-    let activeCameraId: UUID?
+/// Request body for `POST /v1/patients/{id}/talk/start`. The
+/// caregiver picks the routing target explicitly via the carousel;
+/// re-POSTing with a different `cameraId` transfers the active call.
+struct TalkStartRequest: Encodable, Sendable {
+    var cameraId: UUID
 
     enum CodingKeys: String, CodingKey {
-        case activeCameraId = "active_camera_id"
+        case cameraId = "camera_id"
+    }
+}
+
+/// Response from `GET /v1/patients/{id}/active-camera`. The Live tab
+/// uses this to default the carousel to the right tile; `cameraId`
+/// is nil when no qualifying analyses row exists in the last 30s.
+struct ActiveCameraResponse: Decodable, Sendable {
+    let cameraId: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case cameraId = "camera_id"
     }
 }

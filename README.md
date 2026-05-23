@@ -35,13 +35,20 @@ nemara-backend.
 - **Home tab** — patient roster, live state (calm / critical /
   offline), status line, last-event time, battery %. Updates via
   Supabase Realtime when wall phones / detector pipeline push.
-- **Patient → Live tab** — subscribes to the patient's
-  `patient_<id>` LiveKit room as a viewer, renders the first
-  remote video track in the 16:9 feed card. The LIVE pill mirrors
-  connection state (LIVE / CONNECTING / hidden). Includes a
-  **Talk** toggle (Phase 3) that flips the caregiver mic on, routes
-  audio to the active camera via the backend's `/talk/start`
-  endpoint, and surfaces an "ON AIR" timer until tapped again.
+- **Patient → Live tab** — phone-call metaphor over the patient's
+  `patient_<id>` LiveKit room. The view is a **snap-paged carousel
+  of camera tiles** (one per online camera); the carousel's initial
+  page defaults to the backend's best-guess active camera
+  (`GET /v1/patients/{id}/active-camera`). Each tile renders that
+  camera's video, a LIVE/CONNECTING pill, and — on the active tile
+  only — a phone-call button. Tap to start a full-duplex audio
+  session with the currently-displayed camera; tap again or leave
+  the screen to hang up. **Swiping during an active call transfers
+  the call** to the new camera (server re-broadcasts `is_active` so
+  the previous target's gate closes atomically). The active tile
+  also surfaces a live audio waveform (peak amplitude from a
+  LiveKit `AudioRenderer` tap) so the caregiver can see the
+  patient's voice level.
 - **Patient → Events tab** — review fired events; PATCH `opened` /
   `reviewed` / `review_choice` to mark caregiver actions.
 - **Patient → Settings tab** — tune detector sensitivity, toggle
@@ -73,7 +80,7 @@ nemara-caregiver-app/
 │   ├── Models/                            # Caregiver, Patient, Camera, Detector, DetectionEvent
 │   ├── DesignSystem/
 │   │   ├── Tokens/                        # Color / Font / Radius / Spacing
-│   │   ├── Components/                    # NemaraMark, NemaraButton, NemaraCard, …
+│   │   ├── Components/                    # NemaraMark, NemaraButton, NemaraCard, NemaraWaveform, …
 │   │   └── Fonts/                         # Fraunces / Inter / JetBrains .ttf
 │   └── Features/
 │       ├── Auth/                          # Welcome, SignUp, Login
@@ -82,8 +89,9 @@ nemara-caregiver-app/
 │       ├── AppSettings/                   # caregiver settings, daily-summary preview
 │       ├── Patient/
 │       │   ├── PatientShell.swift         # pinned PHeader + native iOS 26 TabView
-│       │   ├── Live/PatientLiveView.swift # LiveKit subscriber + Talk toggle
+│       │   ├── Live/PatientLiveView.swift # carousel + phone-call + waveform
 │       │   ├── Live/LiveKitVideoView.swift # SwiftUI bridge to LiveKit VideoView
+│       │   ├── Live/CallButton.swift      # 3-state phone button (idle/connecting/active)
 │       │   ├── Events/                    # EventCard, EventDetailView, EventReviewView
 │       │   └── Settings/
 │       │       ├── PatientSettingsView.swift  # detector list, monitoring toggle, "Pair a new phone"

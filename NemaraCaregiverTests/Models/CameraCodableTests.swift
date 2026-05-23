@@ -14,6 +14,7 @@ final class CameraCodableTests: XCTestCase {
         XCTAssertEqual(cam.room, "Living room")
         XCTAssertEqual(cam.iconName, "tv")
         XCTAssertTrue(cam.online)
+        XCTAssertEqual(cam.livekitIdentity, "cam_ce110001")
         XCTAssertNotNil(cam.lastSeenAt)
     }
 
@@ -21,6 +22,7 @@ final class CameraCodableTests: XCTestCase {
         let cam = try decoder.decode(Camera.self, from: JSONFixtures.cameraOffline.data(using: .utf8)!)
         XCTAssertFalse(cam.online)
         XCTAssertNil(cam.lastSeenAt)
+        XCTAssertNil(cam.livekitIdentity)
         XCTAssertEqual(cam.displayId, 2)
     }
 

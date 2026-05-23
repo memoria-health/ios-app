@@ -315,18 +315,32 @@ final class NemaraAPIClient {
         return user?.id
     }
 
-    /// Open Talk mode for this patient. Server picks the active camera
-    /// (or fans out to all when no active is known) and sends LiveKit
-    /// data messages to flip each camera's playback gate.
-    func startTalk(forPatient pid: UUID) async throws -> TalkStartResponse {
-        try await sendNoBody(
+    /// Suggestion endpoint — the Live tab uses this to default the
+    /// carousel to whichever camera the patient is most likely in
+    /// front of. Nil cameraId means "no qualifying analyses row in the
+    /// last 30s"; fall back to the first online camera client-side.
+    func getActiveCamera(forPatient pid: UUID) async throws -> UUID? {
+        let response: ActiveCameraResponse = try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/active-camera",
+        )
+        return response.cameraId
+    }
+
+    /// Open (or transfer) a call to one specific camera. Backend
+    /// sends `is_active=true` to that camera and `is_active=false` to
+    /// every sibling — re-POSTing with a different `cameraId`
+    /// transfers an active call atomically.
+    func startTalk(forPatient pid: UUID, cameraId: UUID) async throws {
+        try await sendJSONVoid(
             method: "POST",
             path: "/v1/patients/\(pid.uuidString.lowercased())/talk/start",
+            body: TalkStartRequest(cameraId: cameraId),
         )
     }
 
-    /// Close Talk mode. Sends `is_active=false` to every camera in the
-    /// room so playback gates re-close.
+    /// Close any open call. Sends `is_active=false` to every camera in
+    /// the patient's room. Idempotent.
     func endTalk(forPatient pid: UUID) async throws {
         try await sendNoBodyVoid(
             method: "POST",
@@ -376,6 +390,18 @@ final class NemaraAPIClient {
     ) async throws -> Response {
         let request = try await makeRequest(method: method, path: path, query: query)
         return try await sendRequest(request)
+    }
+
+    private func sendJSONVoid<Body: Encodable>(
+        method: String,
+        path: String,
+        body: Body,
+    ) async throws {
+        var request = try await makeRequest(method: method, path: path)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        let (data, response) = try await runDataTask(request)
+        try mapStatus(response: response, data: data)
     }
 
     private func sendNoBodyVoid(

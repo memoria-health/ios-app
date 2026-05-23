@@ -76,6 +76,7 @@ enum JSONFixtures {
       "room": "Living room",
       "icon_name": "tv",
       "online": true,
+      "livekit_identity": "cam_ce110001",
       "last_seen_at": "2026-05-21T22:20:00+00:00",
       "created_at": "2026-04-01T10:05:00+00:00"
     }
@@ -89,6 +90,7 @@ enum JSONFixtures {
       "room": "Kitchen",
       "icon_name": "fork.knife",
       "online": false,
+      "livekit_identity": null,
       "last_seen_at": null,
       "created_at": "2026-04-01T10:05:00+00:00"
     }

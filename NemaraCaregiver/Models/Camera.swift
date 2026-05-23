@@ -13,6 +13,11 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     var room: String
     var iconName: String
     var online: Bool
+    /// LiveKit participant identity for this camera (`cam_<8 hex>`).
+    /// Nil for placeholder rows that hold an open pairing code but
+    /// haven't been claimed by a wall phone yet. Used by Live tab to
+    /// match a Camera row to its subscribed LiveKit video track.
+    var livekitIdentity: String?
     var lastSeenAt: Date?
     var createdAt: Date
 
@@ -23,6 +28,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case room
         case iconName = "icon_name"
         case online
+        case livekitIdentity = "livekit_identity"
         case lastSeenAt = "last_seen_at"
         case createdAt = "created_at"
     }

@@ -1,9 +1,11 @@
 import LiveKit
 import SwiftUI
 
-/// "Live" sub-tab. Live feed of whichever wall phone is publishing to
-/// the patient's LiveKit room (`patient_<id>`), with a Talk-to-room
-/// toggle and the camera-status list.
+/// "Live" sub-tab. Phone-call metaphor — the caregiver swipes through
+/// a carousel of camera tiles and taps a call button overlaid on the
+/// currently-displayed tile to open full-duplex audio with **that**
+/// camera. Swiping during an active call transfers the call to the
+/// newly-displayed camera.
 ///
 /// Connection lifecycle: connect on appear, disconnect on disappear.
 /// The single `env.liveKit` instance handles room switching when the
@@ -12,23 +14,40 @@ import SwiftUI
 struct PatientLiveView: View {
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
-    @State private var lkError: String? = nil
-    @State private var talkInFlight: Bool = false
-    @State private var talkActiveCameraId: UUID? = nil
-    @State private var talkStartedAt: Date? = nil
-    @State private var clockTick: Date = Date()
-    @State private var talkClockTimer: Timer? = nil
 
-    private let talkClock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// Which camera tile the carousel is currently showing. Drives
+    /// both video display and call-routing target.
+    @State private var selectedCameraId: UUID?
+
+    /// Lifecycle state of the call. `.idle` means no call in flight;
+    /// `.connecting` covers token-mint + mic-publish + first
+    /// `/talk/start`; `.active` is the live state where swipes
+    /// trigger transfers.
+    @State private var callState: CallButton.State = .idle
+
+    /// Error surfaced from any of the LiveKit / network operations.
+    /// Mirrored into the tile's bottom-overlay so it's visible
+    /// without dismissing the carousel.
+    @State private var lkError: String? = nil
+
+    /// Per-second clock for the ON AIR timer label.
+    @State private var clockTick: Date = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var callStartedAt: Date? = nil
+
+    /// Tracks the in-flight transfer so we can drop stale responses
+    /// (rapid swipes can spawn multiple requests).
+    @State private var transferSeq: Int = 0
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
                 if patient?.camerasPaused == true {
                     pausedCard
+                } else if onlineCameras.isEmpty {
+                    emptyCard
                 } else {
-                    feedCard
-                    talkCard
+                    cameraCarousel
                 }
                 camerasCard
             }
@@ -37,23 +56,23 @@ struct PatientLiveView: View {
             .padding(.bottom, 16)
         }
         .background(NemaraColor.paper)
-        .task(id: patientId) {
-            await connectIfNeeded()
-        }
-        .onDisappear {
-            Task { await env.liveKit.disconnect() }
-            cancelTalkLocally()
-        }
-        .onReceive(talkClock) { now in
-            clockTick = now
+        .task(id: patientId) { await bootstrap() }
+        .onDisappear { Task { await teardown() } }
+        .onReceive(timer) { now in clockTick = now }
+        .onChange(of: selectedCameraId) { _, newValue in
+            // Swipe transfers the call atomically — the backend
+            // `/talk/start` broadcasts `is_active=true` to the new
+            // target and `false` to every sibling (including the old
+            // target), so we don't need an `/end` between transfers.
+            guard callState == .active, let newValue else { return }
+            Task { await transferCall(to: newValue) }
         }
     }
 
-    // MARK: - Live connection
+    // MARK: - Lifecycle
 
-    private func connectIfNeeded() async {
-        // Skip if monitoring is paused — there's no expected publisher.
-        if patient?.camerasPaused == true { return }
+    private func bootstrap() async {
+        guard patient?.camerasPaused != true else { return }
         do {
             let tok = try await env.api.mintViewerToken(forPatient: patientId)
             await env.liveKit.connect(
@@ -62,14 +81,267 @@ struct PatientLiveView: View {
                 room: "patient_\(patientId.uuidString.lowercased())",
             )
             lkError = nil
+            await resolveSelectedCamera()
         } catch {
             lkError = error.localizedDescription
         }
     }
 
-    /// Shown in place of the live feed + Talk card when the caregiver
-    /// has paused monitoring from Patient Settings. Tap to jump back
-    /// to Settings to flip it on.
+    private func resolveSelectedCamera() async {
+        // Server's best guess wins; fall back to the first online
+        // camera in the patient's roster.
+        let suggested = (try? await env.api.getActiveCamera(forPatient: patientId)) ?? nil
+        if let s = suggested, onlineCameras.contains(where: { $0.id == s }) {
+            selectedCameraId = s
+        } else {
+            selectedCameraId = onlineCameras.first?.id
+        }
+    }
+
+    private func teardown() async {
+        // Always cut the call on disappear — leaving the screen is
+        // semantically "hanging up" in the phone-call metaphor.
+        if callState == .active {
+            try? await env.liveKit.publishMicrophone(enable: false)
+            try? await env.api.endTalk(forPatient: patientId)
+        }
+        await env.liveKit.disconnect()
+        callState = .idle
+        callStartedAt = nil
+        selectedCameraId = nil
+    }
+
+    // MARK: - Call control
+
+    private func startCall() async {
+        guard let cameraId = selectedCameraId else { return }
+        guard callState == .idle else { return }
+        callState = .connecting
+        do {
+            // Broadcaster grants over the same room; LiveKitClient
+            // disconnects + reconnects to upgrade publish capabilities.
+            let tok = try await env.api.mintBroadcasterToken(forPatient: patientId)
+            await env.liveKit.connect(
+                url: tok.url,
+                token: tok.token,
+                room: "patient_\(patientId.uuidString.lowercased())",
+            )
+            try await env.liveKit.publishMicrophone(enable: true)
+            try await env.api.startTalk(forPatient: patientId, cameraId: cameraId)
+            callState = .active
+            callStartedAt = Date()
+            lkError = nil
+        } catch {
+            // Roll back any partial publish so a failed start doesn't
+            // leave the mic hot.
+            try? await env.liveKit.publishMicrophone(enable: false)
+            callState = .idle
+            callStartedAt = nil
+            lkError = "Call failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func endCall() async {
+        guard callState == .active else { return }
+        // Stamp UI immediately so the button reverts the moment the
+        // caregiver taps end, even if network is slow.
+        callState = .idle
+        callStartedAt = nil
+        try? await env.liveKit.publishMicrophone(enable: false)
+        do {
+            try await env.api.endTalk(forPatient: patientId)
+        } catch {
+            lkError = "End call failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func transferCall(to cameraId: UUID) async {
+        transferSeq &+= 1
+        let seq = transferSeq
+        do {
+            try await env.api.startTalk(forPatient: patientId, cameraId: cameraId)
+            // Older transfers may finish after newer ones; only the
+            // latest gets to clear the error indicator.
+            if seq == transferSeq { lkError = nil }
+        } catch {
+            if seq == transferSeq {
+                lkError = "Transfer failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - Tiles
+
+    private var cameraCarousel: some View {
+        TabView(selection: tabSelectionBinding) {
+            ForEach(onlineCameras) { cam in
+                cameraTile(for: cam)
+                    .tag(Optional(cam.id))
+                    .padding(.bottom, 32)   // headroom for the page-dot indicator
+            }
+        }
+        .frame(height: tileHeight)
+        .tabViewStyle(.page(indexDisplayMode: onlineCameras.count > 1 ? .always : .never))
+        .indexViewStyle(.page(backgroundDisplayMode: .always))
+    }
+
+    /// Coerces the optional to non-optional for `TabView` since
+    /// SwiftUI's page style doesn't bind cleanly to `Binding<UUID?>`.
+    private var tabSelectionBinding: Binding<UUID?> {
+        Binding(
+            get: { selectedCameraId },
+            set: { selectedCameraId = $0 },
+        )
+    }
+
+    private func cameraTile(for cam: Camera) -> some View {
+        let identity = cam.livekitIdentity
+        let videoTrack: VideoTrack? = identity.flatMap { env.liveKit.videoTracksByIdentity[$0] }
+        let levels = identity.flatMap { env.liveKit.audioLevels[$0] } ?? []
+        let isThisCallTarget = cam.id == selectedCameraId
+
+        return ZStack {
+            if let track = videoTrack {
+                LiveKitVideoView(track: track)
+                    .background(NemaraColor.ink)
+            } else {
+                NemaraCamFeedPlaceholder(hue: 30)
+            }
+
+            VStack {
+                HStack {
+                    statePill(forCameraWith: videoTrack)
+                    Spacer()
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(NemaraColor.terraInk)
+                        .padding(8)
+                        .background(NemaraColor.ink.opacity(0.55))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+
+                Spacer()
+
+                if isThisCallTarget, let err = lkError {
+                    Text(err)
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.terraInk)
+                        .padding(8)
+                        .background(NemaraColor.ink.opacity(0.65))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+
+                bottomOverlay(cam: cam, levels: levels)
+            }
+            .padding(10)
+        }
+        .aspectRatio(16/9, contentMode: .fit)
+        .background(NemaraColor.ink)
+        .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
+                .strokeBorder(NemaraColor.line, lineWidth: 1)
+        )
+        .overlay(alignment: .bottom) {
+            if isThisCallTarget {
+                CallButton(state: callState, onTap: handleCallButtonTap)
+                    .offset(y: -10)
+            }
+        }
+    }
+
+    private func bottomOverlay(cam: Camera, levels: [Float]) -> some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(cam.room)
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.terraInk)
+                Text(statusLine(for: cam))
+                    .font(NemaraFont.mono(size: 9, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.78))
+            }
+            Spacer()
+            // Waveform is only meaningful when audio is flowing —
+            // show it for the active call target only.
+            if callState == .active && cam.id == selectedCameraId {
+                NemaraWaveform(levels: levels)
+                    .frame(width: 100, height: 22)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(
+            LinearGradient(
+                colors: [NemaraColor.ink.opacity(0.75), .clear],
+                startPoint: .bottom, endPoint: .top
+            )
+        )
+    }
+
+    @ViewBuilder
+    private func statePill(forCameraWith track: VideoTrack?) -> some View {
+        // LIVE pill follows the underlying LiveKit connection state
+        // unless THIS tile has no track yet — which means the camera
+        // is connected to the room but hasn't published video (e.g.
+        // wall phone just paired, hasn't tapped Start).
+        switch env.liveKit.state {
+        case .connected where track != nil:
+            HStack(spacing: 6) {
+                NemaraPulse(color: NemaraColor.terraInk, size: 5)
+                Text(callState == .active ? "ON AIR" : "LIVE")
+                    .font(NemaraFont.mono(size: 9, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(NemaraColor.terraInk)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(callState == .active ? Color(.systemRed) : NemaraColor.terra)
+            .clipShape(Capsule(style: .continuous))
+        case .connected:
+            Text("WAITING")
+                .font(NemaraFont.mono(size: 9, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(NemaraColor.terraInk)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(NemaraColor.ink.opacity(0.55))
+                .clipShape(Capsule(style: .continuous))
+        case .connecting, .reconnecting:
+            Text("CONNECTING")
+                .font(NemaraFont.mono(size: 9, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(NemaraColor.terraInk)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(NemaraColor.ink.opacity(0.55))
+                .clipShape(Capsule(style: .continuous))
+        case .disconnected, .failed:
+            EmptyView()
+        }
+    }
+
+    private func statusLine(for cam: Camera) -> String {
+        if callState == .active && cam.id == selectedCameraId {
+            guard let startedAt = callStartedAt else { return "ON AIR" }
+            let elapsed = Int(clockTick.timeIntervalSince(startedAt))
+            return String(format: "ON AIR · %02d:%02d", elapsed / 60, elapsed % 60)
+        }
+        return "CAM \(String(format: "%02d", cam.displayId))"
+    }
+
+    private func handleCallButtonTap() {
+        switch callState {
+        case .idle: Task { await startCall() }
+        case .active: Task { await endCall() }
+        case .connecting: break
+        }
+    }
+
+    // MARK: - Empty / paused / cameras-list
+
     private var pausedCard: some View {
         ZStack {
             RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
@@ -106,182 +378,29 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
     }
 
-    // MARK: - sections
-
-    private var feedCard: some View {
+    private var emptyCard: some View {
         ZStack {
-            // Render the LiveKit video when we have a subscribed track;
-            // otherwise fall back to the placeholder gradient so the
-            // tile never visually disappears.
-            if let track = env.liveKit.videoTrack {
-                LiveKitVideoView(track: track)
-                    .background(NemaraColor.ink)
-            } else {
-                NemaraCamFeedPlaceholder(hue: 30)
-            }
-
-            VStack {
-                HStack {
-                    statePill
-                    Spacer()
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(NemaraColor.terraInk)
-                        .padding(8)
-                        .background(NemaraColor.ink.opacity(0.55))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                Spacer()
-                if let err = lkError {
-                    Text(err)
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.terraInk)
-                        .padding(8)
-                        .background(NemaraColor.ink.opacity(0.65))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 12)
-                }
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(activeRoom)
-                            .font(NemaraFont.bodySemibold)
-                            .foregroundStyle(NemaraColor.terraInk)
-                        Text(feedStatusLine)
-                            .font(NemaraFont.mono(size: 9, weight: .semibold))
-                            .tracking(0.5)
-                            .foregroundStyle(NemaraColor.terraInk.opacity(0.78))
-                    }
-                    Spacer()
-                    audioMeter
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity)
-                .background(
-                    LinearGradient(
-                        colors: [NemaraColor.ink.opacity(0.7), .clear],
-                        startPoint: .bottom, endPoint: .top
-                    )
+            RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
+                .fill(NemaraColor.cardAlt)
+                .overlay(
+                    RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
+                        .strokeBorder(NemaraColor.line, lineWidth: 1)
                 )
+            VStack(spacing: 10) {
+                Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(NemaraColor.ink3)
+                Text("No cameras online")
+                    .font(NemaraFont.title3)
+                    .foregroundStyle(NemaraColor.ink)
+                Text("Pair a wall phone from Patient Settings to start a call.")
+                    .font(NemaraFont.bodySmall)
+                    .foregroundStyle(NemaraColor.ink2)
+                    .multilineTextAlignment(.center)
             }
-            .padding(10)
+            .padding(.vertical, 36)
         }
         .aspectRatio(16/9, contentMode: .fit)
-        .background(NemaraColor.ink)
-        .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
-                .strokeBorder(NemaraColor.line, lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
-    private var statePill: some View {
-        switch env.liveKit.state {
-        case .connected:
-            HStack(spacing: 6) {
-                NemaraPulse(color: NemaraColor.terraInk, size: 5)
-                Text("LIVE")
-                    .font(NemaraFont.mono(size: 9, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundStyle(NemaraColor.terraInk)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(NemaraColor.terra)
-            .clipShape(Capsule(style: .continuous))
-        case .connecting, .reconnecting:
-            Text("CONNECTING")
-                .font(NemaraFont.mono(size: 9, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(NemaraColor.terraInk)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(NemaraColor.ink.opacity(0.55))
-                .clipShape(Capsule(style: .continuous))
-        case .disconnected, .failed:
-            EmptyView()
-        }
-    }
-
-    private var feedStatusLine: String {
-        switch env.liveKit.state {
-        case .connected:
-            return talkStartedAt != nil ? "ON AIR · TALKING" : "SUBSCRIBED · VIEWING"
-        case .connecting: return "CONNECTING…"
-        case .reconnecting: return "RECONNECTING…"
-        case .disconnected: return "OFFLINE"
-        case .failed: return "ERROR"
-        }
-    }
-
-    private var audioMeter: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach([3, 6, 4, 9, 5, 8, 4], id: \.self) { v in
-                Capsule()
-                    .fill(NemaraColor.terraInk)
-                    .frame(width: 2, height: CGFloat(v) * 1.6)
-                    .opacity(0.85)
-            }
-        }
-        .frame(height: 16)
-    }
-
-    private var talkCard: some View {
-        NemaraCard(padding: 0) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(talkStartedAt != nil ? NemaraColor.terra : NemaraColor.terraSoft)
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(talkStartedAt != nil ? NemaraColor.terraInk : NemaraColor.terra)
-                }
-                .frame(width: 38, height: 38)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(talkTitle)
-                        .font(NemaraFont.bodySemibold)
-                        .foregroundStyle(NemaraColor.ink)
-                    Text(talkSubtitle)
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                NemaraButton(
-                    talkStartedAt != nil ? "End" : "Talk",
-                    variant: .terra,
-                    size: .sm,
-                    systemImage: talkStartedAt != nil ? "stop.fill" : "mic.fill",
-                ) {
-                    Task { await toggleTalk() }
-                }
-                .disabled(talkInFlight || env.liveKit.state != .connected)
-            }
-            .padding(14)
-        }
-    }
-
-    private var talkTitle: String {
-        if let startedAt = talkStartedAt {
-            let elapsed = Int(clockTick.timeIntervalSince(startedAt))
-            let mm = elapsed / 60
-            let ss = elapsed % 60
-            return String(format: "ON AIR · %02d:%02d", mm, ss)
-        }
-        return patient.map { "Talk to \($0.preferredName)" } ?? "Talk to room"
-    }
-
-    private var talkSubtitle: String {
-        if talkStartedAt != nil {
-            if let camID = talkActiveCameraId, let cam = cameras.first(where: { $0.id == camID }) {
-                return "Routed to \(cam.room)."
-            } else {
-                return "Routed to all rooms."
-            }
-        }
-        return "She'll hear you through whichever room she's in."
     }
 
     private var camerasCard: some View {
@@ -294,14 +413,11 @@ struct PatientLiveView: View {
                         .foregroundStyle(paused ? NemaraColor.ink3 : NemaraColor.action)
                     NemaraEyebrow(paused
                                   ? "CAMERAS · PAUSED"
-                                  : "CAMERAS · \(cameras.filter(\.online).count) ONLINE")
+                                  : "CAMERAS · \(onlineCameras.count) ONLINE")
                     Spacer()
-                    if !paused {
-                        Text("PING 14MS").font(NemaraFont.monoSmall).foregroundStyle(NemaraColor.ink3)
-                    }
                 }
                 VStack(spacing: 8) {
-                    ForEach(cameras) { cam in
+                    ForEach(allCameras) { cam in
                         HStack(spacing: 10) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -327,75 +443,26 @@ struct PatientLiveView: View {
         }
     }
 
-    // MARK: - Talk (Phase 3)
+    // MARK: - Helpers
 
-    private func toggleTalk() async {
-        if talkStartedAt == nil {
-            await startTalk()
-        } else {
-            await endTalk()
-        }
+    private var tileHeight: CGFloat {
+        // 16:9 of the assumed phone width minus horizontal padding,
+        // plus headroom for the page-dot indicator. The aspect ratio
+        // modifier on the tile clamps the actual video frame.
+        let w = UIScreen.main.bounds.width - 32
+        return w * 9 / 16 + 36
     }
 
-    private func startTalk() async {
-        guard !talkInFlight else { return }
-        talkInFlight = true
-        defer { talkInFlight = false }
-        do {
-            // Mint a broadcaster JWT first; reconnect with the new
-            // grants. Same room, so existing video subscription is
-            // preserved by LiveKitClient.connect() (which disconnects
-            // the prior session first — see LiveKitClient.connect).
-            let tok = try await env.api.mintBroadcasterToken(forPatient: patientId)
-            await env.liveKit.connect(
-                url: tok.url,
-                token: tok.token,
-                room: "patient_\(patientId.uuidString.lowercased())",
-            )
-            try await env.liveKit.publishMicrophone(enable: true)
-            let response = try await env.api.startTalk(forPatient: patientId)
-            talkActiveCameraId = response.activeCameraId
-            talkStartedAt = Date()
-            lkError = nil
-        } catch {
-            lkError = "Talk failed: \(error.localizedDescription)"
-            // Best-effort: ensure mic is off if publishMicrophone
-            // succeeded before startTalk failed.
-            try? await env.liveKit.publishMicrophone(enable: false)
-        }
-    }
-
-    private func endTalk() async {
-        guard !talkInFlight else { return }
-        talkInFlight = true
-        defer { talkInFlight = false }
-        // Always try to clean up the mic + server side; surface but
-        // don't block on errors — the caregiver expects the button to
-        // visibly stop talk.
-        try? await env.liveKit.publishMicrophone(enable: false)
-        do {
-            try await env.api.endTalk(forPatient: patientId)
-        } catch {
-            lkError = "End talk failed: \(error.localizedDescription)"
-        }
-        cancelTalkLocally()
-    }
-
-    private func cancelTalkLocally() {
-        talkStartedAt = nil
-        talkActiveCameraId = nil
-    }
-
-    // MARK: - data
+    // MARK: - Data
 
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
     }
-    private var cameras: [Camera] {
+    private var allCameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
     }
-    private var activeRoom: String {
-        cameras.first(where: \.online)?.room ?? "Living room"
+    private var onlineCameras: [Camera] {
+        allCameras.filter(\.online)
     }
 }
 
