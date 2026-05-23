@@ -43,6 +43,7 @@ enum JSONFixtures {
       "last_event_at": "2026-05-21T22:18:00+00:00",
       "battery_percent": 78,
       "cameras_paused": false,
+      "photo_storage_key": "5b1c0312-44a0-4f9d-9a3a-2d4f44a1f0bb.jpg",
       "created_at": "2026-04-01T10:00:00+00:00",
       "updated_at": "2026-05-21T22:18:00+00:00"
     }
@@ -63,6 +64,7 @@ enum JSONFixtures {
       "last_event_at": null,
       "battery_percent": null,
       "cameras_paused": false,
+      "photo_storage_key": null,
       "created_at": "2026-05-22T09:00:00+00:00",
       "updated_at": "2026-05-22T09:00:00+00:00"
     }

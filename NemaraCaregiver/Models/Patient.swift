@@ -44,6 +44,11 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     var lastEventAt: Date?
     var batteryPercent: Int?
     var camerasPaused: Bool
+    /// Bucket-relative key in patient-photos (e.g. "{id}.jpg") when
+    /// the caregiver has uploaded an avatar. NULL falls back to
+    /// the initials placeholder in `NemaraAvatar`. The signed URL
+    /// is fetched separately via `NemaraAPIClient.patientPhotoURL`.
+    var photoStorageKey: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -61,6 +66,7 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case lastEventAt = "last_event_at"
         case batteryPercent = "battery_percent"
         case camerasPaused = "cameras_paused"
+        case photoStorageKey = "photo_storage_key"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

@@ -92,6 +92,7 @@ final class AppEnvironment {
             lastEventAt: now.addingTimeInterval(-42 * 60),
             batteryPercent: 78,
             camerasPaused: false,
+            photoStorageKey: nil,
             createdAt: now.addingTimeInterval(-86_400 * 30),
             updatedAt: now,
         )

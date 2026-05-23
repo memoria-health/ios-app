@@ -22,7 +22,7 @@ struct PatientRow: View {
             borderColor: isPaused ? NemaraColor.line : (patient.state == .critical ? NemaraColor.terra : NemaraColor.line)
         ) {
             HStack(spacing: 12) {
-                NemaraAvatar(letter: patient.avatarLetter, size: 48)
+                PatientAvatar(patient: patient, size: 48)
                     .opacity(isPaused ? 0.55 : 1)
 
                 VStack(alignment: .leading, spacing: 6) {

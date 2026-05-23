@@ -9,7 +9,7 @@ struct PHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            NemaraAvatar(letter: patient.avatarLetter, size: 36)
+            PatientAvatar(patient: patient, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(patient.preferredName)
                     .font(NemaraFont.serif(size: 19, weight: .regular))

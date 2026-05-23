@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 /// "Settings" sub-tab. Profile summary, detector list, cameras list,
 /// feedback entry, and the destructive "Remove patient" action at the
@@ -13,6 +15,13 @@ struct PatientSettingsView: View {
     @State private var showingRoomPrompt = false
     @State private var showingPairingCode = false
     @State private var pairingRoom = ""
+
+    // Photo upload state. selectedItem drives PhotosPicker, which fires
+    // .onChange when the caregiver picks something; the upload runs on
+    // the main actor and surfaces failures via photoUploadError.
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var photoUploadError: String?
+    @State private var isUploadingPhoto = false
 
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
@@ -163,24 +172,128 @@ struct PatientSettingsView: View {
 
     private var profileCard: some View {
         NemaraCard(padding: 16) {
-            HStack(spacing: 14) {
-                NemaraAvatar(letter: patient?.avatarLetter ?? "?", size: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(patient?.fullName ?? "")
-                        .font(NemaraFont.title2)
-                        .foregroundStyle(NemaraColor.ink)
-                        .kerning(-0.4)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 14) {
                     if let p = patient {
-                        Text("\(p.relation.displayName) · Goes by \(p.preferredName) · \(p.age) yrs")
-                            .font(NemaraFont.caption)
-                            .foregroundStyle(NemaraColor.ink3)
+                        ZStack(alignment: .bottomTrailing) {
+                            PatientAvatar(patient: p, size: 56)
+                            PhotosPicker(
+                                selection: $selectedPhotoItem,
+                                matching: .images,
+                                photoLibrary: .shared(),
+                            ) {
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(NemaraColor.actionInk)
+                                    .frame(width: 22, height: 22)
+                                    .background(NemaraColor.action)
+                                    .clipShape(Circle())
+                                    .overlay(
+                                        Circle().strokeBorder(NemaraColor.paper, lineWidth: 2),
+                                    )
+                            }
+                            .accessibilityLabel("Change photo")
+                            .disabled(isUploadingPhoto)
+                        }
+                    } else {
+                        NemaraAvatar(letter: "?", size: 56)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(patient?.fullName ?? "")
+                            .font(NemaraFont.title2)
+                            .foregroundStyle(NemaraColor.ink)
+                            .kerning(-0.4)
+                        if let p = patient {
+                            Text("\(p.relation.displayName) · Goes by \(p.preferredName) · \(p.age) yrs")
+                                .font(NemaraFont.caption)
+                                .foregroundStyle(NemaraColor.ink3)
+                        }
+                    }
+                    Spacer()
+                    NemaraButton("Edit", variant: .ghost, size: .sm, systemImage: "pencil") {}
+                }
+                if patient?.photoStorageKey != nil {
+                    NemaraButton(
+                        "Remove photo",
+                        variant: .ghost,
+                        size: .sm,
+                        systemImage: "trash",
+                    ) {
+                        Task { await removePhoto() }
                     }
                 }
-                Spacer()
-                NemaraButton("Edit", variant: .ghost, size: .sm, systemImage: "pencil") {}
+                if let err = photoUploadError {
+                    Text(err)
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.terra)
+                }
             }
         }
         .padding(.horizontal, 16)
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
+            Task { await uploadPickedPhoto(newItem) }
+        }
+    }
+
+    // MARK: - Photo upload
+
+    /// Load the picked item as JPEG bytes (down-sampling to ≤1024px
+    /// longest edge), then upload via the API. Errors land in
+    /// `photoUploadError` for inline display.
+    private func uploadPickedPhoto(_ item: PhotosPickerItem) async {
+        guard let patient else { return }
+        isUploadingPhoto = true
+        photoUploadError = nil
+        defer { isUploadingPhoto = false; selectedPhotoItem = nil }
+        do {
+            guard let raw = try await item.loadTransferable(type: Data.self) else {
+                photoUploadError = "Couldn't read the selected photo."
+                return
+            }
+            let jpeg = Self.downsampledJPEG(from: raw, maxDimension: 1024, quality: 0.8)
+            guard let jpeg else {
+                photoUploadError = "That image format isn't supported."
+                return
+            }
+            try await env.api.uploadPatientPhoto(
+                patient.id, imageData: jpeg, contentType: "image/jpeg",
+            )
+        } catch {
+            photoUploadError = error.localizedDescription
+        }
+    }
+
+    private func removePhoto() async {
+        guard let patient else { return }
+        photoUploadError = nil
+        do {
+            try await env.api.deletePatientPhoto(patient.id)
+        } catch {
+            photoUploadError = error.localizedDescription
+        }
+    }
+
+    /// Down-sample to a max-longest-edge box and re-encode as JPEG.
+    /// 1024px is comfortably above the on-screen size and small
+    /// enough to fit the backend's 1 MiB cap with room to spare.
+    private static func downsampledJPEG(
+        from data: Data, maxDimension: CGFloat, quality: CGFloat,
+    ) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let w = image.size.width, h = image.size.height
+        let longest = max(w, h)
+        let scale: CGFloat = longest > maxDimension ? maxDimension / longest : 1.0
+        let target = CGSize(width: w * scale, height: h * scale)
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        let resized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        return resized.jpegData(compressionQuality: quality)
     }
 
     private var detectorsSection: some View {

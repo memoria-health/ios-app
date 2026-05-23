@@ -20,6 +20,10 @@ final class PatientCodableTests: XCTestCase {
         XCTAssertEqual(p.statusLine, "Possible fall, living room")
         XCTAssertEqual(p.batteryPercent, 78)
         XCTAssertFalse(p.camerasPaused)
+        XCTAssertEqual(
+            p.photoStorageKey,
+            "5b1c0312-44a0-4f9d-9a3a-2d4f44a1f0bb.jpg",
+        )
         XCTAssertNotNil(p.dateOfBirth)
         XCTAssertNotNil(p.lastEventAt)
 
@@ -38,6 +42,7 @@ final class PatientCodableTests: XCTestCase {
         XCTAssertNil(p.homeAddress)
         XCTAssertNil(p.lastEventAt)
         XCTAssertNil(p.batteryPercent)
+        XCTAssertNil(p.photoStorageKey)
         XCTAssertEqual(p.state, .calm)
         XCTAssertEqual(p.statusLine, "All quiet")
         XCTAssertEqual(p.age, 0, "age should be 0 when DOB is unknown")

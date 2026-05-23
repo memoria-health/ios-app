@@ -169,6 +169,94 @@ final class NemaraAPIClient {
         return updated
     }
 
+    /// Upload (or replace) a patient's avatar. Multipart with one part
+    /// — `photo` — pre-encoded as JPEG by the caller. Returns the
+    /// canonical patient row with `photoStorageKey` populated; we
+    /// also update the local `patients` array in place so the roster
+    /// re-renders without a refetch.
+    @discardableResult
+    func uploadPatientPhoto(
+        _ patientId: UUID,
+        imageData: Data,
+        contentType: String,
+    ) async throws -> Patient {
+        let boundary = "nemara-\(UUID().uuidString)"
+        let body = _multipartBody(
+            boundary: boundary,
+            partName: "photo",
+            filename: contentType == "image/png" ? "avatar.png" : "avatar.jpg",
+            contentType: contentType,
+            data: imageData,
+        )
+        var request = try await makeRequest(
+            method: "POST",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/photo",
+        )
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type",
+        )
+        request.httpBody = body
+        let updated: Patient = try await sendRequest(request)
+        if let idx = patients.firstIndex(where: { $0.id == patientId }) {
+            patients[idx] = updated
+        }
+        return updated
+    }
+
+    /// Mint a short-lived signed URL for a patient's avatar. Returns
+    /// `nil` when no photo is uploaded (backend returns 404). Throws
+    /// on any other error.
+    func patientPhotoURL(_ patientId: UUID) async throws -> URL? {
+        do {
+            let response: PhotoURLResponse = try await sendNoBody(
+                method: "GET",
+                path: "/v1/patients/\(patientId.uuidString.lowercased())/photo-url",
+            )
+            return response.url
+        } catch APIError.notFound {
+            return nil
+        }
+    }
+
+    /// Remove the patient's avatar. Server is idempotent — 204 even
+    /// if there was no prior photo. Local state mutates immediately
+    /// so the UI updates without a roundtrip refetch.
+    func deletePatientPhoto(_ patientId: UUID) async throws {
+        try await sendNoBodyVoid(
+            method: "DELETE",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/photo",
+        )
+        if let idx = patients.firstIndex(where: { $0.id == patientId }) {
+            var p = patients[idx]
+            p.photoStorageKey = nil
+            patients[idx] = p
+        }
+    }
+
+    /// Compose a multipart/form-data body for a single binary part.
+    /// We hand-roll this instead of pulling in a multipart library —
+    /// it's one part, the boundary is fresh per call, and avoiding
+    /// the dep is preferable to importing one for a single use case.
+    private func _multipartBody(
+        boundary: String,
+        partName: String,
+        filename: String,
+        contentType: String,
+        data: Data,
+    ) -> Data {
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append(
+            "Content-Disposition: form-data; name=\"\(partName)\"; filename=\"\(filename)\"\r\n"
+                .data(using: .utf8)!,
+        )
+        body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
+    }
+
     func deletePatient(_ id: UUID) async throws {
         try await sendNoBodyVoid(method: "DELETE", path: "/v1/patients/\(id.uuidString.lowercased())")
         patients.removeAll { $0.id == id }
