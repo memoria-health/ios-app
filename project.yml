@@ -178,8 +178,12 @@ schemes:
       # runningboard) without affecting our own logs.
       environmentVariables:
         OS_ACTIVITY_MODE: disable
-        NEMARA_BACKEND_URL: http://127.0.0.1:8002
-        SUPABASE_URL: http://127.0.0.1:54341
+        # LAN IP of the Mac running nemara-backend. 127.0.0.1 only
+        # works on the iOS Simulator (which shares the Mac's localhost);
+        # a real iPhone must reach the Mac over Wi-Fi. Override per
+        # machine if your LAN address differs.
+        NEMARA_BACKEND_URL: http://10.0.0.245:8002
+        SUPABASE_URL: http://10.0.0.245:54341
         SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
     profile:
       config: Release
