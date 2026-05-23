@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 /// Step 1 of 2 of the event review flow. Shows the title block, a video
@@ -7,6 +8,21 @@ struct EventDetailView: View {
     let event: DetectionEvent
     let patientId: UUID
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppEnvironment.self) private var env
+
+    /// Resolved signed URL for the archived clip. Loaded lazily in
+    /// `.task` once the view appears and `event.hasClip` is true.
+    @State private var clipURL: URL?
+    /// `nil` = haven't tried yet; `false` = backend said not-ready
+    /// (409); `true` = we have a URL.
+    @State private var clipResolutionState: ClipResolutionState = .pending
+
+    private enum ClipResolutionState: Equatable {
+        case pending
+        case loaded(URL)
+        case notReady
+        case failed(String)
+    }
 
     private var tone: Color {
         event.category == .safety ? NemaraColor.terra : NemaraColor.sky
@@ -34,6 +50,21 @@ struct EventDetailView: View {
             footer
         }
         .background(NemaraColor.paper)
+        .task(id: event.id) {
+            guard event.hasClip else {
+                clipResolutionState = .notReady
+                return
+            }
+            do {
+                if let url = try await env.api.clipURL(forEvent: event.id) {
+                    clipResolutionState = .loaded(url)
+                } else {
+                    clipResolutionState = .notReady
+                }
+            } catch {
+                clipResolutionState = .failed(error.localizedDescription)
+            }
+        }
         .navigationTitle("Event detail")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -83,39 +114,20 @@ struct EventDetailView: View {
         }
     }
 
+    @ViewBuilder
     private var clipView: some View {
         ZStack {
-            NemaraCamFeedPlaceholder(hue: 30)
-            Image(systemName: "play.fill")
-                .font(.system(size: 18, weight: .black))
-                .foregroundStyle(NemaraColor.terraInk)
-                .frame(width: 52, height: 52)
-                .background(NemaraColor.ink.opacity(0.55))
-                .clipShape(Circle())
-
-            VStack {
-                Spacer()
-                HStack {
-                    Text("CAM 02 · \(event.location.uppercased())")
-                        .font(NemaraFont.mono(size: 9, weight: .bold))
-                        .tracking(0.5)
-                        .foregroundStyle(NemaraColor.terraInk)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(NemaraColor.ink.opacity(0.7))
-                        .clipShape(Capsule(style: .continuous))
-                    Spacer()
-                    Text("0:14")
-                        .font(NemaraFont.mono(size: 9, weight: .bold))
-                        .tracking(0.5)
-                        .foregroundStyle(NemaraColor.terraInk)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(NemaraColor.ink.opacity(0.7))
-                        .clipShape(Capsule(style: .continuous))
-                }
+            switch clipResolutionState {
+            case .pending:
+                clipPlaceholder(label: "Loading clip…")
+            case .notReady:
+                clipPlaceholder(label: "Clip processing…")
+            case .failed(let msg):
+                clipPlaceholder(label: msg)
+            case .loaded(let url):
+                VideoPlayer(player: AVPlayer(url: url))
+                    .accessibilityLabel("Event clip from \(event.location)")
             }
-            .padding(8)
         }
         .aspectRatio(16/9, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
@@ -123,6 +135,29 @@ struct EventDetailView: View {
             RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
                 .strokeBorder(NemaraColor.line, lineWidth: 1)
         )
+    }
+
+    /// Skeleton state shown while the signed URL is being fetched or
+    /// when the archival isn't done yet. Mirrors the visual language
+    /// of the live-cam placeholder so the event detail stays
+    /// recognizable across the three states.
+    private func clipPlaceholder(label: String) -> some View {
+        ZStack {
+            NemaraCamFeedPlaceholder(hue: 30)
+            VStack(spacing: 8) {
+                Image(systemName: "film")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
+                Text(label)
+                    .font(NemaraFont.mono(size: 10, weight: .semibold))
+                    .tracking(0.4)
+                    .foregroundStyle(NemaraColor.terraInk)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(NemaraColor.ink.opacity(0.55))
+                    .clipShape(Capsule(style: .continuous))
+            }
+        }
     }
 
     private var narrativeCard: some View {

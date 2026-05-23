@@ -22,6 +22,10 @@ final class DetectionEventCodableTests: XCTestCase {
         XCTAssertNil(e.reviewChoice)
         XCTAssertNil(e.reviewNotes)
         XCTAssertNil(e.reviewedAt)
+        XCTAssertEqual(
+            e.clipStorageKey,
+            "events/ee110001-0000-4000-8000-000000000001.mp4",
+        )
     }
 
     func test_decode_reviewed_event_with_clipless_routine() throws {
@@ -35,6 +39,7 @@ final class DetectionEventCodableTests: XCTestCase {
         XCTAssertEqual(e.reviewChoice, .correct)
         XCTAssertEqual(e.reviewNotes, "Confirmed, watched the clip.")
         XCTAssertNotNil(e.reviewedAt)
+        XCTAssertNil(e.clipStorageKey)
     }
 
     func test_round_trip_preserves_all_fields() throws {

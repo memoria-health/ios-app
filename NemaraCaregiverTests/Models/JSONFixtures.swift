@@ -155,6 +155,7 @@ enum JSONFixtures {
       "review_choice": null,
       "review_notes": null,
       "reviewed_at": null,
+      "clip_storage_key": "events/ee110001-0000-4000-8000-000000000001.mp4",
       "created_at": "2026-05-21T22:18:01+00:00"
     }
     """
@@ -178,6 +179,7 @@ enum JSONFixtures {
       "review_choice": "correct",
       "review_notes": "Confirmed, watched the clip.",
       "reviewed_at": "2026-05-21T09:00:00+00:00",
+      "clip_storage_key": null,
       "created_at": "2026-05-21T08:05:01+00:00"
     }
     """

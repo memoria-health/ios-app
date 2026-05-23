@@ -27,6 +27,13 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
     var reviewChoice: ReviewChoice?
     var reviewNotes: String?
     var reviewedAt: Date?
+    /// Bucket-relative key in incident-clips when the clip has been
+    /// archived (NULL on the wire while archival is still in flight).
+    /// iOS doesn't fetch the bytes through this key directly — it
+    /// asks `/v1/events/{id}/clip-url` for a signed URL — but the
+    /// field is decoded so the Codable round-trip is exhaustive
+    /// and a future "preload thumbnails" flow can use it.
+    var clipStorageKey: String?
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -47,6 +54,7 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
         case reviewChoice = "review_choice"
         case reviewNotes = "review_notes"
         case reviewedAt = "reviewed_at"
+        case clipStorageKey = "clip_storage_key"
         case createdAt = "created_at"
     }
 

@@ -284,6 +284,23 @@ final class NemaraAPIClient {
         )
     }
 
+    /// Fetch a short-lived signed URL for the event's archived clip.
+    /// Returns `nil` when the clip isn't ready yet (backend responds
+    /// with 409 `clip_not_ready` — caregiver app shows the
+    /// "processing…" placeholder until Realtime flips `has_clip=true`).
+    /// Throws on any other error.
+    func clipURL(forEvent eventId: UUID) async throws -> URL? {
+        do {
+            let response: ClipURLResponse = try await sendNoBody(
+                method: "GET",
+                path: "/v1/events/\(eventId.uuidString.lowercased())/clip-url",
+            )
+            return response.url
+        } catch APIError.conflict {
+            return nil
+        }
+    }
+
     func updateEvent(_ id: UUID, _ body: UpdateEventRequest) async throws -> DetectionEvent {
         let updated: DetectionEvent = try await sendJSON(
             method: "PATCH", path: "/v1/events/\(id.uuidString.lowercased())", body: body,
@@ -495,6 +512,8 @@ final class NemaraAPIClient {
             throw APIError.forbidden
         case 404:
             throw APIError.notFound
+        case 409:
+            throw APIError.conflict(reason: simple ?? "conflict")
         case 422:
             throw APIError.badRequest(message: formatValidation(validation) ?? "Request failed validation (422).")
         case 500..<600:

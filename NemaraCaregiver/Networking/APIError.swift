@@ -11,6 +11,11 @@ enum APIError: Error, Equatable, Sendable {
     case forbidden
     /// 404 — entity does not exist.
     case notFound
+    /// 409 — request conflicts with the current resource state. The
+    /// reason string is the backend's `{"detail": "code"}` value
+    /// (e.g. "clip_not_ready"); callers compare against it to decide
+    /// whether to surface a user-facing message or retry later.
+    case conflict(reason: String)
     /// 5xx — backend is unhealthy.
     case serverError(code: String?, message: String?)
     /// Network reachability — no response received.
@@ -31,6 +36,7 @@ extension APIError: LocalizedError {
         case .unauthorized:            return "You've been signed out. Please log in again."
         case .forbidden:               return "You don't have access to this."
         case .notFound:                return "That isn't here anymore."
+        case .conflict(let r):         return "The server isn't ready yet (\(r))."
         case .serverError(_, let m):   return m ?? "The server is having a moment. Try again."
         case .offline:                 return "You're offline."
         case .decoding(let u):         return "Couldn't read the response (\(u))."
