@@ -111,6 +111,17 @@ targets:
     configFiles:
       Debug: NemaraCaregiver/Defaults.xcconfig
       Release: NemaraCaregiver/Defaults.xcconfig
+    entitlements:
+      path: NemaraCaregiver/Resources/NemaraCaregiver.entitlements
+      properties:
+        # APNs environment. "development" routes through APNs sandbox
+        # (apns-sandbox-push.apple.com) which accepts tokens from
+        # Xcode-built debug installs. Release builds signed with a
+        # distribution profile auto-promote to "production" at the
+        # codesign step; the entitlements file value here is the
+        # debug default. The caregiver app sends "sandbox" /
+        # "production" in POST /v1/me/devices accordingly (#if DEBUG).
+        aps-environment: development
     settings:
       base:
         TARGETED_DEVICE_FAMILY: "1"
@@ -120,6 +131,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ENABLE_PREVIEWS: YES
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: NemaraCaregiver/Resources/NemaraCaregiver.entitlements
 
   NemaraCaregiverTests:
     type: bundle.unit-test

@@ -124,6 +124,28 @@ final class NemaraAPIClient {
         )
     }
 
+    // MARK: - Device tokens (POST /v1/me/devices)
+
+    /// Register or refresh an APNs device token for the caller.
+    /// Idempotent on `apnsToken` — the backend updates the existing
+    /// row rather than inserting a duplicate, so calling this on every
+    /// launch is the intended pattern.
+    @discardableResult
+    func registerDeviceToken(
+        apnsToken: String,
+        bundleId: String = "co.elephantlabs.nemara",
+        environment: APNsEnvironment,
+    ) async throws -> DeviceResponse {
+        try await sendJSON(
+            method: "POST", path: "/v1/me/devices",
+            body: RegisterDeviceRequest(
+                apnsToken: apnsToken,
+                bundleId: bundleId,
+                environment: environment,
+            ),
+        )
+    }
+
     // MARK: - Patients (GET/POST/GET/PATCH/DELETE /v1/patients...)
 
     func loadPatients() async throws {
