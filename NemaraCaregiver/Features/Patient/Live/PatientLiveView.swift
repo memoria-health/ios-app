@@ -86,40 +86,51 @@ struct PatientLiveView: View {
         if let cam = allCameras.first(where: { $0.id == cameraId }),
            let identity = cam.livekitIdentity {
             let track = env.liveKit.videoTracksByIdentity[identity]
-            ZStack {
-                Color.black.ignoresSafeArea()
-                if let track {
-                    LiveKitVideoView(track: track)
-                        .ignoresSafeArea()
-                } else {
-                    NemaraCamFeedPlaceholder(hue: 30)
-                }
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button {
-                            fullScreenCameraId = nil
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(12)
-                                .background(Color.black.opacity(0.55))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.trailing, 16)
-                        .padding(.top, 16)
+            // The app is portrait-locked (UISupportedInterfaceOrientations)
+            // but the wall phone publishes a landscape 1280x720 track.
+            // Rotate the LiveKit view 90° and swap width/height so the
+            // landscape video fills the portrait device sideways —
+            // the caregiver physically rotates their phone to view it
+            // right-side-up. Same gesture every iOS video player uses.
+            GeometryReader { geo in
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    if let track {
+                        LiveKitVideoView(track: track)
+                            .frame(width: geo.size.height, height: geo.size.width)
+                            .rotationEffect(.degrees(90))
+                            .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    } else {
+                        NemaraCamFeedPlaceholder(hue: 30)
                     }
-                    Spacer()
-                    Text(cam.room)
-                        .font(NemaraFont.bodyLarge.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(10)
-                        .background(Color.black.opacity(0.55))
-                        .clipShape(Capsule(style: .continuous))
-                        .padding(.bottom, 32)
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button {
+                                fullScreenCameraId = nil
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(12)
+                                    .background(Color.black.opacity(0.55))
+                                    .clipShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.trailing, 16)
+                            .padding(.top, 16)
+                        }
+                        Spacer()
+                        Text(cam.room)
+                            .font(NemaraFont.bodyLarge.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(Color.black.opacity(0.55))
+                            .clipShape(Capsule(style: .continuous))
+                            .padding(.bottom, 32)
+                    }
                 }
+                .ignoresSafeArea()
             }
             .statusBarHidden()
         } else {
@@ -213,11 +224,38 @@ struct PatientLiveView: View {
         // caregiver taps end, even if network is slow.
         callState = .idle
         callStartedAt = nil
-        try? await env.liveKit.publishMicrophone(enable: false)
+
+        // Belt: ask the SDK to disable the local microphone track.
+        do {
+            try await env.liveKit.publishMicrophone(enable: false)
+        } catch {
+            NSLog("[endCall] publishMicrophone(false) failed: %@", "\(error)")
+        }
+
+        // Braces: tell the backend to broadcast set_talk_active=false
+        // so the wall phone gates its playback even if our mic
+        // tear-down didn't fully take effect on this side.
         do {
             try await env.api.endTalk(forPatient: patientId)
         } catch {
             lkError = "End call failed: \(error.localizedDescription)"
+        }
+
+        // Guaranteed mic-off: reconnect with the VIEWER token. The
+        // broadcaster grant we connected with is what gives this
+        // session canPublish=true; once we re-mint as viewer the SDK
+        // physically can't publish audio even if some prior call
+        // somehow left a track active. ~1-2s video gap during
+        // reconnect — acceptable for a call-end transition.
+        do {
+            let tok = try await env.api.mintViewerToken(forPatient: patientId)
+            await env.liveKit.connect(
+                url: tok.url,
+                token: tok.token,
+                room: "patient_\(patientId.uuidString.lowercased())",
+            )
+        } catch {
+            NSLog("[endCall] re-connect as viewer failed: %@", "\(error)")
         }
     }
 

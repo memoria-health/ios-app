@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import LiveKit
 import Observation
+import os.lock
 
 /// Wraps a single `LiveKit.Room` for the lifetime of the caregiver app.
 ///
@@ -128,6 +129,9 @@ final class LiveKitClient {
         }
         track.add(audioRenderer: tap)
         audioTaps[identity] = tap
+        #if DEBUG
+        print("[LiveKit] subscribed audio: identity=\(identity), tap attached")
+        #endif
     }
 
     fileprivate func handleUnsubscribedVideo(identity: String) {
@@ -237,6 +241,11 @@ private final class _AudioLevelTap: NSObject, AudioRenderer, @unchecked Sendable
     let identity: String
     let callback: @Sendable (String, Float) -> Void
 
+    /// Atomic counter for throttled DEBUG logging (one line per ~256
+    /// pcm buffers ≈ once per several seconds). Helps confirm the
+    /// renderer is actually firing without spamming the console.
+    private let renderCount = OSAllocatedUnfairLock(initialState: 0)
+
     init(identity: String, callback: @escaping @Sendable (String, Float) -> Void) {
         self.identity = identity
         self.callback = callback
@@ -258,6 +267,16 @@ private final class _AudioLevelTap: NSObject, AudioRenderer, @unchecked Sendable
                 if v > peak { peak = v }
             }
         }
-        callback(identity, min(peak, 1.0))
+        let clamped = min(peak, 1.0)
+        callback(identity, clamped)
+        #if DEBUG
+        let snapshotIdentity = identity
+        renderCount.withLock { count in
+            count += 1
+            if count == 1 || count % 256 == 0 {
+                print("[LiveKit] audio render: identity=\(snapshotIdentity), peak=\(clamped), buf#=\(count)")
+            }
+        }
+        #endif
     }
 }
