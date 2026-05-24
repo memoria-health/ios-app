@@ -96,6 +96,12 @@ targets:
               - nemara
         NSCameraUsageDescription: Nemara would use the camera to take a quick photo of the patient for their profile.
         NSPhotoLibraryUsageDescription: Nemara uses photos you pick to personalize the patient's profile.
+        # Required so iOS doesn't terminate the app when the Talk
+        # button enables the microphone for live two-way audio with
+        # the patient's wall phone. (Without this string, iOS treats
+        # setMicrophone(enabled: true) as an unauthorized access and
+        # crashes the process before the user even sees a prompt.)
+        NSMicrophoneUsageDescription: Nemara uses the microphone so you can speak live to your patient through their paired wall phone.
         UIAppFonts:
           - Fraunces144Soft-Regular.ttf
           - Fraunces144Soft-Medium.ttf

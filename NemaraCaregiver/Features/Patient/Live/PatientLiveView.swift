@@ -39,6 +39,10 @@ struct PatientLiveView: View {
     /// (rapid swipes can spawn multiple requests).
     @State private var transferSeq: Int = 0
 
+    /// Which camera is currently in full-screen mode. nil = no full-
+    /// screen view active. Driven by the expand-icon tap.
+    @State private var fullScreenCameraId: UUID?
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -67,6 +71,68 @@ struct PatientLiveView: View {
             guard callState == .active, let newValue else { return }
             Task { await transferCall(to: newValue) }
         }
+        .fullScreenCover(item: Binding(
+            get: { fullScreenCameraId.map(IdentifiableUUID.init) },
+            set: { fullScreenCameraId = $0?.id },
+        )) { wrap in
+            fullScreenView(forCameraId: wrap.id)
+        }
+    }
+
+    // MARK: - Full-screen presentation
+
+    @ViewBuilder
+    private func fullScreenView(forCameraId cameraId: UUID) -> some View {
+        if let cam = allCameras.first(where: { $0.id == cameraId }),
+           let identity = cam.livekitIdentity {
+            let track = env.liveKit.videoTracksByIdentity[identity]
+            ZStack {
+                Color.black.ignoresSafeArea()
+                if let track {
+                    LiveKitVideoView(track: track)
+                        .ignoresSafeArea()
+                } else {
+                    NemaraCamFeedPlaceholder(hue: 30)
+                }
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            fullScreenCameraId = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.55))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 16)
+                        .padding(.top, 16)
+                    }
+                    Spacer()
+                    Text(cam.room)
+                        .font(NemaraFont.bodyLarge.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(10)
+                        .background(Color.black.opacity(0.55))
+                        .clipShape(Capsule(style: .continuous))
+                        .padding(.bottom, 32)
+                }
+            }
+            .statusBarHidden()
+        } else {
+            // Camera went away mid-presentation (unpaired etc.) —
+            // bounce back to the carousel.
+            Color.black.ignoresSafeArea().onAppear { fullScreenCameraId = nil }
+        }
+    }
+
+    /// Local Identifiable wrapper for UUID so .fullScreenCover(item:)
+    /// can drive presentation. Same pattern used in RosterView.
+    private struct IdentifiableUUID: Identifiable, Hashable {
+        let id: UUID
     }
 
     // MARK: - Lifecycle
@@ -200,24 +266,28 @@ struct PatientLiveView: View {
         let levels = identity.flatMap { env.liveKit.audioLevels[$0] } ?? []
         let isThisCallTarget = cam.id == selectedCameraId
 
+        // The video render lives in `.background` rather than as a
+        // peer in the ZStack. UIKit views inside a SwiftUI ZStack can
+        // render above sibling SwiftUI content (an SDK-level layer
+        // ordering quirk), which is what made the CallButton vanish
+        // the moment the video appeared. As a background layer the
+        // UIView is provably below every SwiftUI child in this stack.
         return ZStack {
-            if let track = videoTrack {
-                LiveKitVideoView(track: track)
-                    .background(NemaraColor.ink)
-            } else {
-                NemaraCamFeedPlaceholder(hue: 30)
-            }
-
             VStack {
                 HStack {
                     statePill(forCameraWith: videoTrack)
                     Spacer()
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(NemaraColor.terraInk)
-                        .padding(8)
-                        .background(NemaraColor.ink.opacity(0.55))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Button {
+                        fullScreenCameraId = cam.id
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(NemaraColor.terraInk)
+                            .padding(8)
+                            .background(NemaraColor.ink.opacity(0.55))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 Spacer()
@@ -238,7 +308,14 @@ struct PatientLiveView: View {
             .padding(10)
         }
         .aspectRatio(16/9, contentMode: .fit)
-        .background(NemaraColor.ink)
+        .background {
+            if let track = videoTrack {
+                LiveKitVideoView(track: track)
+                    .background(NemaraColor.ink)
+            } else {
+                NemaraCamFeedPlaceholder(hue: 30)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
