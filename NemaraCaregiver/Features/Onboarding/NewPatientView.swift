@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 /// "Just page 1" of the patient onboarding flow — the basic profile.
 /// Presented as a sheet from Roster's `+` and EmptyRoster's CTA.
@@ -12,6 +14,20 @@ struct NewPatientView: View {
     @State private var gender = "Female"
     @State private var relation: Patient.Relation = .parent
     @State private var homeAddress = ""
+
+    // Photo is picked here but uploaded only AFTER createPatient
+    // returns the new patient_id — the upload endpoint is keyed by
+    // patient_id and we don't have one until then.
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var pickedPhotoJPEG: Data?
+    @State private var pickedPhotoPreview: UIImage?
+    @State private var isLoadingPhoto = false
+
+    // Submit state. Replaces the prior fire-and-forget `try?` —
+    // failures now surface inline so the caregiver knows the
+    // patient wasn't actually created.
+    @State private var isSubmitting = false
+    @State private var submitError: String?
 
     private var canSubmit: Bool {
         !fullName.trimmingCharacters(in: .whitespaces).isEmpty
@@ -165,29 +181,76 @@ struct NewPatientView: View {
         VStack(alignment: .leading, spacing: 8) {
             NemaraEyebrow("A PHOTO")
             HStack(spacing: 12) {
-                NemaraAvatar(letter: String(preferredName.first ?? fullName.first ?? "?"), size: 68)
-                HStack {
-                    Spacer()
-                    Text("+ Upload photo")
-                        .font(NemaraFont.bodySmall)
-                        .foregroundStyle(NemaraColor.ink3)
-                    Spacer()
+                avatarOrPickedPreview
+                PhotosPicker(
+                    selection: $selectedPhotoItem,
+                    matching: .images,
+                    photoLibrary: .shared(),
+                ) {
+                    HStack {
+                        Spacer()
+                        if isLoadingPhoto {
+                            ProgressView()
+                        } else {
+                            Text(pickedPhotoJPEG == nil ? "+ Upload photo" : "Change photo")
+                                .font(NemaraFont.bodySmall)
+                                .foregroundStyle(NemaraColor.ink3)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 12)
+                    .background(NemaraColor.card.opacity(0))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous)
+                            .strokeBorder(
+                                NemaraColor.line,
+                                style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]),
+                            )
+                    )
                 }
-                .padding(.vertical, 12)
-                .background(NemaraColor.card.opacity(0))
-                .overlay(
-                    RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous)
-                        .strokeBorder(NemaraColor.line, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                )
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
             }
+        }
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
+            Task { await loadPickedPhoto(newItem) }
+        }
+    }
+
+    @ViewBuilder
+    private var avatarOrPickedPreview: some View {
+        if let preview = pickedPhotoPreview {
+            Image(uiImage: preview)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 68, height: 68)
+                .clipShape(Circle())
+        } else {
+            NemaraAvatar(
+                letter: String(preferredName.first ?? fullName.first ?? "?"),
+                size: 68,
+            )
         }
     }
 
     private var footer: some View {
-        HStack {
-            NemaraButton("Add patient", variant: .primary, block: true, action: submit)
-                .disabled(!canSubmit)
-                .opacity(canSubmit ? 1 : 0.5)
+        VStack(spacing: 8) {
+            if let submitError {
+                Text(submitError)
+                    .font(NemaraFont.bodySmall)
+                    .foregroundStyle(NemaraColor.terra)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
+            HStack {
+                NemaraButton(
+                    isSubmitting ? "Adding…" : "Add patient",
+                    variant: .primary, block: true, action: submit,
+                )
+                .disabled(!canSubmit || isSubmitting)
+                .opacity((canSubmit && !isSubmitting) ? 1 : 0.5)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -210,10 +273,65 @@ struct NewPatientView: View {
             gender: gender.isEmpty ? nil : gender,
             homeAddress: homeAddress.isEmpty ? nil : homeAddress,
         )
+
         Task {
-            _ = try? await env.api.createPatient(body)
-            dismiss()
+            isSubmitting = true
+            submitError = nil
+            defer { isSubmitting = false }
+            do {
+                let patient = try await env.api.createPatient(body)
+                // Photo is best-effort; the patient row already exists,
+                // so a photo upload failure shouldn't roll back creation.
+                if let jpeg = pickedPhotoJPEG {
+                    do {
+                        _ = try await env.api.uploadPatientPhoto(
+                            patient.id, imageData: jpeg, contentType: "image/jpeg",
+                        )
+                    } catch {
+                        NSLog("[NewPatient] photo upload failed: %@", "\(error)")
+                    }
+                }
+                dismiss()
+            } catch {
+                submitError = error.localizedDescription
+            }
         }
+    }
+
+    private func loadPickedPhoto(_ item: PhotosPickerItem) async {
+        isLoadingPhoto = true
+        defer { isLoadingPhoto = false }
+        guard let raw = try? await item.loadTransferable(type: Data.self) else {
+            submitError = "Couldn't read the selected photo."
+            return
+        }
+        guard let jpeg = Self.downsampledJPEG(from: raw, maxDimension: 1024, quality: 0.8) else {
+            submitError = "That image format isn't supported."
+            return
+        }
+        pickedPhotoJPEG = jpeg
+        pickedPhotoPreview = UIImage(data: jpeg)
+    }
+
+    /// Same downsample logic as PatientSettingsView — keep them in
+    /// sync if either changes. 1024px longest edge at q=0.8 lands
+    /// well under the backend's 1 MiB cap for any reasonable input.
+    private static func downsampledJPEG(
+        from data: Data, maxDimension: CGFloat, quality: CGFloat,
+    ) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let w = image.size.width, h = image.size.height
+        let longest = max(w, h)
+        let scale: CGFloat = longest > maxDimension ? maxDimension / longest : 1.0
+        let target = CGSize(width: w * scale, height: h * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        let resized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        return resized.jpegData(compressionQuality: quality)
     }
 }
 
