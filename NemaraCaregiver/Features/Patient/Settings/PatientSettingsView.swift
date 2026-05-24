@@ -23,6 +23,14 @@ struct PatientSettingsView: View {
     @State private var photoUploadError: String?
     @State private var isUploadingPhoto = false
 
+    // Patient deletion state. Two-step (confirm + execute) so a single
+    // mis-tap can't cascade-delete a patient's entire history. The
+    // delete itself is idempotent in the API client (404 = local
+    // state was stale, treated as success), so we don't surface
+    // errors here.
+    @State private var showingDeleteConfirm = false
+    @State private var isDeleting = false
+
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
     }
@@ -52,19 +60,39 @@ struct PatientSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 feedbackEntry
-                NemaraButton("Remove this patient", variant: .ghost, size: .sm) {
-                    guard let id = patient?.id else { return }
-                    Task {
-                        try? await env.api.deletePatient(id)
-                        dismiss()
-                    }
+
+                NemaraButton(
+                    isDeleting ? "Removing…" : "Remove this patient",
+                    variant: .ghost, size: .sm,
+                ) {
+                    showingDeleteConfirm = true
                 }
                 .foregroundStyle(NemaraColor.terra)
-                .padding(.top, 4)
+                .disabled(isDeleting || patient == nil)
+                .padding(.top, 8)
+                // Clear the floating tab bar at the bottom — without
+                // this the destructive button sits behind it and taps
+                // route to the wrong view.
+                .padding(.bottom, 120)
             }
             .padding(.top, 12)
         }
         .background(NemaraColor.paper)
+        .alert("Remove patient?", isPresented: $showingDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                Task { await deletePatient() }
+            }
+        } message: {
+            if let p = patient {
+                Text(
+                    "\(p.preferredName)'s cameras, detectors, and event history "
+                    + "will be permanently removed. This cannot be undone.",
+                )
+            } else {
+                Text("This will permanently remove the patient and all data.")
+            }
+        }
         .sheet(isPresented: $showingAddDetector) {
             AddDetectorView(patientId: patientId)
         }
@@ -272,6 +300,21 @@ struct PatientSettingsView: View {
         } catch {
             photoUploadError = error.localizedDescription
         }
+    }
+
+    // MARK: - Patient deletion
+
+    /// Confirm-then-execute. The API client handles 404 idempotently
+    /// (treats it as "already gone, clean up local state"), so a
+    /// silent try? is the right call here — there's no failure mode
+    /// the caregiver needs to recover from. On any other API error,
+    /// we still dismiss; the next pull-to-refresh will resync state.
+    private func deletePatient() async {
+        guard let id = patient?.id else { return }
+        isDeleting = true
+        defer { isDeleting = false }
+        try? await env.api.deletePatient(id)
+        dismiss()
     }
 
     /// Down-sample to a max-longest-edge box and re-encode as JPEG.

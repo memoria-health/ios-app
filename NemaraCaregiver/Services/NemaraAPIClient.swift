@@ -287,7 +287,19 @@ final class NemaraAPIClient {
     }
 
     func deletePatient(_ id: UUID) async throws {
-        try await sendNoBodyVoid(method: "DELETE", path: "/v1/patients/\(id.uuidString.lowercased())")
+        // 404 here means the row is already gone server-side (e.g.
+        // a prior delete via Supabase Studio, or a Realtime DELETE
+        // we missed). Caller's intent — "this patient should not
+        // exist" — is satisfied either way, so treat it as success
+        // and proceed to clean up local state.
+        do {
+            try await sendNoBodyVoid(
+                method: "DELETE",
+                path: "/v1/patients/\(id.uuidString.lowercased())",
+            )
+        } catch APIError.notFound {
+            // fall through to local cleanup
+        }
         patients.removeAll { $0.id == id }
         camerasByPatient.removeValue(forKey: id)
         detectorsByPatient.removeValue(forKey: id)
