@@ -133,6 +133,9 @@ final class LiveKitClient {
         }
         box.ref = self
         AudioManager.shared.add(remoteAudioRenderer: combinedRemoteTap)
+        #if DEBUG
+        print("[LiveKit] combinedRemoteTap registered with AudioManager.shared.add(remoteAudioRenderer:)")
+        #endif
         // Delegate set in init so we capture every event from
         // construction onward — no race against the first `connect`.
         room.add(delegate: self)
@@ -267,14 +270,35 @@ final class LiveKitClient {
     }
 
     private func pushAudioLevelToActiveCall(peak: Float) {
-        guard let identity = activeCallIdentity else { return }
+        guard let identity = activeCallIdentity else {
+            #if DEBUG
+            // No active call — render fired but waveform shouldn't move
+            // anyway. Throttled: only every 256th would-be push.
+            droppedPushCount &+= 1
+            if droppedPushCount % 256 == 1 {
+                print("[LiveKit] pushAudioLevel DROPPED (no activeCallIdentity), peak=\(peak), dropped#=\(droppedPushCount)")
+            }
+            #endif
+            return
+        }
         var samples = audioLevels[identity] ?? []
         samples.append(peak)
         if samples.count > audioLevelCapacity {
             samples.removeFirst(samples.count - audioLevelCapacity)
         }
         audioLevels[identity] = samples
+        #if DEBUG
+        acceptedPushCount &+= 1
+        if acceptedPushCount <= 5 || acceptedPushCount % 256 == 0 {
+            print("[LiveKit] pushAudioLevel id=\(identity), peak=\(peak), levels.count=\(samples.count), accepted#=\(acceptedPushCount)")
+        }
+        #endif
     }
+
+    #if DEBUG
+    private var acceptedPushCount: Int = 0
+    private var droppedPushCount: Int = 0
+    #endif
 }
 
 enum LiveKitClientError: Error, LocalizedError {
@@ -399,7 +423,10 @@ private final class _AudioLevelTap: NSObject, AudioRenderer, @unchecked Sendable
         let snapshotIdentity = identity
         renderCount.withLock { count in
             count += 1
-            if count == 1 || count % 256 == 0 {
+            // First 3 buffers (catches "did it ever fire") + every
+            // 256th thereafter (confirms it keeps firing without
+            // flooding the console).
+            if count <= 3 || count % 256 == 0 {
                 print("[LiveKit] audio render: identity=\(snapshotIdentity), peak=\(clamped), buf#=\(count)")
             }
         }
