@@ -95,40 +95,47 @@ struct PatientLiveView: View {
             GeometryReader { geo in
                 ZStack {
                     Color.black.ignoresSafeArea()
-                    if let track {
-                        LiveKitVideoView(track: track)
-                            .frame(width: geo.size.height, height: geo.size.width)
-                            .rotationEffect(.degrees(90))
-                            .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                    } else {
-                        NemaraCamFeedPlaceholder(hue: 30)
-                    }
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button {
-                                fullScreenCameraId = nil
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(12)
-                                    .background(Color.black.opacity(0.55))
-                                    .clipShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.trailing, 16)
-                            .padding(.top, 16)
+                    // Video + chrome rotate together. The caregiver holds
+                    // their phone in landscape to view it; once rotated,
+                    // close-X and room label are both right-side-up over
+                    // the video, matching every iOS video player.
+                    ZStack {
+                        if let track {
+                            LiveKitVideoView(track: track)
+                        } else {
+                            NemaraCamFeedPlaceholder(hue: 30)
                         }
-                        Spacer()
-                        Text(cam.room)
-                            .font(NemaraFont.bodyLarge.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(10)
-                            .background(Color.black.opacity(0.55))
-                            .clipShape(Capsule(style: .continuous))
-                            .padding(.bottom, 32)
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Button {
+                                    fullScreenCameraId = nil
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(12)
+                                        .background(Color.black.opacity(0.55))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.trailing, 16)
+                                .padding(.top, 16)
+                            }
+                            Spacer()
+                            Text(cam.room)
+                                .font(NemaraFont.bodyLarge.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.black.opacity(0.55))
+                                .clipShape(Capsule(style: .continuous))
+                                .padding(.bottom, 28)
+                        }
                     }
+                    .frame(width: geo.size.height, height: geo.size.width)
+                    .rotationEffect(.degrees(90))
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
                 }
                 .ignoresSafeArea()
             }
@@ -193,6 +200,9 @@ struct PatientLiveView: View {
     private func startCall() async {
         guard let cameraId = selectedCameraId else { return }
         guard callState == .idle else { return }
+        let cameraIdentity = allCameras
+            .first(where: { $0.id == cameraId })?
+            .livekitIdentity
         callState = .connecting
         do {
             // Broadcaster grants over the same room; LiveKitClient
@@ -204,6 +214,11 @@ struct PatientLiveView: View {
                 room: "patient_\(patientId.uuidString.lowercased())",
             )
             try await env.liveKit.publishMicrophone(enable: true)
+            // Unmute the target camera's remote audio so the caregiver
+            // hears the wall phone, and so the combined audio renderer
+            // starts firing for the waveform. Everything else stays
+            // muted (default state on subscribe).
+            env.liveKit.setRemoteAudioPlayback(enabledFor: cameraIdentity)
             try await env.api.startTalk(forPatient: patientId, cameraId: cameraId)
             callState = .active
             callStartedAt = Date()
@@ -212,6 +227,7 @@ struct PatientLiveView: View {
             // Roll back any partial publish so a failed start doesn't
             // leave the mic hot.
             try? await env.liveKit.publishMicrophone(enable: false)
+            env.liveKit.setRemoteAudioPlayback(enabledFor: nil)
             callState = .idle
             callStartedAt = nil
             lkError = "Call failed: \(error.localizedDescription)"
@@ -224,6 +240,12 @@ struct PatientLiveView: View {
         // caregiver taps end, even if network is slow.
         callState = .idle
         callStartedAt = nil
+
+        // Mute all remote audio first — caregiver stops hearing the
+        // wall phone instantly, waveform goes flat instantly. Doing
+        // this before mic teardown also stops the combined renderer
+        // from firing while the rest of the disconnect resolves.
+        env.liveKit.setRemoteAudioPlayback(enabledFor: nil)
 
         // Belt: ask the SDK to disable the local microphone track.
         do {
@@ -262,8 +284,14 @@ struct PatientLiveView: View {
     private func transferCall(to cameraId: UUID) async {
         transferSeq &+= 1
         let seq = transferSeq
+        let cameraIdentity = allCameras
+            .first(where: { $0.id == cameraId })?
+            .livekitIdentity
         do {
             try await env.api.startTalk(forPatient: patientId, cameraId: cameraId)
+            // Shift the audio gate to the newly-targeted camera so the
+            // caregiver hears the right room and the waveform follows.
+            env.liveKit.setRemoteAudioPlayback(enabledFor: cameraIdentity)
             // Older transfers may finish after newer ones; only the
             // latest gets to clear the error indicator.
             if seq == transferSeq { lkError = nil }
@@ -303,6 +331,7 @@ struct PatientLiveView: View {
         let videoTrack: VideoTrack? = identity.flatMap { env.liveKit.videoTracksByIdentity[$0] }
         let levels = identity.flatMap { env.liveKit.audioLevels[$0] } ?? []
         let isThisCallTarget = cam.id == selectedCameraId
+        let connectivity = env.liveKit.connectivity(of: cam)
 
         // The video render lives in `.background` rather than as a
         // peer in the ZStack. UIKit views inside a SwiftUI ZStack can
@@ -313,7 +342,7 @@ struct PatientLiveView: View {
         return ZStack {
             VStack {
                 HStack {
-                    statePill(forCameraWith: videoTrack)
+                    statePill(connectivity: connectivity)
                     Spacer()
                     Button {
                         fullScreenCameraId = cam.id
@@ -397,13 +426,12 @@ struct PatientLiveView: View {
     }
 
     @ViewBuilder
-    private func statePill(forCameraWith track: VideoTrack?) -> some View {
-        // LIVE pill follows the underlying LiveKit connection state
-        // unless THIS tile has no track yet — which means the camera
-        // is connected to the room but hasn't published video (e.g.
-        // wall phone just paired, hasn't tapped Start).
-        switch env.liveKit.state {
-        case .connected where track != nil:
+    private func statePill(connectivity: LiveKitClient.CameraConnectivity) -> some View {
+        // Reads `LiveKitClient.connectivity(of:)` rather than poking
+        // at raw room state + track maps — keeps "what counts as live"
+        // out of view code.
+        switch connectivity {
+        case .live:
             HStack(spacing: 6) {
                 NemaraPulse(color: NemaraColor.terraInk, size: 5)
                 Text(callState == .active ? "ON AIR" : "LIVE")
@@ -415,27 +443,40 @@ struct PatientLiveView: View {
             .padding(.vertical, 4)
             .background(callState == .active ? Color(.systemRed) : NemaraColor.terra)
             .clipShape(Capsule(style: .continuous))
-        case .connected:
-            Text("WAITING")
-                .font(NemaraFont.mono(size: 9, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(NemaraColor.terraInk)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(NemaraColor.ink.opacity(0.55))
-                .clipShape(Capsule(style: .continuous))
-        case .connecting, .reconnecting:
-            Text("CONNECTING")
-                .font(NemaraFont.mono(size: 9, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(NemaraColor.terraInk)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(NemaraColor.ink.opacity(0.55))
-                .clipShape(Capsule(style: .continuous))
-        case .disconnected, .failed:
+        case .joining:
+            mutedPill("WAITING")
+        case .roomDown:
+            mutedPill("CONNECTING")
+        case .offline, .unpaired:
             EmptyView()
         }
+    }
+
+    /// Tiny circular status indicator next to each camera row in the
+    /// cameras card. Reads `LiveKitClient.connectivity(of:)` so the
+    /// dot's truth tracks the same source as the tile's state pill.
+    @ViewBuilder
+    private func cameraStatusDot(for cam: Camera, paused: Bool) -> some View {
+        let color: Color = {
+            if paused { return NemaraColor.ink3 }
+            switch env.liveKit.connectivity(of: cam) {
+            case .live, .joining:        return NemaraColor.success
+            case .offline:               return NemaraColor.danger
+            case .roomDown, .unpaired:   return NemaraColor.ink3
+            }
+        }()
+        Circle().fill(color).frame(width: 7, height: 7)
+    }
+
+    private func mutedPill(_ text: String) -> some View {
+        Text(text)
+            .font(NemaraFont.mono(size: 9, weight: .bold))
+            .tracking(0.8)
+            .foregroundStyle(NemaraColor.terraInk)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(NemaraColor.ink.opacity(0.55))
+            .clipShape(Capsule(style: .continuous))
     }
 
     private func statusLine(for cam: Camera) -> String {
@@ -547,9 +588,7 @@ struct PatientLiveView: View {
                             Text(String(format: "Cam %02d", cam.displayId))
                                 .font(NemaraFont.monoSmall)
                                 .foregroundStyle(NemaraColor.ink3)
-                            Circle()
-                                .fill(paused ? NemaraColor.ink3 : (cam.online ? NemaraColor.action : NemaraColor.ink3))
-                                .frame(width: 6, height: 6)
+                            cameraStatusDot(for: cam, paused: paused)
                         }
                     }
                 }

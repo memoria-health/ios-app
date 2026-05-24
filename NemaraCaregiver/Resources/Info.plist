@@ -42,6 +42,8 @@
 	<string>Nemara would use the camera to take a quick photo of the patient for their profile.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Nemara connects to your Mac's local nemara-backend during development. Allow to test on a physical device.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nemara uses the microphone so you can speak live to your patient through their paired wall phone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Nemara uses photos you pick to personalize the patient's profile.</string>
 	<key>UIAppFonts</key>

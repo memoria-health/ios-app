@@ -27,6 +27,31 @@ final class LiveKitClient {
         case failed(String)
     }
 
+    /// Fused per-camera connectivity status. Single source of truth for
+    /// "is this wall phone actually streaming to us right now" — folds
+    /// the four signals that can disagree during reconnects:
+    ///   - room state (we may not even be connected)
+    ///   - backend `cam.online` (1-2s lag via webhook + Realtime)
+    ///   - subscribed video track presence (real-time SDK)
+    ///   - paired-but-no-identity rows (placeholders before first claim)
+    /// Consumers should switch on this rather than reading the raw
+    /// signals — keeps "what counts as live" in one place.
+    enum CameraConnectivity: Equatable {
+        /// Camera row has no `livekitIdentity` yet (pairing code
+        /// issued, wall phone hasn't claimed it).
+        case unpaired
+        /// Our LiveKit room isn't connected at all — can't speak to
+        /// any camera's state.
+        case roomDown
+        /// Backend says the camera isn't in the room.
+        case offline
+        /// Backend says the camera joined; we haven't subscribed its
+        /// video track yet. Brief transient on (re)connect.
+        case joining
+        /// Video track is flowing — the camera is fully live.
+        case live
+    }
+
     /// Connection state mirrored from `Room.connectionState`
     /// transitions arriving on the room delegate.
     private(set) var state: State = .disconnected
@@ -59,15 +84,78 @@ final class LiveKitClient {
     /// connect / disconnect cycles.
     private let room: Room
 
-    /// Active audio taps, keyed by publisher identity. Held so we
-    /// can remove them when the track unsubscribes.
-    private var audioTaps: [String: _AudioLevelTap] = [:]
+    /// Concrete `RemoteAudioTrack` refs (the SDK's protocol-typed
+    /// `AudioTrack` in `audioTracksByIdentity` doesn't expose
+    /// `volume`). We gate speaker playback by setting each track's
+    /// volume to 0 (silent) or 1 (normal); the tracks stay
+    /// subscribed so audio keeps decoding and the combined renderer
+    /// keeps firing — only the speaker output is muted when no
+    /// call is active.
+    ///
+    /// Why volume-gating instead of `publication.set(enabled:)`:
+    /// toggling subscription churns the SDK's audio engine in a
+    /// way that the per-buffer renderer doesn't recover from
+    /// (waveform stays flat after re-enabling). Continuous decode
+    /// costs ~20kbps of bandwidth per camera — acceptable
+    /// trade-off for a reliable visualization.
+    private var remoteAudioTracksByIdentity: [String: RemoteAudioTrack] = [:]
+
+    /// Identity of the camera currently in a Talk call, or nil. The
+    /// combined-remote renderer pushes its peaks into this identity's
+    /// `audioLevels` entry; all other identities stay flat.
+    private var activeCallIdentity: String?
+
+    /// Tap on the combined remote-audio buffer (all remote tracks
+    /// mixed just before playback). The per-track
+    /// `RemoteAudioTrack.add(audioRenderer:)` path was dead in
+    /// real-device e2e (subscribed-track fired 4× across camera
+    /// reconnects, render never fired once — likely the multicast
+    /// adapter's `NSHashTable.weakObjects()` going stale across the
+    /// resubscribe thrash). Combined hits a different SDK seam
+    /// (`renderPreProcessingDelegate`) and only fires when audio
+    /// actually plays out the speaker — which, with the
+    /// subscribe-muted default below, only happens during a call.
+    private let combinedRemoteTap: _AudioLevelTap
 
     init() {
         self.room = Room()
+        // The combined-tap closure needs a path back to `self` to push
+        // peaks onto MainActor state. We can't write `[weak self]`
+        // directly here — `self` isn't yet fully initialized until
+        // every stored property is set. A small weak-box class solves
+        // that without creating a retain cycle (closure -> box ->
+        // weak LiveKitClient).
+        let box = _LiveKitClientWeakBox()
+        self.combinedRemoteTap = _AudioLevelTap(identity: "_combined_") { _, peak in
+            Task { @MainActor in
+                box.ref?.pushAudioLevelToActiveCall(peak: peak)
+            }
+        }
+        box.ref = self
+        AudioManager.shared.add(remoteAudioRenderer: combinedRemoteTap)
         // Delegate set in init so we capture every event from
         // construction onward — no race against the first `connect`.
         room.add(delegate: self)
+    }
+
+    // MARK: - Connectivity predicate
+
+    /// Authoritative "is this camera live to us right now" check.
+    /// Use this from any UI that needs to decide between "ready to
+    /// view / call" and "show offline / waiting". Don't read `state`,
+    /// `cam.online`, or `videoTracksByIdentity` directly — the
+    /// answer can disagree across them during transient reconnects.
+    func connectivity(of cam: Camera) -> CameraConnectivity {
+        guard let identity = cam.livekitIdentity else { return .unpaired }
+        guard state == .connected else { return .roomDown }
+        if videoTracksByIdentity[identity] != nil { return .live }
+        return cam.online ? .joining : .offline
+    }
+
+    /// Convenience for the common "is fully live" gate (call buttons,
+    /// full-screen entry, waveform display, etc.).
+    func isLive(_ cam: Camera) -> Bool {
+        connectivity(of: cam) == .live
     }
 
     // MARK: - Connection
@@ -93,10 +181,39 @@ final class LiveKitClient {
         // immediately, not after the next delegate round-trip.
         videoTracksByIdentity = [:]
         audioTracksByIdentity = [:]
+        remoteAudioTracksByIdentity = [:]
         audioLevels = [:]
-        audioTaps = [:]
+        activeCallIdentity = nil
         currentRoom = nil
         state = .disconnected
+    }
+
+    // MARK: - Remote audio gate (Talk mode)
+
+    /// Enable speaker playback (and waveform rendering) for exactly
+    /// one camera identity, or none. Mirrors the camera-side gate the
+    /// wall phone applies to caregiver-published audio: nothing plays
+    /// unless both ends agree a call is active.
+    ///
+    /// - Parameter identity: the camera whose audio should be heard,
+    ///   or nil to mute all remote audio (call ended / not started).
+    func setRemoteAudioPlayback(enabledFor identity: String?) {
+        activeCallIdentity = identity
+        if identity == nil {
+            // Drop visualised levels immediately so the waveform goes
+            // flat the instant the caregiver taps end — no waiting on
+            // the next render that won't come.
+            audioLevels = [:]
+        }
+        // Volume 1.0 = unity gain (normal playback), 0.0 = silent
+        // speaker output. Tracks stay subscribed either way so the
+        // combined renderer keeps receiving PCM.
+        for (id, track) in remoteAudioTracksByIdentity {
+            track.volume = (id == identity) ? 1.0 : 0.0
+        }
+        #if DEBUG
+        print("[LiveKit] setRemoteAudioPlayback active=\(identity ?? "nil"), tracks=\(remoteAudioTracksByIdentity.count)")
+        #endif
     }
 
     // MARK: - Microphone publish (Talk mode)
@@ -118,19 +235,24 @@ final class LiveKitClient {
         videoTracksByIdentity[identity] = track
     }
 
-    fileprivate func handleSubscribedAudio(_ track: AudioTrack, identity: String) {
+    fileprivate func handleSubscribedAudio(
+        _ track: AudioTrack,
+        identity: String,
+    ) {
         audioTracksByIdentity[identity] = track
-        // Attach an AudioRenderer to start populating audioLevels.
-        // The tap retains a weak ref to self via the closure.
-        let tap = _AudioLevelTap(identity: identity) { [weak self] identity, peak in
-            Task { @MainActor [weak self] in
-                self?.pushAudioLevel(identity: identity, peak: peak)
-            }
+        if let remote = track as? RemoteAudioTrack {
+            remoteAudioTracksByIdentity[identity] = remote
+            // Silent speaker by default — track stays subscribed and
+            // decodes, but no audible output until the caregiver taps
+            // Call (which flips the active camera's volume to 1.0
+            // via setRemoteAudioPlayback). Continuous decode is what
+            // keeps the combined-remote renderer firing reliably; the
+            // earlier `publication.set(enabled:)` approach churned the
+            // SDK's audio engine and the renderer never recovered.
+            remote.volume = (identity == activeCallIdentity) ? 1.0 : 0.0
         }
-        track.add(audioRenderer: tap)
-        audioTaps[identity] = tap
         #if DEBUG
-        print("[LiveKit] subscribed audio: identity=\(identity), tap attached")
+        print("[LiveKit] subscribed audio: identity=\(identity), volume=\((track as? RemoteAudioTrack)?.volume ?? -1)")
         #endif
     }
 
@@ -139,15 +261,13 @@ final class LiveKitClient {
     }
 
     fileprivate func handleUnsubscribedAudio(identity: String) {
-        if let tap = audioTaps.removeValue(forKey: identity),
-           let track = audioTracksByIdentity[identity] {
-            track.remove(audioRenderer: tap)
-        }
         audioTracksByIdentity.removeValue(forKey: identity)
+        remoteAudioTracksByIdentity.removeValue(forKey: identity)
         audioLevels.removeValue(forKey: identity)
     }
 
-    private func pushAudioLevel(identity: String, peak: Float) {
+    private func pushAudioLevelToActiveCall(peak: Float) {
+        guard let identity = activeCallIdentity else { return }
         var samples = audioLevels[identity] ?? []
         samples.append(peak)
         if samples.count > audioLevelCapacity {
@@ -224,6 +344,12 @@ extension LiveKitClient: RoomDelegate {
             }
         }
     }
+}
+
+/// Weak ref to `LiveKitClient`, used by the combined-remote audio tap
+/// closure so it can hop onto `LiveKitClient` without retaining it.
+private final class _LiveKitClientWeakBox: @unchecked Sendable {
+    weak var ref: LiveKitClient?
 }
 
 // MARK: - Audio level tap

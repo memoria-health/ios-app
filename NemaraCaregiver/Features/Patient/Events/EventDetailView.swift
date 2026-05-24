@@ -7,6 +7,12 @@ import SwiftUI
 struct EventDetailView: View {
     let event: DetectionEvent
     let patientId: UUID
+    /// Called after the user submits a review. Set by the events list
+    /// so submitting can dismiss the whole sheet (back to the events
+    /// page), not just pop one level back to this detail view. Nil
+    /// when there's no enclosing list — `EventReviewView` falls back
+    /// to a plain `dismiss()` in that case.
+    var onReviewSubmitted: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(AppEnvironment.self) private var env
 
@@ -180,7 +186,11 @@ struct EventDetailView: View {
     private var footer: some View {
         HStack {
             NavigationLink {
-                EventReviewView(event: event, patientId: patientId)
+                EventReviewView(
+                    event: event,
+                    patientId: patientId,
+                    onSubmitted: onReviewSubmitted,
+                )
             } label: {
                 Text("Review this event →")
                     .font(NemaraFont.sans(size: 16, weight: .semibold))

@@ -61,7 +61,11 @@ struct PatientEventsView: View {
         .background(NemaraColor.paper)
         .sheet(item: $openedEvent) { ev in
             NavigationStack {
-                EventDetailView(event: ev, patientId: patientId)
+                EventDetailView(
+                    event: ev,
+                    patientId: patientId,
+                    onReviewSubmitted: { openedEvent = nil },
+                )
             }
         }
     }

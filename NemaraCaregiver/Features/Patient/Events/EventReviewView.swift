@@ -7,6 +7,11 @@ import SwiftUI
 struct EventReviewView: View {
     let event: DetectionEvent
     let patientId: UUID
+    /// Called by the events list to dismiss the whole modal stack
+    /// after submit (so the caregiver lands back on the events page,
+    /// not on the EventDetailView 1/2 they came from). Nil = use the
+    /// local `dismiss()` (preview / standalone usage only).
+    var onSubmitted: (() -> Void)? = nil
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
 
@@ -159,7 +164,11 @@ struct EventReviewView: View {
                         reviewNotes: trimmedNotes,
                     ),
                 )
-                dismiss()
+                if let onSubmitted {
+                    onSubmitted()
+                } else {
+                    dismiss()
+                }
             }
         }
         .padding(.horizontal, 14)
