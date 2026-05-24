@@ -92,6 +92,35 @@ final class NemaraAPIClient {
         await openRealtimeChannels()
     }
 
+    /// Refetch the full roster + every per-patient sub-collection.
+    /// Same data path as `bootstrap()` but does NOT re-open Realtime
+    /// channels (those stay attached from the original bootstrap).
+    /// Bound to pull-to-refresh on the roster — the escape hatch when
+    /// Realtime drops a row change (e.g. a delete via Supabase Studio).
+    func refresh() async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        try await loadPatients()
+        // Drop sub-collections for patients that no longer exist —
+        // loadPatients() refreshed `patients` to the server's view,
+        // so any entry in the by-patient dicts whose patient is gone
+        // is stale and would otherwise leak.
+        let liveIds = Set(patients.map(\.id))
+        camerasByPatient = camerasByPatient.filter { liveIds.contains($0.key) }
+        detectorsByPatient = detectorsByPatient.filter { liveIds.contains($0.key) }
+        eventsByPatient = eventsByPatient.filter { liveIds.contains($0.key) }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for p in patients {
+                group.addTask { try await self.loadCameras(forPatient: p.id) }
+                group.addTask { try await self.loadDetectors(forPatient: p.id) }
+                group.addTask { try await self.loadEventsFirstPage(forPatient: p.id) }
+            }
+            try await group.waitForAll()
+        }
+    }
+
     /// Clear all state and disconnect from Realtime. Called on sign-out.
     func teardown() async {
         for t in streamTasks { t.cancel() }
@@ -653,6 +682,16 @@ extension NemaraAPIClient {
         let task = Task { @MainActor [weak self] in
             for await action in stream {
                 guard self != nil else { break }
+                #if DEBUG
+                let kind: String = {
+                    switch action {
+                    case .insert: return "INSERT"
+                    case .update: return "UPDATE"
+                    case .delete: return "DELETE"
+                    }
+                }()
+                print("[Realtime] \(table) \(kind)")
+                #endif
                 handler(action)
             }
         }
@@ -660,6 +699,9 @@ extension NemaraAPIClient {
         channels.append(channel)
         do {
             try await channel.subscribeWithError()
+            #if DEBUG
+            print("[Realtime] subscribed to \(table)")
+            #endif
         } catch {
             #if DEBUG
             print("[NemaraAPIClient] Realtime subscribe failed for \(table): \(error)")

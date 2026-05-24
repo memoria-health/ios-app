@@ -43,6 +43,19 @@ struct RosterView: View {
                     }
                 }
                 .background(NemaraColor.paper)
+                // Pull-to-refresh escape hatch for when Realtime drops
+                // a row change (e.g. a delete done directly in Studio).
+                // Refetches the roster + every per-patient sub-collection
+                // so a single drag-down restores full sync.
+                .refreshable {
+                    do {
+                        try await env.api.refresh()
+                    } catch {
+                        #if DEBUG
+                        print("[RosterView] refresh failed: \(error)")
+                        #endif
+                    }
+                }
             }
         }
         .fullScreenCover(item: Binding(
