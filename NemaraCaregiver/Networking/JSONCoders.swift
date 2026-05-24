@@ -33,6 +33,13 @@ enum NemaraJSON {
         return e
     }
 
+    /// Format a Date as YYYY-MM-DD for fields the backend models as a
+    /// Postgres DATE (not timestamptz). Required for `date_of_birth` —
+    /// pydantic's date validator rejects ISO-8601 with time component.
+    static func dateOnlyString(from date: Date) -> String {
+        dateOnly.string(from: date)
+    }
+
     // MARK: - Internals
 
     private static func formatter(_ format: String) -> DateFormatter {

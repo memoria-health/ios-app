@@ -107,7 +107,13 @@ struct CreatePatientRequest: Encodable, Sendable {
         try c.encode(fullName, forKey: .fullName)
         try c.encode(preferredName, forKey: .preferredName)
         try c.encode(relation, forKey: .relation)
-        try c.encodeIfPresent(dateOfBirth, forKey: .dateOfBirth)
+        // The backend column is a Postgres DATE (not timestamptz) so it
+        // rejects ISO-8601 strings that carry time-of-day. Format as
+        // YYYY-MM-DD in UTC to match what pydantic's date validator
+        // accepts.
+        if let dob = dateOfBirth {
+            try c.encode(NemaraJSON.dateOnlyString(from: dob), forKey: .dateOfBirth)
+        }
         try c.encodeIfPresent(gender, forKey: .gender)
         try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
     }
@@ -137,7 +143,11 @@ struct UpdatePatientRequest: Encodable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(fullName, forKey: .fullName)
         try c.encodeIfPresent(preferredName, forKey: .preferredName)
-        try c.encodeIfPresent(dateOfBirth, forKey: .dateOfBirth)
+        // See CreatePatientRequest — backend's date_of_birth is a
+        // pure DATE, not a timestamp; serialize as YYYY-MM-DD.
+        if let dob = dateOfBirth {
+            try c.encode(NemaraJSON.dateOnlyString(from: dob), forKey: .dateOfBirth)
+        }
         try c.encodeIfPresent(gender, forKey: .gender)
         try c.encodeIfPresent(relation, forKey: .relation)
         try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
