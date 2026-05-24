@@ -4,6 +4,8 @@ SwiftUI iOS app for caregivers of patients in homes with wall-mounted phones act
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the file tree, conventions, LiveKit connectivity model, and design-system overview.
 
+> **Bring up [`nemara-backend`](../nemara-backend) first** — it has the prereq checklist and the LiveKit/Apple invites you need from the inviting teammate. This app needs a live backend on your LAN to sign in.
+
 ## What the app does
 
 - **Home tab** — patient roster, live state (calm / critical / offline), status line, last-event time. Updates via Supabase Realtime.
