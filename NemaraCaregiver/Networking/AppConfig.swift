@@ -25,11 +25,7 @@ enum AppConfig {
             .flatMap(URL.init) {
             return fromEnv
         }
-        #if DEBUG
-        return URL(string: "http://127.0.0.1:54341")
-        #else
-        return nil
-        #endif
+        return URL(string: "https://zgifmvjnggmgzvtnosnu.supabase.co")
     }()
 
     /// Supabase anon (publishable) key. Env-var first, then a Debug-only
@@ -40,14 +36,7 @@ enum AppConfig {
            !raw.isEmpty {
             return raw
         }
-        #if DEBUG
-        // Local-Supabase legacy anon JWT, generated deterministically
-        // from the well-known local JWT secret. Identical across every
-        // developer's `supabase start`. Not a real secret.
-        return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
-        #else
-        return nil
-        #endif
+        return "sb_publishable_OsfCMOdEIb5gvhRWDyNivg_7GriAmyP"
     }()
 
     /// Redirect URL Supabase sends users to after they tap a
@@ -61,13 +50,7 @@ enum AppConfig {
             .flatMap(URL.init) {
             return fromEnv
         }
-        #if DEBUG
-        return URL(string: "http://127.0.0.1:8002")!
-        #else
-        // Production domain TBD — placeholder so Release builds fail
-        // loudly if the env var isn't wired in CI.
-        return URL(string: "https://api.nemara.app")!
-        #endif
+        return URL(string: "https://nemara-backend-production.up.railway.app")!
     }()
 
     /// `true` when both Supabase config values are populated. Gate-keeper
