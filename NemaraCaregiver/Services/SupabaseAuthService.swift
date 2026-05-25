@@ -53,6 +53,14 @@ final class SupabaseAuthService {
     /// Realtime subscriptions.
     let client: SupabaseClient
 
+    /// Long-running consumer of `client.auth.authStateChanges`. Pumps
+    /// every token change into `realtimeV2.setAuth(...)` so RLS policies
+    /// on subscribed channels evaluate `auth.uid()` against the
+    /// signed-in user instead of `NULL`. Without this, Realtime
+    /// silently drops every row that any RLS policy gates on the
+    /// caregiver (events, analyses, …). Cancelled in `deinit`.
+    private var authStateTask: Task<Void, Never>?
+
     init() {
         guard let url = AppConfig.supabaseURL,
               let key = AppConfig.supabaseAnonKey,
@@ -61,6 +69,22 @@ final class SupabaseAuthService {
             fatalError("Supabase isn't configured. Set SUPABASE_URL + SUPABASE_ANON_KEY (or run in DEBUG with the bundled local-stack defaults).")
         }
         self.client = SupabaseClient(supabaseURL: url, supabaseKey: key)
+
+        // Forward every auth state change (signedIn / signedOut /
+        // tokenRefreshed / userUpdated / initialSession) to the
+        // Realtime client so subscribed channels carry the user JWT.
+        // The SDK fires this on cold launch with the cached session
+        // too, which covers the restoreSession path automatically.
+        let c = client
+        authStateTask = Task {
+            for await (_, session) in c.auth.authStateChanges {
+                await c.realtimeV2.setAuth(session?.accessToken)
+            }
+        }
+    }
+
+    deinit {
+        authStateTask?.cancel()
     }
 
     // MARK: - Sign up
