@@ -8,6 +8,7 @@ struct AddDetectorView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
 
+    @State private var name = ""
     @State private var prompt = "Tell me if Maggie hasn't moved in the living room for more than 2 hours during the day."
     @State private var category: Detector.Category = .safety
     @State private var sensitivity: Detector.Sensitivity = .standard
@@ -19,6 +20,7 @@ struct AddDetectorView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         intro
+                        nameInput
                         promptInput
                         eventTypeSelector
                         sensitivityPicker
@@ -66,6 +68,26 @@ struct AddDetectorView: View {
                 .font(NemaraFont.bodySmall)
                 .foregroundStyle(NemaraColor.ink2)
                 .lineSpacing(2)
+        }
+    }
+
+    private var nameInput: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            NemaraEyebrow("NAME")
+            TextField("e.g. Stove left on", text: $name)
+                .font(NemaraFont.body)
+                .foregroundStyle(NemaraColor.ink)
+                .tint(NemaraColor.terra)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(NemaraColor.card)
+                .overlay(
+                    RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous)
+                        .strokeBorder(NemaraColor.ink, lineWidth: 1.5)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
+                .textInputAutocapitalization(.sentences)
+                .autocorrectionDisabled(false)
         }
     }
 
@@ -182,8 +204,10 @@ struct AddDetectorView: View {
     }
 
     private func create() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = trimmed.isEmpty ? derivedName() : trimmed
         let body = CreateDetectorRequest(
-            name: derivedName(),
+            name: finalName,
             iconName: category == .safety ? "exclamationmark.triangle" : "leaf",
             description: prompt,
             category: category,
@@ -199,6 +223,10 @@ struct AddDetectorView: View {
         }
     }
 
+    /// Fallback name when the caregiver leaves the Name field blank —
+    /// the first few words of the prompt, same heuristic the iOS app
+    /// shipped with before the explicit Name field landed. Keeps the
+    /// "type a prompt, tap Create" speed path from before this change.
     private func derivedName() -> String {
         let words = prompt.split(separator: " ").prefix(4).joined(separator: " ")
         return words.isEmpty ? "Custom detector" : String(words)

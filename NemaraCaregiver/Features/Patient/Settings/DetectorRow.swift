@@ -11,6 +11,9 @@ struct DetectorRow: View {
     let detector: Detector
     let isLast: Bool
 
+    @State private var confirmingDelete = false
+    @State private var deleting = false
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
@@ -58,8 +61,38 @@ struct DetectorRow: View {
                         }
                     }
                 ))
+                Menu {
+                    Button(role: .destructive) {
+                        confirmingDelete = true
+                    } label: {
+                        Label("Delete detector", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(NemaraColor.ink3)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(deleting)
             }
             .padding(14)
+            .alert(
+                "Delete \"\(detector.name)\"?",
+                isPresented: $confirmingDelete,
+            ) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    deleting = true
+                    Task {
+                        defer { deleting = false }
+                        try? await env.api.deleteDetector(detector.id)
+                    }
+                }
+            } message: {
+                Text("This removes the detector for this patient. Any in-flight clips that already fired stay in the events feed.")
+            }
 
             if detector.isOn {
                 sensitivityPicker
