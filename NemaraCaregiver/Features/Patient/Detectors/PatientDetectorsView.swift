@@ -1,0 +1,88 @@
+import SwiftUI
+
+/// "Detectors" sub-tab. Lists the patient's full detector set (preset
+/// + custom) and lets the caregiver toggle each on/off, tune
+/// sensitivity, and add custom ones.
+///
+/// Extracted from `PatientSettingsView.swift`'s prior `detectorsSection`
+/// so detectors get their own first-class tab, matching the web
+/// dashboard's `/detectors` page. The per-camera assignment toggles
+/// live on the per-camera detail view (Cameras tab), not here — this
+/// view is patient-wide.
+struct PatientDetectorsView: View {
+    let patientId: UUID
+    @Environment(AppEnvironment.self) private var env
+    @State private var showingAddDetector = false
+
+    private var detectors: [Detector] {
+        env.api.detectorsByPatient[patientId] ?? []
+    }
+    private var activeCount: Int { detectors.filter(\.isOn).count }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                if detectors.isEmpty {
+                    emptyCard
+                } else {
+                    list
+                }
+                NemaraButton(
+                    "Add a detector",
+                    variant: .secondary,
+                    block: true,
+                    systemImage: "plus",
+                ) {
+                    showingAddDetector = true
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 120)
+            }
+            .padding(.top, 12)
+        }
+        .background(NemaraColor.paper)
+        .sheet(isPresented: $showingAddDetector) {
+            AddDetectorView(patientId: patientId)
+        }
+    }
+
+    private var emptyCard: some View {
+        NemaraCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No detectors yet")
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.ink)
+                Text("Add a custom detector to describe in plain language what Nemara should watch for.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var list: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .lastTextBaseline, spacing: 8) {
+                NemaraEyebrow("DETECTORS")
+                Spacer()
+                NemaraChip("\(activeCount) active", tone: .action)
+            }
+            .padding(.horizontal, 16)
+
+            NemaraCard(padding: 0) {
+                VStack(spacing: 0) {
+                    ForEach(detectors.indices, id: \.self) { i in
+                        DetectorRow(
+                            patientId: patientId,
+                            detector: detectors[i],
+                            isLast: i == detectors.count - 1,
+                        )
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+}

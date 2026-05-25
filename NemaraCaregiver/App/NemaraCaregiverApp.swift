@@ -104,5 +104,5 @@ extension Notification.Name {
     /// Posted when the caregiver taps an APNs banner / lock-screen
     /// alert. `userInfo["event_id"]` is the UUID of the detector
     /// event to deep-link into.
-    static let nemaraEventPushTapped = Notification.Name("co.elephantlabs.nemara.eventPushTapped")
+    static let nemaraEventPushTapped = Notification.Name("co.sunny.nemara.eventPushTapped")
 }

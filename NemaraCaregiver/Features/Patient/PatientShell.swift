@@ -13,8 +13,12 @@ struct PatientShell: View {
     @Environment(\.dismiss) private var dismiss
     @State private var tab: PatientTab = .live
 
+    /// Five tabs mirror the web dashboard's IA (Live grid +
+    /// per-camera + per-detector + events + patient-level settings).
+    /// Five is the practical max iOS allows in a bottom tab bar
+    /// without auto-collapsing to "More" — HIG-compliant.
     enum PatientTab: Hashable {
-        case live, events, settings
+        case live, events, cameras, detectors, settings
     }
 
     var body: some View {
@@ -34,6 +38,24 @@ struct PatientShell: View {
                 NavigationStack {
                     patientTab {
                         PatientEventsView(patientId: patientId)
+                    } header: {
+                        if let patient { PHeader(patient: patient) { dismiss() } }
+                    }
+                }
+            }
+            Tab("Cameras", systemImage: "camera.fill", value: PatientTab.cameras) {
+                NavigationStack {
+                    patientTab {
+                        PatientCamerasView(patientId: patientId)
+                    } header: {
+                        if let patient { PHeader(patient: patient) { dismiss() } }
+                    }
+                }
+            }
+            Tab("Detectors", systemImage: "sensor.tag.radiowaves.forward.fill", value: PatientTab.detectors) {
+                NavigationStack {
+                    patientTab {
+                        PatientDetectorsView(patientId: patientId)
                     } header: {
                         if let patient { PHeader(patient: patient) { dismiss() } }
                     }

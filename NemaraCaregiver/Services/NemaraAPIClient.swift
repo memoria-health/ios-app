@@ -162,7 +162,7 @@ final class NemaraAPIClient {
     @discardableResult
     func registerDeviceToken(
         apnsToken: String,
-        bundleId: String = "co.elephantlabs.nemara",
+        bundleId: String = "co.sunny.nemara",
         environment: APNsEnvironment,
     ) async throws -> DeviceResponse {
         try await sendJSON(
@@ -346,6 +346,53 @@ final class NemaraAPIClient {
         }
     }
 
+    /// Flip the user-facing toggle fields on a camera: `disabled`
+    /// (pause AI calls; LiveKit stays connected) and `desiredState`
+    /// (hard disconnect from LiveKit — phone polls
+    /// `/v1/cameras/me/desired-state` every 1s and reconciles).
+    ///
+    /// Locally we update the cached row optimistically with the
+    /// response; the Realtime sub on `cameras` would also pick this
+    /// up but doing it now keeps the UI snappy.
+    func updateCamera(_ id: UUID, _ body: UpdateCameraRequest) async throws -> Camera {
+        let updated: Camera = try await sendJSON(
+            method: "PATCH",
+            path: "/v1/cameras/\(id.uuidString.lowercased())",
+            body: body,
+        )
+        if var arr = camerasByPatient[updated.patientId],
+           let idx = arr.firstIndex(where: { $0.id == updated.id }) {
+            arr[idx] = updated
+            camerasByPatient[updated.patientId] = arr
+        }
+        return updated
+    }
+
+    /// Fetch the set of detector IDs currently assigned to a camera.
+    /// The per-camera detail view cross-references this against the
+    /// patient's full detector list to render assignment toggles.
+    func getCameraDetectors(_ id: UUID) async throws -> [UUID] {
+        let resp: CameraDetectorsResponse = try await sendNoBody(
+            method: "GET",
+            path: "/v1/cameras/\(id.uuidString.lowercased())/detectors",
+        )
+        return resp.detectorIds
+    }
+
+    /// Replace a camera's detector assignment set with exactly the
+    /// given IDs. Backend rejects (422) if any ID belongs to a
+    /// different patient. Takes effect on the next detector tick —
+    /// `services/detection/registry.py` reads the join table per
+    /// call, no in-process cache to invalidate.
+    func setCameraDetectors(_ id: UUID, detectorIds: [UUID]) async throws -> [UUID] {
+        let resp: CameraDetectorsResponse = try await sendJSON(
+            method: "PUT",
+            path: "/v1/cameras/\(id.uuidString.lowercased())/detectors",
+            body: SetCameraDetectorsRequest(detectorIds: detectorIds),
+        )
+        return resp.detectorIds
+    }
+
     // MARK: - Detectors
 
     func loadDetectors(forPatient pid: UUID) async throws {
@@ -465,7 +512,14 @@ final class NemaraAPIClient {
         }
         let body = MintTokenRequest(
             room: "patient_\(pid.uuidString.lowercased())",
-            identity: "caregiver_\(caregiverID.uuidString.lowercased())",
+            // LiveKit treats `identity` as a unique participant key per
+            // room. The web dashboard uses `caregiver_<uuid>_web`; this
+            // app uses `caregiver_<uuid>_ios` — keeping them distinct
+            // lets the SAME caregiver subscribe to a patient's cameras
+            // from BOTH devices simultaneously. Without the `_ios`
+            // suffix, LiveKit kicks the older session whenever the
+            // other client (web) connects with the same identity.
+            identity: "caregiver_\(caregiverID.uuidString.lowercased())_ios",
             role: role,
         )
         return try await sendJSON(method: "POST", path: "/v1/livekit/token", body: body)

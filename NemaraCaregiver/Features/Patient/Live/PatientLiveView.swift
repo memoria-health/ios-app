@@ -615,8 +615,29 @@ struct PatientLiveView: View {
     private var allCameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
     }
+    /// Cameras visible in the carousel right now.
+    ///
+    /// Filter rules (matches the web dashboard's `visibleCameras`):
+    ///   1. `livekitIdentity != nil` — only PAIRED cameras. The
+    ///      `online` field is unreliable for never-paired rows: it
+    ///      defaults to `true` at INSERT time and only flips to
+    ///      `false` when a LiveKit participant_left webhook fires.
+    ///      For rows that never had a participant join, it sticks
+    ///      at `true` forever — so filtering on `.online` shows ghost
+    ///      rooms that have no actual phone behind them.
+    ///   2. `!disabled` — caregiver hasn't paused this camera.
+    ///   3. `desiredState == .connected` — caregiver hasn't asked
+    ///      the phone to leave LiveKit entirely.
+    ///
+    /// Note the variable is still named `onlineCameras` — 6 callsites
+    /// reference it, and "online" colloquially means "currently
+    /// visible / participating," which still fits.
     private var onlineCameras: [Camera] {
-        allCameras.filter(\.online)
+        allCameras.filter { cam in
+            cam.livekitIdentity != nil
+              && !cam.disabled
+              && cam.desiredState == .connected
+        }
     }
 }
 

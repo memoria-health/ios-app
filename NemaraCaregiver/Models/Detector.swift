@@ -56,6 +56,13 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     var sensitivity: Sensitivity
     var isOn: Bool
     var customPrompt: String?
+    /// Runtime-contract identifier. For presets: `"fall"` / `"wandering"`
+    /// / `"agitation"` / `"medication"`. For custom detectors:
+    /// `"custom_<8hex>"` once the backend's async LLM compile finishes.
+    /// **Optional** because freshly-created custom detectors return
+    /// with `identifier=null` while the compile runs (~3-5s); UI can
+    /// show a "compiling…" state during that window.
+    var identifier: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -73,6 +80,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case sensitivity
         case isOn = "is_on"
         case customPrompt = "custom_prompt"
+        case identifier
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
