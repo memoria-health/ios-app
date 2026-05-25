@@ -58,7 +58,14 @@ final class SupabaseAuthService {
     /// on subscribed channels evaluate `auth.uid()` against the
     /// signed-in user instead of `NULL`. Without this, Realtime
     /// silently drops every row that any RLS policy gates on the
-    /// caregiver (events, analyses, …). Cancelled in `deinit`.
+    /// caregiver (events, analyses, …).
+    ///
+    /// No explicit cancellation: this service lives for the entire app
+    /// lifetime (one instance, from launch to termination), so the
+    /// task is implicitly torn down with the process. Adding a deinit
+    /// cancel under Swift 6's strict concurrency would require
+    /// nonisolated reads of an actor-isolated property — not worth
+    /// the friction for a no-op cleanup.
     private var authStateTask: Task<Void, Never>?
 
     init() {
@@ -81,10 +88,6 @@ final class SupabaseAuthService {
                 await c.realtimeV2.setAuth(session?.accessToken)
             }
         }
-    }
-
-    deinit {
-        authStateTask?.cancel()
     }
 
     // MARK: - Sign up
