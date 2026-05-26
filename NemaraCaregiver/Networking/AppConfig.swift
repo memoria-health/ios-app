@@ -45,12 +45,29 @@ enum AppConfig {
     static let supabasePasswordResetRedirect = URL(string: "nemara://reset-password")!
 
     /// nemara-backend API base URL.
+    ///
+    /// Resolution order:
+    ///   1. `NEMARA_BACKEND_URL` scheme env var — per-machine override.
+    ///   2. Debug builds (Cmd-R from Xcode) → local uvicorn on the Mac's
+    ///      LAN IP. Lets the inner-loop dev cycle run without redeploying
+    ///      to Railway every change.
+    ///   3. Release builds (Archive / TestFlight / App Store) → Railway
+    ///      prod. This is what real users hit.
     static let backendURL: URL = {
         if let fromEnv = ProcessInfo.processInfo.environment["NEMARA_BACKEND_URL"]
             .flatMap(URL.init) {
             return fromEnv
         }
+        #if DEBUG
+        // Bonjour/mDNS hostname — resolves to whatever IP this Mac
+        // currently has on Wi-Fi. Survives DHCP reassignments and
+        // switching between coffee-shop / home / hotspot networks
+        // without code changes. Both iOS Simulator and a physical
+        // iPhone on the same Wi-Fi resolve it.
+        return URL(string: "http://sunnys-macbook-air.local:8000")!
+        #else
         return URL(string: "https://nemara-backend-production.up.railway.app")!
+        #endif
     }()
 
     /// `true` when both Supabase config values are populated. Gate-keeper
