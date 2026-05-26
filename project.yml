@@ -21,9 +21,9 @@ packages:
     from: "2.0.0"
 
 options:
-  bundleIdPrefix: co.elephantlabs
+  bundleIdPrefix: co.sunny
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "17.0"
   developmentLanguage: en
   groupSortPosition: top
   generateEmptyDirectories: true
@@ -43,7 +43,7 @@ targets:
   NemaraCaregiver:
     type: application
     platform: iOS
-    deploymentTarget: "18.0"
+    deploymentTarget: "17.0"
     dependencies:
       - package: Supabase
         product: Supabase
@@ -91,7 +91,7 @@ targets:
         # reset deep links. Wired in MenoraApp pattern when real auth
         # ships — not handled in v0.
         CFBundleURLTypes:
-          - CFBundleURLName: co.elephantlabs.nemara
+          - CFBundleURLName: co.sunny.nemara
             CFBundleURLSchemes:
               - nemara
         NSCameraUsageDescription: Nemara would use the camera to take a quick photo of the patient for their profile.
@@ -117,17 +117,6 @@ targets:
     configFiles:
       Debug: NemaraCaregiver/Defaults.xcconfig
       Release: NemaraCaregiver/Defaults.xcconfig
-    entitlements:
-      path: NemaraCaregiver/Resources/NemaraCaregiver.entitlements
-      properties:
-        # APNs environment. "development" routes through APNs sandbox
-        # (apns-sandbox-push.apple.com) which accepts tokens from
-        # Xcode-built debug installs. Release builds signed with a
-        # distribution profile auto-promote to "production" at the
-        # codesign step; the entitlements file value here is the
-        # debug default. The caregiver app sends "sandbox" /
-        # "production" in POST /v1/me/devices accordingly (#if DEBUG).
-        aps-environment: development
     settings:
       base:
         TARGETED_DEVICE_FAMILY: "1"
@@ -137,7 +126,18 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ENABLE_PREVIEWS: YES
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_ENTITLEMENTS: NemaraCaregiver/Resources/NemaraCaregiver.entitlements
+      configs:
+        # Per-configuration entitlements. Two separate files so the
+        # APNs environment matches the codesign environment:
+        #   - Debug (Cmd-R from Xcode) → development → sandbox APNs
+        #   - Release (Archive / TestFlight / App Store) → production
+        # Without this split, TestFlight builds silently fail to
+        # register tokens (the "wrong gateway" mismatch) and the
+        # OS skips the notification permission prompt entirely.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: NemaraCaregiver/Resources/NemaraCaregiver-Debug.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: NemaraCaregiver/Resources/NemaraCaregiver-Release.entitlements
 
   NemaraCaregiverTests:
     type: bundle.unit-test
@@ -149,7 +149,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: co.elephantlabs.nemara.caregiver.tests
+        PRODUCT_BUNDLE_IDENTIFIER: co.sunny.nemara.caregiver.tests
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG"
         # The host app's PRODUCT_NAME is "Nemara" (set in Defaults.xcconfig),
         # not the target name "NemaraCaregiver". The test host has to point
@@ -184,12 +184,20 @@ schemes:
       # runningboard) without affecting our own logs.
       environmentVariables:
         OS_ACTIVITY_MODE: disable
-        # LAN IP of the Mac running nemara-backend. 127.0.0.1 only
-        # works on the iOS Simulator (which shares the Mac's localhost);
-        # a real iPhone must reach the Mac over Wi-Fi. Override per
-        # machine if your LAN address differs.
-        NEMARA_BACKEND_URL: http://10.0.0.245:8002
-        SUPABASE_URL: http://10.0.0.245:54341
+        # mDNS .local hostname resolves to whichever Mac is currently
+        # running nemara-backend on this Wi-Fi network — survives IP
+        # changes / DHCP renewals / coffee-shop Wi-Fi without manually
+        # re-editing the IP every time. Both the iOS Simulator and a
+        # real iPhone (with NSAllowsLocalNetworking + the local-network
+        # permission already granted via Info.plist) resolve this fine.
+        #
+        # **This is Sunny's Mac's hostname.** If you're another
+        # developer (e.g. Aryaman), override these locally — either by
+        # editing this file (don't commit), changing your scheme env
+        # vars in Xcode (gets wiped on next `xcodegen generate`), or
+        # creating a user-specific scheme in xcuserdata.
+        NEMARA_BACKEND_URL: http://Sunnys-MacBook-Air.local:8002
+        SUPABASE_URL: http://Sunnys-MacBook-Air.local:54341
         SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
     profile:
       config: Release

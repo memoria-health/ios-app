@@ -2,7 +2,7 @@
 // Per-developer overrides go in Local.xcconfig (gitignored).
 #include? "Local.xcconfig"
 
-PRODUCT_BUNDLE_IDENTIFIER = co.elephantlabs.nemara.caregiver
+PRODUCT_BUNDLE_IDENTIFIER = co.sunny.nemara.caregiver
 PRODUCT_NAME = Nemara
 
 // Signing — pick a team in Xcode the first time you build.
