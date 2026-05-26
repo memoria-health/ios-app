@@ -25,53 +25,67 @@ struct PatientShell: View {
         let patient = env.api.patients.first(where: { $0.id == patientId })
 
         TabView(selection: $tab) {
-            Tab("Live", systemImage: "video.fill", value: PatientTab.live) {
-                NavigationStack {
-                    patientTab {
-                        PatientLiveView(patientId: patientId)
-                    } header: {
-                        if let patient { PHeader(patient: patient) { dismiss() } }
-                    }
+            NavigationStack {
+                patientTab {
+                    PatientLiveView(patientId: patientId)
+                } header: {
+                    if let patient { PHeader(patient: patient) { dismiss() } }
                 }
             }
-            Tab("Events", systemImage: "waveform.path", value: PatientTab.events) {
-                NavigationStack {
-                    patientTab {
-                        PatientEventsView(patientId: patientId)
-                    } header: {
-                        if let patient { PHeader(patient: patient) { dismiss() } }
-                    }
+            .tabItem { Label("Live", systemImage: "video.fill") }
+            .tag(PatientTab.live)
+
+            NavigationStack {
+                patientTab {
+                    PatientEventsView(patientId: patientId)
+                } header: {
+                    if let patient { PHeader(patient: patient) { dismiss() } }
                 }
             }
-            Tab("Cameras", systemImage: "camera.fill", value: PatientTab.cameras) {
-                NavigationStack {
-                    patientTab {
-                        PatientCamerasView(patientId: patientId)
-                    } header: {
-                        if let patient { PHeader(patient: patient) { dismiss() } }
-                    }
+            .tabItem { Label("Events", systemImage: "waveform.path") }
+            .tag(PatientTab.events)
+
+            NavigationStack {
+                patientTab {
+                    PatientCamerasView(patientId: patientId)
+                } header: {
+                    if let patient { PHeader(patient: patient) { dismiss() } }
                 }
             }
-            Tab("Detectors", systemImage: "sensor.tag.radiowaves.forward.fill", value: PatientTab.detectors) {
-                NavigationStack {
-                    patientTab {
-                        PatientDetectorsView(patientId: patientId)
-                    } header: {
-                        if let patient { PHeader(patient: patient) { dismiss() } }
-                    }
+            .tabItem { Label("Cameras", systemImage: "camera.fill") }
+            .tag(PatientTab.cameras)
+
+            NavigationStack {
+                patientTab {
+                    PatientDetectorsView(patientId: patientId)
+                } header: {
+                    if let patient { PHeader(patient: patient) { dismiss() } }
                 }
             }
-            Tab("Settings", systemImage: "gearshape", value: PatientTab.settings) {
-                NavigationStack {
-                    patientTab {
-                        PatientSettingsView(patientId: patientId)
-                    } header: {
-                        if let patient { PHeader(patient: patient) { dismiss() } }
-                    }
+            .tabItem { Label("Detectors", systemImage: "sensor.tag.radiowaves.forward.fill") }
+            .tag(PatientTab.detectors)
+
+            NavigationStack {
+                patientTab {
+                    PatientSettingsView(patientId: patientId)
+                } header: {
+                    if let patient { PHeader(patient: patient) { dismiss() } }
                 }
             }
+            .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tag(PatientTab.settings)
         }
         .background(NemaraColor.paper)
+        // The single LiveKit teardown point. .onDisappear on the
+        // outer TabView fires when the whole patient cover is
+        // dismissed, NOT on inner sub-tab switches — so the room
+        // stays alive across Live ↔ Events ↔ Settings, and only
+        // truly disconnects when the caregiver backs out of the
+        // patient. Pairs with `PatientLiveView.bootstrap`'s
+        // already-connected short-circuit.
+        .onDisappear {
+            Task { await env.liveKit.disconnect() }
+        }
     }
 
     /// A tab body: pinned `PHeader` at the top + scrollable content
@@ -91,8 +105,10 @@ struct PatientShell: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     return PatientShell(patientId: env.api.patients[0].id)
         .environment(env)
 }
+#endif

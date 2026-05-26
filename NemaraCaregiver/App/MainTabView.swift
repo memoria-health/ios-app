@@ -15,17 +15,19 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            Tab("Home", systemImage: "house.fill", value: AppTab.home) {
-                NavigationStack { RosterView() }
-            }
-            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {
-                NavigationStack { AppSettingsView() }
-            }
+            NavigationStack { RosterView() }
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(AppTab.home)
+            NavigationStack { AppSettingsView() }
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(AppTab.settings)
         }
         .background(NemaraColor.paper)
     }
 }
 
+#if DEBUG
 #Preview {
     MainTabView().environment(AppEnvironment.preview())
 }
+#endif
