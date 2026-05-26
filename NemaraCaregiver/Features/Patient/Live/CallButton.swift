@@ -91,6 +91,7 @@ private struct _ActiveCallPulse: ViewModifier {
     }
 }
 
+#if DEBUG
 #Preview {
     HStack(spacing: 20) {
         CallButton(state: .idle, onTap: {})
@@ -100,3 +101,4 @@ private struct _ActiveCallPulse: ViewModifier {
     .padding()
     .background(NemaraColor.ink)
 }
+#endif

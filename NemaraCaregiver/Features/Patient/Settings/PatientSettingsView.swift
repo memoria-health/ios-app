@@ -314,6 +314,7 @@ struct PatientSettingsView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     return NavigationStack {
@@ -321,3 +322,4 @@ struct PatientSettingsView: View {
     }
     .environment(env)
 }
+#endif

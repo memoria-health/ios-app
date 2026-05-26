@@ -233,8 +233,10 @@ struct AddDetectorView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     return AddDetectorView(patientId: env.api.patients[0].id)
         .environment(env)
 }
+#endif

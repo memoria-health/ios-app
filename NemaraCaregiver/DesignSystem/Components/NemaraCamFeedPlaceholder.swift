@@ -74,6 +74,7 @@ private struct FurnitureSilhouette: View {
     }
 }
 
+#if DEBUG
 #Preview {
     VStack(spacing: 14) {
         NemaraCamFeedPlaceholder(hue: 30)
@@ -86,3 +87,4 @@ private struct FurnitureSilhouette: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif

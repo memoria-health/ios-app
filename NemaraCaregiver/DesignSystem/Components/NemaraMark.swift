@@ -36,6 +36,7 @@ struct NemaraMark: View {
     }
 }
 
+#if DEBUG
 #Preview {
     HStack(spacing: 24) {
         NemaraMark(size: 28)
@@ -47,3 +48,4 @@ struct NemaraMark: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif

@@ -90,6 +90,7 @@ struct NemaraSolidPill: View {
     }
 }
 
+#if DEBUG
 #Preview {
     VStack(alignment: .leading, spacing: 12) {
         HStack {
@@ -110,3 +111,4 @@ struct NemaraSolidPill: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif

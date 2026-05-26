@@ -87,6 +87,7 @@ struct NemaraWaveform: View {
     }
 }
 
+#if DEBUG
 #Preview {
     VStack(spacing: 24) {
         NemaraWaveform(levels: (0..<40).map { i in
@@ -104,3 +105,4 @@ struct NemaraWaveform: View {
             .background(NemaraColor.paperDim)
     }
 }
+#endif

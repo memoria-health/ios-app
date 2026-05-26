@@ -7,10 +7,13 @@ import SwiftUI
 /// camera. Swiping during an active call transfers the call to the
 /// newly-displayed camera.
 ///
-/// Connection lifecycle: connect on appear, disconnect on disappear.
-/// The single `env.liveKit` instance handles room switching when the
-/// caregiver navigates from one patient to another (`connect` calls
-/// `disconnect` first).
+/// Connection lifecycle: connect on patient OPEN (`bootstrap`),
+/// disconnect on patient CLOSE (`PatientShell.onDisappear`). Sub-tab
+/// switches inside the patient (Live → Events → Live) keep the room
+/// alive so the video resumes instantly; `bootstrap` short-circuits
+/// when the room is already up. The single `env.liveKit` instance
+/// also handles room switching when the caregiver navigates from one
+/// patient to another (`connect` calls `disconnect` first).
 struct PatientLiveView: View {
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
@@ -61,7 +64,7 @@ struct PatientLiveView: View {
         }
         .background(NemaraColor.paper)
         .task(id: patientId) { await bootstrap() }
-        .onDisappear { Task { await teardown() } }
+        .onDisappear { Task { await tabAwayCleanup() } }
         .onReceive(timer) { now in clockTick = now }
         .onChange(of: selectedCameraId) { _, newValue in
             // Swipe transfers the call atomically — the backend
@@ -157,12 +160,40 @@ struct PatientLiveView: View {
 
     private func bootstrap() async {
         guard patient?.camerasPaused != true else { return }
+        let expectedRoom = "patient_\(patientId.uuidString.lowercased())"
+
+        // Sub-tab return path: room is already up for this patient,
+        // skip the mint+connect entirely. This is what makes
+        // Live → Events → Live feel instant — without it, each
+        // .onAppear here triggered a full LiveKit reconnect.
+        //
+        // `LiveKitClient.connect()` is NOT idempotent (it pre-
+        // disconnects on every call), so the gate has to be here
+        // rather than inside the client. The state check also
+        // doubles as a token-expiry escape hatch: if the SDK has
+        // dropped the room, `state` won't be `.connected` and we
+        // fall through to a fresh mint.
+        if env.liveKit.currentRoom == expectedRoom
+            && env.liveKit.state == .connected {
+            lkError = nil
+            // Only re-resolve the carousel selection if it's stale
+            // (camera unpaired since last visit). Otherwise the
+            // server's "active camera" guess would yank the user
+            // off whatever tile they were last looking at — annoying
+            // every time you tab away and back.
+            if selectedCameraId == nil
+                || !onlineCameras.contains(where: { $0.id == selectedCameraId }) {
+                await resolveSelectedCamera()
+            }
+            return
+        }
+
         do {
             let tok = try await env.api.mintViewerToken(forPatient: patientId)
             await env.liveKit.connect(
                 url: tok.url,
                 token: tok.token,
-                room: "patient_\(patientId.uuidString.lowercased())",
+                room: expectedRoom,
             )
             lkError = nil
             await resolveSelectedCamera()
@@ -182,17 +213,29 @@ struct PatientLiveView: View {
         }
     }
 
-    private func teardown() async {
-        // Always cut the call on disappear — leaving the screen is
-        // semantically "hanging up" in the phone-call metaphor.
+    /// Runs whenever the Live sub-tab disappears — which happens both
+    /// on intra-shell tab switches (Live → Events) AND on the full
+    /// `PatientShell` dismiss. We deliberately do NOT disconnect the
+    /// LiveKit room here, so tab-back resumes video instantly. The
+    /// room teardown lives on `PatientShell.onDisappear`, which only
+    /// fires on the real exit.
+    ///
+    /// The call-end leg stays: leaving the Live screen during an
+    /// active call is still "hang up" in the phone metaphor. We drop
+    /// the viewer-token reconnect (the original belt-and-braces mic
+    /// kill) because `endTalk` already gates the wall phone's audio
+    /// playback server-side, and on the shell-dismiss path the
+    /// follow-up `liveKit.disconnect()` from PatientShell kills any
+    /// local publishing regardless.
+    private func tabAwayCleanup() async {
         if callState == .active {
             try? await env.liveKit.publishMicrophone(enable: false)
             try? await env.api.endTalk(forPatient: patientId)
         }
-        await env.liveKit.disconnect()
         callState = .idle
         callStartedAt = nil
-        selectedCameraId = nil
+        // `selectedCameraId` intentionally preserved — keeps the
+        // carousel on the same tile when the user returns to Live.
     }
 
     // MARK: - Call control
@@ -641,8 +684,10 @@ struct PatientLiveView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     return PatientLiveView(patientId: env.api.patients[0].id)
         .environment(env)
 }
+#endif

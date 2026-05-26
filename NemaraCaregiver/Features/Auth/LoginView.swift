@@ -138,7 +138,9 @@ struct LoginView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { LoginView() }
         .environment(AppEnvironment.preview())
 }
+#endif

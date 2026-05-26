@@ -27,6 +27,7 @@ struct NemaraToggle: View {
     }
 }
 
+#if DEBUG
 #Preview {
     struct Demo: View {
         @State private var a = true
@@ -42,3 +43,4 @@ struct NemaraToggle: View {
     }
     return Demo()
 }
+#endif

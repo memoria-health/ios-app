@@ -138,6 +138,7 @@ struct NemaraPasswordChecklist: View {
     }
 }
 
+#if DEBUG
 #Preview {
     struct Demo: View {
         @State private var email = ""
@@ -156,3 +157,4 @@ struct NemaraPasswordChecklist: View {
     }
     return Demo()
 }
+#endif

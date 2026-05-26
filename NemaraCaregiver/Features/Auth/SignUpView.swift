@@ -150,7 +150,9 @@ struct SignUpView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { SignUpView() }
         .environment(AppEnvironment.preview())
 }
+#endif

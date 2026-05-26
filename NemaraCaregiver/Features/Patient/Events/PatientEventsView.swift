@@ -121,8 +121,10 @@ struct PatientEventsView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     return PatientEventsView(patientId: env.api.patients[0].id)
         .environment(env)
 }
+#endif

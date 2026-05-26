@@ -203,7 +203,9 @@ struct DailySummaryPreviewView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     DailySummaryPreviewView()
         .environment(AppEnvironment.preview())
 }
+#endif

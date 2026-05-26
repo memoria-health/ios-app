@@ -49,6 +49,7 @@ struct NemaraCard<Content: View>: View {
     }
 }
 
+#if DEBUG
 #Preview {
     VStack(spacing: 12) {
         NemaraCard {
@@ -71,3 +72,4 @@ struct NemaraCard<Content: View>: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif

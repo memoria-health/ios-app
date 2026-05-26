@@ -36,6 +36,7 @@ struct NemaraPulse: View {
     }
 }
 
+#if DEBUG
 #Preview {
     HStack(spacing: 16) {
         NemaraPulse(color: NemaraColor.terra)
@@ -45,3 +46,4 @@ struct NemaraPulse: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif

@@ -32,9 +32,11 @@ struct PHeader: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     return PHeader(patient: env.api.patients[0], onHome: {})
         .background(NemaraColor.paper)
         .environment(env)
 }
+#endif

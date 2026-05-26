@@ -300,7 +300,9 @@ struct FeedbackView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { FeedbackView() }
         .environment(AppEnvironment.preview())
 }
+#endif

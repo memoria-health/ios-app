@@ -32,6 +32,7 @@ struct NemaraEyebrow: View {
     }
 }
 
+#if DEBUG
 #Preview {
     VStack(alignment: .leading, spacing: 12) {
         NemaraEyebrow("RECENT EVENTS")
@@ -41,3 +42,4 @@ struct NemaraEyebrow: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif

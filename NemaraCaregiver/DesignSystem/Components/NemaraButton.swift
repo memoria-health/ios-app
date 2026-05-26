@@ -100,6 +100,7 @@ struct NemaraButton: View {
     }
 }
 
+#if DEBUG
 #Preview {
     VStack(spacing: 14) {
         NemaraButton("Primary action", action: {})
@@ -116,3 +117,4 @@ struct NemaraButton: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif

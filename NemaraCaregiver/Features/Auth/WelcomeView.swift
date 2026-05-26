@@ -85,7 +85,9 @@ private func nemaraGhostLabel(_ title: String) -> some View {
         .foregroundStyle(NemaraColor.ink)
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { WelcomeView() }
         .environment(AppEnvironment.preview())
 }
+#endif

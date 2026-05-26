@@ -190,7 +190,9 @@ struct AppSettingsView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { AppSettingsView() }
         .environment(AppEnvironment.preview())
 }
+#endif

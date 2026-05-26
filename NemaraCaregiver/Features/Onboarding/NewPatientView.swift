@@ -385,7 +385,9 @@ struct FlowLayout: Layout {
     }
 }
 
+#if DEBUG
 #Preview {
     NewPatientView()
         .environment(AppEnvironment.preview())
 }
+#endif

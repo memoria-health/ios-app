@@ -92,6 +92,7 @@ struct EventCard: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     let events = env.api.eventsByPatient.values.first ?? []
@@ -104,3 +105,4 @@ struct EventCard: View {
     .background(NemaraColor.paper)
     .environment(env)
 }
+#endif

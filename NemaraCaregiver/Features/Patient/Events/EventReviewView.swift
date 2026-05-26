@@ -189,6 +189,7 @@ struct EventReviewView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     let pid = env.api.patients[0].id
@@ -197,3 +198,4 @@ struct EventReviewView: View {
     }
     .environment(env)
 }
+#endif

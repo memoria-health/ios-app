@@ -133,6 +133,7 @@ private struct BatteryGlyph: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     return VStack(spacing: 10) {
@@ -144,3 +145,4 @@ private struct BatteryGlyph: View {
     .background(NemaraColor.paper)
     .environment(env)
 }
+#endif

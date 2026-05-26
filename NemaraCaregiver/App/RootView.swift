@@ -24,12 +24,16 @@ struct RootView: View {
     }
 }
 
+#if DEBUG
 #Preview("Signed out") {
     let env = AppEnvironment.preview()
     env.auth.currentCaregiver = nil
     return RootView().environment(env)
 }
+#endif
 
+#if DEBUG
 #Preview("Signed in") {
     RootView().environment(AppEnvironment.preview())
 }
+#endif

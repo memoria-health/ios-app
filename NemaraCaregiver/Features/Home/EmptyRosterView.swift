@@ -96,9 +96,11 @@ func roster_largeTitle(sub: String? = nil, title: String, trailing: (() -> AnyVi
     .padding(.bottom, 16)
 }
 
+#if DEBUG
 #Preview {
     let env = AppEnvironment.preview()
     env.api.patients = []
     return EmptyRosterView(showingNewPatient: .constant(false))
         .environment(env)
 }
+#endif

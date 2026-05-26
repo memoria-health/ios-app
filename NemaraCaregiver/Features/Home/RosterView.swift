@@ -85,7 +85,9 @@ private struct IdentifiableUUID: Identifiable, Hashable {
     let id: UUID
 }
 
+#if DEBUG
 #Preview {
     NavigationStack { RosterView() }
         .environment(AppEnvironment.preview())
 }
+#endif

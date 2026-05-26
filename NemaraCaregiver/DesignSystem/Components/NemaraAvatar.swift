@@ -68,6 +68,7 @@ struct NemaraAvatar: View {
     }
 }
 
+#if DEBUG
 #Preview {
     HStack(spacing: 14) {
         NemaraAvatar(letter: "M")
@@ -79,3 +80,4 @@ struct NemaraAvatar: View {
     .padding()
     .background(NemaraColor.paper)
 }
+#endif
