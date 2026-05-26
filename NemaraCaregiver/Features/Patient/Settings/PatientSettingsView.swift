@@ -30,6 +30,11 @@ struct PatientSettingsView: View {
     @State private var showingDeleteConfirm = false
     @State private var isDeleting = false
 
+    // Face enrollment status surface. Loaded on appear and on
+    // dismiss of the re-enrollment cover so the counts stay fresh.
+    @State private var enrollmentSummary: FaceEnrollmentSummary?
+    @State private var showingReEnrollment = false
+
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
     }
@@ -39,6 +44,7 @@ struct PatientSettingsView: View {
             VStack(spacing: 14) {
                 profileCard
                 monitoringCard
+                identityCard
                 feedbackEntry
 
                 NemaraButton(
@@ -76,9 +82,99 @@ struct PatientSettingsView: View {
         .navigationDestination(isPresented: $showingFeedback) {
             FeedbackView()
         }
+        .fullScreenCover(isPresented: $showingReEnrollment) {
+            FaceEnrollmentStepView(patientId: patientId) {
+                showingReEnrollment = false
+                Task { await loadEnrollmentSummary() }
+            }
+            .environment(env)
+        }
+        .task { await loadEnrollmentSummary() }
+    }
+
+    /// Fetch the patient's face-enrollment status so the identity
+    /// card can render the same numbers the web dashboard shows.
+    /// Best-effort: a transient failure leaves the card in its
+    /// previous state.
+    private func loadEnrollmentSummary() async {
+        do {
+            enrollmentSummary = try await env.api.faceEnrollmentSummary(patientId)
+        } catch {
+            NSLog("[PatientSettings] enrollment summary load failed: %@", "\(error)")
+        }
     }
 
     // MARK: - sections
+
+    /// Re-ID enrollment status card. The wording renders three states
+    /// matched byte-for-byte with the web dashboard's
+    /// PatientIdentityStatus card so a caregiver flipping between
+    /// devices sees the same numbers and language.
+    private var identityCard: some View {
+        let s = enrollmentSummary
+        return NemaraCard(padding: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(s?.isEnrolled == true
+                              ? NemaraColor.terraSoft
+                              : NemaraColor.paperDim)
+                    Image(systemName: s?.isEnrolled == true
+                          ? "person.crop.circle.badge.checkmark"
+                          : "person.crop.circle.badge.questionmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(s?.isEnrolled == true
+                                         ? NemaraColor.terra
+                                         : NemaraColor.ink3)
+                }
+                .frame(width: 38, height: 38)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(identityCardTitle)
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text(identityCardSubtitle)
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.ink3)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button {
+                    showingReEnrollment = true
+                } label: {
+                    Text(s?.isEnrolled == true ? "Re-enroll" : "Enroll")
+                        .font(NemaraFont.bodySmallStrong)
+                        .foregroundStyle(NemaraColor.terra)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+    }
+
+    private var identityCardTitle: String {
+        guard let s = enrollmentSummary else { return "Patient identity" }
+        if s.isProcessing { return "Processing \(s.processingCount) photos…" }
+        if s.isEnrolled {
+            return "Enrolled · \(s.selfieCount) selfies · \(s.harvestedCount) harvested"
+        }
+        return "Not enrolled"
+    }
+
+    private var identityCardSubtitle: String {
+        guard let s = enrollmentSummary else { return "Loading…" }
+        if s.isProcessing {
+            return "We're processing the captured photos. This usually takes under a minute."
+        }
+        if s.isEnrolled, let updated = s.lastUpdate {
+            return "Last update \(updated.formatted(date: .abbreviated, time: .omitted))"
+        }
+        if !s.isEnrolled {
+            return "Tap Enroll to set up identity so Nemara can tell your patient apart from others in the household."
+        }
+        return ""
+    }
 
     /// Big "Monitoring" toggle. When off, every camera in the patient's
     /// home stops streaming and detectors stop firing — surfaces as a

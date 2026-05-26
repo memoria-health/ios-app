@@ -29,6 +29,12 @@ struct NewPatientView: View {
     @State private var isSubmitting = false
     @State private var submitError: String?
 
+    // Step 2 (face enrollment) trigger. After Step 1 (profile) submit
+    // succeeds, we present FaceEnrollmentStepView as a full-screen
+    // cover. Either completion path (Submit photos / Skip for now)
+    // dismisses the whole flow.
+    @State private var enrollmentPatientId: UUID?
+
     private var canSubmit: Bool {
         !fullName.trimmingCharacters(in: .whitespaces).isEmpty
     }
@@ -60,6 +66,20 @@ struct NewPatientView: View {
                 footer
             }
             .background(NemaraColor.paper)
+            .fullScreenCover(
+                isPresented: Binding(
+                    get: { enrollmentPatientId != nil },
+                    set: { if !$0 { enrollmentPatientId = nil } },
+                ),
+            ) {
+                if let pid = enrollmentPatientId {
+                    FaceEnrollmentStepView(patientId: pid) {
+                        enrollmentPatientId = nil
+                        dismiss()
+                    }
+                    .environment(env)
+                }
+            }
         }
     }
 
@@ -291,7 +311,9 @@ struct NewPatientView: View {
                         NSLog("[NewPatient] photo upload failed: %@", "\(error)")
                     }
                 }
-                dismiss()
+                // Transition to Step 2 (face enrollment). The cover
+                // dismisses the whole flow on its onComplete callback.
+                enrollmentPatientId = patient.id
             } catch {
                 submitError = error.localizedDescription
             }
