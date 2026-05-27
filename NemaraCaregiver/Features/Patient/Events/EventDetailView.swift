@@ -25,6 +25,7 @@ struct EventDetailView: View {
 
     private enum ClipResolutionState: Equatable {
         case pending
+        case generating
         case loaded(URL)
         case notReady
         case failed(String)
@@ -45,7 +46,7 @@ struct EventDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     titleBlock
-                    if event.hasClip { clipView }
+                    clipView
                     narrativeCard
                 }
                 .padding(.horizontal, 16)
@@ -57,18 +58,27 @@ struct EventDetailView: View {
         }
         .background(NemaraColor.paper)
         .task(id: event.id) {
-            guard event.hasClip else {
-                clipResolutionState = .notReady
-                return
-            }
-            do {
-                if let url = try await env.api.clipURL(forEvent: event.id) {
-                    clipResolutionState = .loaded(url)
-                } else {
-                    clipResolutionState = .notReady
+            // Archive runs ~25-45s after the event fires (post-15s
+            // buffer + per-frame annotation + upload). Poll the clip
+            // URL endpoint until it's ready so the placeholder swaps
+            // to the video as soon as the backend finishes archiving.
+            // We stop polling on success, on a non-recoverable error,
+            // or when the view goes away (task cancellation).
+            while !Task.isCancelled {
+                if !event.hasClip {
+                    clipResolutionState = .generating
                 }
-            } catch {
-                clipResolutionState = .failed(error.localizedDescription)
+                do {
+                    if let url = try await env.api.clipURL(forEvent: event.id) {
+                        clipResolutionState = .loaded(url)
+                        return
+                    }
+                    clipResolutionState = .generating
+                } catch {
+                    clipResolutionState = .failed(error.localizedDescription)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(3))
             }
         }
         .navigationTitle("Event detail")
@@ -126,6 +136,8 @@ struct EventDetailView: View {
             switch clipResolutionState {
             case .pending:
                 clipPlaceholder(label: "Loading clip…")
+            case .generating:
+                clipPlaceholder(label: "Generating clip…")
             case .notReady:
                 clipPlaceholder(label: "Clip processing…")
             case .failed(let msg):

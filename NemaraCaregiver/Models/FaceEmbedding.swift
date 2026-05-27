@@ -31,6 +31,16 @@ struct FaceEmbedding: Identifiable, Hashable, Sendable, Codable {
     let detScore: Float
     let failureReason: String?
     let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case patientId = "patient_id"
+        case source
+        case status
+        case detScore = "det_score"
+        case failureReason = "failure_reason"
+        case createdAt = "created_at"
+    }
 }
 
 
@@ -46,6 +56,14 @@ struct FaceEnrollmentSummary: Sendable, Codable {
     let processingCount: Int
     let failedCount: Int
     let lastUpdate: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case selfieCount = "selfie_count"
+        case harvestedCount = "harvested_count"
+        case processingCount = "processing_count"
+        case failedCount = "failed_count"
+        case lastUpdate = "last_update"
+    }
 
     /// True when the patient has at least one ready selfie embedding.
     /// Drives the "Enrolled" vs "Not enrolled" branch in the status

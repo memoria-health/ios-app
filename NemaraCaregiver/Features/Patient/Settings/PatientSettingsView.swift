@@ -109,41 +109,25 @@ struct PatientSettingsView: View {
     /// Re-ID enrollment status card. The wording renders three states
     /// matched byte-for-byte with the web dashboard's
     /// PatientIdentityStatus card so a caregiver flipping between
-    /// devices sees the same numbers and language.
+    /// devices sees the same language.
     private var identityCard: some View {
-        let s = enrollmentSummary
+        let state = identityState
+        let name = patient?.preferredName ?? patient?.fullName ?? "this patient"
         return NemaraCard(padding: 14) {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(s?.isEnrolled == true
-                              ? NemaraColor.terraSoft
-                              : NemaraColor.paperDim)
-                    Image(systemName: s?.isEnrolled == true
-                          ? "person.crop.circle.badge.checkmark"
-                          : "person.crop.circle.badge.questionmark")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(s?.isEnrolled == true
-                                         ? NemaraColor.terra
-                                         : NemaraColor.ink3)
-                }
-                .frame(width: 38, height: 38)
+                identityIndicator(state)
+                    .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(identityCardTitle)
+                    Text(identityCardTitle(state: state, name: name))
                         .font(NemaraFont.bodySemibold)
                         .foregroundStyle(NemaraColor.ink)
-                    Text(identityCardSubtitle)
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink3)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 Button {
                     showingReEnrollment = true
                 } label: {
-                    Text(s?.isEnrolled == true ? "Re-enroll" : "Enroll")
+                    Text(state == .enrolled ? "Re-enroll" : "Enroll")
                         .font(NemaraFont.bodySmallStrong)
                         .foregroundStyle(NemaraColor.terra)
                 }
@@ -153,27 +137,40 @@ struct PatientSettingsView: View {
         .padding(.horizontal, 14)
     }
 
-    private var identityCardTitle: String {
-        guard let s = enrollmentSummary else { return "Patient identity" }
-        if s.isProcessing { return "Processing \(s.processingCount) photos…" }
-        if s.isEnrolled {
-            return "Enrolled · \(s.selfieCount) selfies · \(s.harvestedCount) harvested"
-        }
-        return "Not enrolled"
+    private enum IdentityCardState { case loading, enrolled, processing, notEnrolled }
+
+    private var identityState: IdentityCardState {
+        guard let s = enrollmentSummary else { return .loading }
+        if s.isProcessing { return .processing }
+        if s.isEnrolled { return .enrolled }
+        return .notEnrolled
     }
 
-    private var identityCardSubtitle: String {
-        guard let s = enrollmentSummary else { return "Loading…" }
-        if s.isProcessing {
-            return "We're processing the captured photos. This usually takes under a minute."
+    private func identityCardTitle(state: IdentityCardState, name: String) -> String {
+        switch state {
+        case .loading:      return "Patient identity"
+        case .enrolled:     return "\(name)'s face enrollment is complete"
+        case .processing:   return "\(name)'s face enrollment is in progress"
+        case .notEnrolled:  return "\(name)'s face enrollment is incomplete"
         }
-        if s.isEnrolled, let updated = s.lastUpdate {
-            return "Last update \(updated.formatted(date: .abbreviated, time: .omitted))"
+    }
+
+    @ViewBuilder
+    private func identityIndicator(_ state: IdentityCardState) -> some View {
+        switch state {
+        case .enrolled:
+            Image(systemName: "checkmark.circle.fill")
+                .resizable()
+                .foregroundStyle(NemaraColor.success)
+        case .processing:
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(NemaraColor.terra)
+        case .notEnrolled, .loading:
+            Image(systemName: "circle.dashed")
+                .resizable()
+                .foregroundStyle(NemaraColor.ink3)
         }
-        if !s.isEnrolled {
-            return "Tap Enroll to set up identity so Nemara can tell your patient apart from others in the household."
-        }
-        return ""
     }
 
     /// Big "Monitoring" toggle. When off, every camera in the patient's
