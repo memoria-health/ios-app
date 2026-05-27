@@ -12,10 +12,7 @@ struct PatientCamerasView: View {
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
 
-    @State private var pairingRoomDraft = ""
-    @State private var showingRoomPrompt = false
-    @State private var showingPairingCode = false
-    @State private var pairingRoom = ""
+    @State private var showingAddCamera = false
 
     private var cameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
@@ -30,13 +27,12 @@ struct PatientCamerasView: View {
                     list
                 }
                 NemaraButton(
-                    "Pair a new phone",
+                    "Add a camera",
                     variant: .secondary,
                     block: true,
                     systemImage: "plus",
                 ) {
-                    pairingRoomDraft = nextDefaultRoomName()
-                    showingRoomPrompt = true
+                    showingAddCamera = true
                 }
                 .padding(.horizontal, 16)
                 // Clear the floating tab bar so the last row isn't
@@ -46,25 +42,9 @@ struct PatientCamerasView: View {
             .padding(.top, 12)
         }
         .background(NemaraColor.paper)
-        .alert("Name the new camera", isPresented: $showingRoomPrompt) {
-            TextField("Room", text: $pairingRoomDraft)
-                .textInputAutocapitalization(.words)
-            Button("Cancel", role: .cancel) {}
-            Button("Generate code") {
-                pairingRoom = pairingRoomDraft.trimmingCharacters(in: .whitespaces)
-                guard !pairingRoom.isEmpty else { return }
-                showingPairingCode = true
-            }
-        } message: {
-            Text("e.g. Kitchen, Living room, Bedroom")
-        }
-        .sheet(isPresented: $showingPairingCode) {
-            PairingCodeSheet(
-                patientId: patientId,
-                room: pairingRoom,
-                iconName: defaultIcon(for: pairingRoom),
-            )
-            .presentationDetents([.medium, .large])
+        .sheet(isPresented: $showingAddCamera) {
+            AddCameraSheet(patientId: patientId)
+                .presentationDetents([.large])
         }
     }
 
@@ -109,25 +89,6 @@ struct PatientCamerasView: View {
         }
     }
 
-    // MARK: - Pairing helpers (duplicated from PatientSettingsView since
-    // we no longer want a dependency on that file).
-
-    private func nextDefaultRoomName() -> String {
-        "Camera \(cameras.count + 1)"
-    }
-
-    private func defaultIcon(for room: String) -> String {
-        let lower = room.lowercased()
-        if lower.contains("kitchen") { return "fork.knife" }
-        if lower.contains("bed") { return "bed.double" }
-        if lower.contains("bath") { return "shower" }
-        if lower.contains("living") || lower.contains("family") { return "tv" }
-        if lower.contains("hall") || lower.contains("entry") || lower.contains("door") {
-            return "door.left.hand.open"
-        }
-        if lower.contains("garage") { return "car" }
-        return "tv"
-    }
 }
 
 /// One row in the cameras list. Live status comes from the canonical
@@ -155,6 +116,13 @@ private struct CameraRow: View {
                     .foregroundStyle(NemaraColor.ink3)
             }
             Spacer()
+            if camera.sourceType == .sensor {
+                // Always-on badge identifying this row as a sensor
+                // camera. Placed before the interesting-state pill so
+                // a sensor camera that is also disconnected/hidden
+                // shows both chips, source first.
+                NemaraChip("SENSOR", tone: .sky)
+            }
             stateBadge
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
