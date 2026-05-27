@@ -225,6 +225,7 @@ private struct SensorCameraTab: View {
     @State private var loadError: String?
     @State private var firstLoadComplete: Bool = false
     @State private var selected: DiscoveredCamera?
+    @State private var showingSetupAssistant: Bool = false
 
     private let pollInterval: TimeInterval = 3.0
 
@@ -244,6 +245,9 @@ private struct SensorCameraTab: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .task { await pollLoop() }
+        .sheet(isPresented: $showingSetupAssistant) {
+            SensorSetupAssistant()
+        }
     }
 
     private var discoveredList: some View {
@@ -292,6 +296,20 @@ private struct SensorCameraTab: View {
                     }
                 }
             }
+            // Always-visible escape hatch: even when discoveries
+            // exist, a new camera the caregiver just plugged in
+            // would not be on home WiFi yet. Tapping here launches
+            // the AP-mode assistant.
+            NemaraButton(
+                "Set up a new sensor camera",
+                variant: .secondary,
+                size: .md,
+                block: true,
+                systemImage: "wifi.router",
+            ) {
+                showingSetupAssistant = true
+            }
+            .padding(.top, 6)
         }
     }
 
