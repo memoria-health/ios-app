@@ -207,19 +207,22 @@ struct ProvisionSensorCameraRequest: Encodable, Sendable {
 
 /// Response from `pi-provision`. The app uses `cameraId` to navigate
 /// to the new camera's detail view post-pairing.
+///
+/// The backend's push refactor removed `pi_stream_url` and
+/// `pi_audio_url` from this response: in push mode the Pi opens an
+/// outbound connection to the backend rather than the backend
+/// pulling from a Pi-served URL, so those fields are meaningless.
+/// The Pi's ingest bearer token is delivered separately via the
+/// next `/v1/cameras/pi-announce` response, not here.
 struct ProvisionSensorCameraResponse: Decodable, Sendable {
     let cameraId: UUID
     let patientId: UUID
-    let piStreamUrl: String
-    let piAudioUrl: String?
     let livekitIdentity: String
     let livekitRoom: String
 
     enum CodingKeys: String, CodingKey {
         case cameraId = "camera_id"
         case patientId = "patient_id"
-        case piStreamUrl = "pi_stream_url"
-        case piAudioUrl = "pi_audio_url"
         case livekitIdentity = "livekit_identity"
         case livekitRoom = "livekit_room"
     }

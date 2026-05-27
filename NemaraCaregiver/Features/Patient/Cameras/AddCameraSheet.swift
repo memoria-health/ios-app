@@ -119,11 +119,12 @@ private struct PhoneCameraTab: View {
 
     private var composeForm: some View {
         VStack(alignment: .leading, spacing: 12) {
-            NemaraField(label: "Room", placeholder: "e.g. Living room") {
-                TextField("Room", text: $room)
-                    .textInputAutocapitalization(.words)
-                    .submitLabel(.next)
-            }
+            NemaraField(
+                "Room",
+                text: $room,
+                placeholder: "e.g. Living room",
+                autocapitalization: .words,
+            )
             IconPicker(selection: $icon)
             NemaraButton(
                 "Generate code",
@@ -425,11 +426,12 @@ private struct AssignSensorForm: View {
                         .truncationMode(.middle)
                 }
             }
-            NemaraField(label: "Room", placeholder: "e.g. Living room") {
-                TextField("Room", text: $room)
-                    .textInputAutocapitalization(.words)
-                    .submitLabel(.done)
-            }
+            NemaraField(
+                "Room",
+                text: $room,
+                placeholder: "e.g. Living room",
+                autocapitalization: .words,
+            )
             IconPicker(selection: $icon)
             if let error {
                 Text(error)
@@ -539,26 +541,6 @@ private struct IconPicker: View {
                     }
                 }
             }
-        }
-    }
-}
-
-private struct NemaraField<Content: View>: View {
-    let label: String
-    let placeholder: String
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(NemaraFont.bodySmallStrong)
-                .foregroundStyle(NemaraColor.ink2)
-            content()
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background(NemaraColor.paperDim)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 }

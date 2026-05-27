@@ -245,9 +245,33 @@ struct SensorSetupAssistant: View {
                 state = .composing
                 return
             }
-            state = .error(error.localizedDescription)
+            // NEHotspotConfigurationError is a raw-Int enum without a
+            // NSError bridge or LocalizedError conformance; map each
+            // case to a user-readable string explicitly.
+            state = .error(Self.describe(error))
         } catch {
             state = .error(error.localizedDescription)
+        }
+    }
+
+    private static func describe(_ error: NEHotspotConfigurationError) -> String {
+        switch error {
+        case .invalid:                  return "The setup network configuration was invalid."
+        case .invalidSSID:              return "The setup network name is not valid."
+        case .invalidWPAPassphrase:     return "The setup network password is not valid."
+        case .invalidWEPPassphrase:     return "The setup network password is not valid."
+        case .invalidEAPSettings:       return "The setup network's authentication settings are not valid."
+        case .invalidHS20Settings:      return "The setup network's Hotspot 2.0 settings are not valid."
+        case .invalidHS20DomainName:    return "The setup network's domain name is not valid."
+        case .userDenied:               return "The setup network join was canceled."
+        case .internal:                 return "iOS could not start the network join."
+        case .pending:                  return "Another network join is already in progress."
+        case .systemConfiguration:      return "iOS rejected the network configuration."
+        case .unknown:                  return "An unknown error occurred while joining the setup network."
+        case .joinOnceNotSupported:     return "One-time joins are not supported on this device."
+        case .alreadyAssociated:        return "Already connected to the setup network."
+        case .applicationIsNotInForeground: return "The app must be in the foreground to join a network."
+        @unknown default:               return "Could not join the setup network."
         }
     }
 }

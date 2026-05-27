@@ -25,7 +25,14 @@ enum AppConfig {
             .flatMap(URL.init) {
             return fromEnv
         }
+        #if DEBUG
+        // Local Supabase running on the dev Mac. mDNS hostname survives
+        // DHCP changes; works for both iOS Simulator and a physical
+        // device on the same Wi-Fi as the Mac.
+        return URL(string: "http://MacBook-Pro-6.local:54341")
+        #else
         return URL(string: "https://zgifmvjnggmgzvtnosnu.supabase.co")
+        #endif
     }()
 
     /// Supabase anon (publishable) key. Env-var first, then a Debug-only
@@ -36,7 +43,13 @@ enum AppConfig {
            !raw.isEmpty {
             return raw
         }
+        #if DEBUG
+        // Local Supabase's anon key (deterministic across installs of
+        // the supabase CLI, signed against the local-only JWT secret).
+        return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+        #else
         return "sb_publishable_OsfCMOdEIb5gvhRWDyNivg_7GriAmyP"
+        #endif
     }()
 
     /// Redirect URL Supabase sends users to after they tap a
@@ -64,7 +77,7 @@ enum AppConfig {
         // switching between coffee-shop / home / hotspot networks
         // without code changes. Both iOS Simulator and a physical
         // iPhone on the same Wi-Fi resolve it.
-        return URL(string: "http://sunnys-macbook-air.local:8000")!
+        return URL(string: "http://MacBook-Pro-6.local:8002")!
         #else
         return URL(string: "https://nemara-backend-production.up.railway.app")!
         #endif
