@@ -336,6 +336,43 @@ final class NemaraAPIClient {
         return response
     }
 
+    /// List sensor cameras that have announced themselves to the
+    /// backend but have not yet been paired to a patient. Drives the
+    /// "Sensor Camera" tab of the add-camera sheet. The backend
+    /// filters to recently-seen (within 5 minutes) unclaimed rows.
+    func listDiscoveredCameras() async throws -> [DiscoveredCamera] {
+        let resp: DiscoveredCamerasResponse = try await sendNoBody(
+            method: "GET", path: "/v1/cameras/discovered",
+        )
+        return resp.pis
+    }
+
+    /// Pair a discovered sensor camera to this patient. The discovery
+    /// ID comes from `listDiscoveredCameras`; the backend looks up
+    /// the URL from the discovery record, creates a `cameras` row
+    /// with `source_type='pi'`, and marks the discovery claimed so
+    /// it disappears from subsequent `listDiscoveredCameras` calls.
+    /// We refresh the patient's camera list so the new row shows
+    /// up immediately.
+    func provisionSensorCamera(
+        forPatient pid: UUID,
+        room: String,
+        iconName: String = "tv",
+        discoveryId: UUID,
+    ) async throws -> ProvisionSensorCameraResponse {
+        let response: ProvisionSensorCameraResponse = try await sendJSON(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/pi-provision",
+            body: ProvisionSensorCameraRequest(
+                room: room,
+                iconName: iconName,
+                discoveryId: discoveryId,
+            ),
+        )
+        try await loadCameras(forPatient: pid)
+        return response
+    }
+
     func deleteCamera(_ id: UUID) async throws {
         try await sendNoBodyVoid(method: "DELETE", path: "/v1/cameras/\(id.uuidString.lowercased())")
         for (pid, cams) in camerasByPatient {
