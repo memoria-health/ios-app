@@ -98,19 +98,19 @@ final class AppEnvironment {
         )
         env.api.patients = [patient]
         env.api.camerasByPatient[pID] = [
-            Camera(disabled: false, desiredState: .connected,
+            Camera(disabled: false, aiPaused: false, desiredState: .connected,
                    id: UUID(), patientId: pID, displayId: 1, room: "Living room",
                    iconName: "tv", online: true,
                    livekitIdentity: "cam_preview1",
                    lastSeenAt: now,
                    createdAt: now.addingTimeInterval(-86_400 * 30)),
-            Camera(disabled: false, desiredState: .connected,
+            Camera(disabled: false, aiPaused: false, desiredState: .connected,
                    id: UUID(), patientId: pID, displayId: 2, room: "Kitchen",
                    iconName: "fork.knife", online: true,
                    livekitIdentity: "cam_preview2",
                    lastSeenAt: now,
                    createdAt: now.addingTimeInterval(-86_400 * 30)),
-            Camera(disabled: false, desiredState: .connected,
+            Camera(disabled: false, aiPaused: false, desiredState: .connected,
                    id: UUID(), patientId: pID, displayId: 3, room: "Bedroom",
                    iconName: "bed.double", online: false,
                    livekitIdentity: nil,

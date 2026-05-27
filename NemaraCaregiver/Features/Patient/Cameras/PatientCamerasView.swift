@@ -175,6 +175,9 @@ private struct CameraRow: View {
         if camera.disabled {
             return "\(id) · HIDDEN"
         }
+        if camera.aiPaused {
+            return "\(id) · AI PAUSED"
+        }
         return "\(id) · \(camera.online ? "LIVE" : "OFFLINE")"
     }
 
@@ -190,6 +193,8 @@ private struct CameraRow: View {
             NemaraChip("OFF", tone: .terra)
         } else if camera.disabled {
             NemaraChip("HIDDEN", tone: .warning)
+        } else if camera.aiPaused {
+            NemaraChip("AI PAUSED", tone: .neutral)
         } else if camera.livekitIdentity == nil {
             NemaraChip("PAIRING", tone: .action)
         }

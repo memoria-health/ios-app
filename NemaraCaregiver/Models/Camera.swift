@@ -19,6 +19,13 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     /// if it came back.
     var disabled: Bool
 
+    /// AI paused — lighter than `disabled`. When true, the backend
+    /// tick skips the Gemini call (synthetic "skipped" row with
+    /// skipped_reason='ai_paused') but the live tile STAYS VISIBLE
+    /// in the grid and video keeps streaming. Lets the caregiver
+    /// watch a room without paying for AI calls.
+    var aiPaused: Bool
+
     /// Whether the wall phone should be joined to the LiveKit room.
     /// The phone polls `GET /v1/cameras/me/desired-state` every 1s
     /// and reconciles by calling `room.disconnect()` /
@@ -58,6 +65,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case iconName = "icon_name"
         case online
         case disabled
+        case aiPaused = "ai_paused"
         case desiredState = "desired_state"
         case livekitIdentity = "livekit_identity"
         case lastSeenAt = "last_seen_at"
@@ -95,16 +103,19 @@ struct CreatePairingCodeResponse: Decodable, Sendable {
 /// changing it).
 struct UpdateCameraRequest: Encodable, Sendable {
     var disabled: Bool?
+    var aiPaused: Bool?
     var desiredState: Camera.DesiredState?
 
     enum CodingKeys: String, CodingKey {
         case disabled
+        case aiPaused = "ai_paused"
         case desiredState = "desired_state"
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(disabled, forKey: .disabled)
+        try c.encodeIfPresent(aiPaused, forKey: .aiPaused)
         try c.encodeIfPresent(desiredState, forKey: .desiredState)
     }
 }

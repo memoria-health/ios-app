@@ -31,6 +31,7 @@ struct CameraDetailView: View {
     @State private var togglingDetectorId: UUID?
 
     @State private var togglingHide = false
+    @State private var togglingAiPause = false
     @State private var togglingDisconnect = false
     @State private var actionError: String?
 
@@ -103,6 +104,12 @@ struct CameraDetailView: View {
                         .foregroundStyle(NemaraColor.ink3)
                 }
                 Spacer()
+                // AI paused indicator. Only shown when the camera is
+                // otherwise visible (not hidden, not disconnected) —
+                // otherwise the stronger badge would be misleading.
+                if cam.aiPaused && !cam.disabled && cam.desiredState == .connected {
+                    NemaraChip("AI PAUSED", tone: .neutral)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -125,6 +132,28 @@ struct CameraDetailView: View {
 
             NemaraCard(padding: 0) {
                 VStack(spacing: 0) {
+                    // Pause AI / Resume AI — instant, no confirm.
+                    // Lighter than Hide: video keeps streaming, only
+                    // the LLM call is skipped.
+                    Button {
+                        Task { await toggleAiPause() }
+                    } label: {
+                        controlRow(
+                            icon: cam.aiPaused ? "waveform" : "waveform.slash",
+                            title: togglingAiPause
+                                ? (cam.aiPaused ? "Resuming AI…" : "Pausing AI…")
+                                : (cam.aiPaused ? "Resume AI" : "Pause AI"),
+                            subtitle: cam.aiPaused
+                                ? "Resume AI tick. Video keeps streaming either way."
+                                : "Pause AI tick. Video keeps streaming.",
+                            destructive: false,
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(togglingHide || togglingAiPause || togglingDisconnect)
+
+                    NemaraColor.line.frame(height: 1)
+
                     // Hide / Show — instant, no confirm.
                     Button {
                         Task { await toggleHide() }
@@ -135,13 +164,13 @@ struct CameraDetailView: View {
                                 ? (cam.disabled ? "Showing…" : "Hiding…")
                                 : (cam.disabled ? "Show camera" : "Hide camera"),
                             subtitle: cam.disabled
-                                ? "Resume AI calls. Instant."
-                                : "Pause AI calls. LiveKit stays connected.",
+                                ? "Show tile + resume AI calls."
+                                : "Hide tile + pause AI calls. LiveKit stays connected.",
                             destructive: false,
                         )
                     }
                     .buttonStyle(.plain)
-                    .disabled(togglingHide || togglingDisconnect)
+                    .disabled(togglingHide || togglingAiPause || togglingDisconnect)
 
                     NemaraColor.line.frame(height: 1)
 
@@ -172,7 +201,7 @@ struct CameraDetailView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .disabled(togglingHide || togglingDisconnect)
+                    .disabled(togglingHide || togglingAiPause || togglingDisconnect)
                 }
             }
             .padding(.horizontal, 16)
@@ -324,6 +353,20 @@ struct CameraDetailView: View {
         do {
             _ = try await env.api.updateCamera(
                 cameraId, UpdateCameraRequest(disabled: !cam.disabled),
+            )
+        } catch {
+            actionError = "Couldn't update: " + error.localizedDescription
+        }
+    }
+
+    private func toggleAiPause() async {
+        guard let cam = camera else { return }
+        togglingAiPause = true
+        actionError = nil
+        defer { togglingAiPause = false }
+        do {
+            _ = try await env.api.updateCamera(
+                cameraId, UpdateCameraRequest(aiPaused: !cam.aiPaused),
             )
         } catch {
             actionError = "Couldn't update: " + error.localizedDescription
