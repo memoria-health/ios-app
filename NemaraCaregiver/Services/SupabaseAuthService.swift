@@ -132,6 +132,69 @@ final class SupabaseAuthService {
         }
     }
 
+    // MARK: - Password reset
+
+    /// Step 1 of the forgot-password flow. Asks Supabase to email the
+    /// user a recovery link. The link points at
+    /// `nemara://reset-password?code=…`; the deep-link handler in
+    /// `NemaraCaregiverApp` routes that into `ResetPasswordView`,
+    /// which calls `exchangeRecoveryCode(_:)` + `updatePassword(_:)`
+    /// to finish the flow.
+    ///
+    /// Supabase returns success whether or not the email is registered
+    /// (privacy). We mirror that in the UI — never reveal whether the
+    /// address has an account.
+    ///
+    /// The `redirectTo` must be on the project's Auth → URL
+    /// Configuration allow-list or Supabase silently drops the link.
+    func requestPasswordReset(email: String) async throws {
+        do {
+            try await client.auth.resetPasswordForEmail(
+                email,
+                redirectTo: AppConfig.supabasePasswordResetRedirect,
+            )
+        } catch let authError as AuthError {
+            throw mapAuthError(authError)
+        } catch {
+            throw APIError.other(message: error.localizedDescription)
+        }
+    }
+
+    /// Step 2: trade the `?code=…` from the recovery deep link for a
+    /// recovery session. The SDK puts the result into the auth client
+    /// so the next `updateUser(password:)` call is authorized as the
+    /// recovering user. Returns the email of the recovering account so
+    /// the UI can show "Reset password for jane@…" for confirmation.
+    func exchangeRecoveryCode(_ code: String) async throws -> String? {
+        do {
+            let session = try await client.auth.exchangeCodeForSession(authCode: code)
+            return session.user.email
+        } catch let authError as AuthError {
+            throw mapAuthError(authError)
+        } catch {
+            throw APIError.other(message: error.localizedDescription)
+        }
+    }
+
+    /// Step 3: set the new password against the active recovery
+    /// session. After this resolves, the recovery session is a fully-
+    /// signed-in session and `onAuthenticated` should run so views
+    /// populate.
+    func updatePassword(_ newPassword: String) async throws {
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+        do {
+            _ = try await client.auth.update(user: UserAttributes(password: newPassword))
+            currentCaregiver = try await onAuthenticated?(nil)
+        } catch let apiError as APIError {
+            throw apiError
+        } catch let authError as AuthError {
+            throw mapAuthError(authError)
+        } catch {
+            throw APIError.other(message: error.localizedDescription)
+        }
+    }
+
     // MARK: - Sign out
 
     func signOut() async {

@@ -66,8 +66,8 @@ struct LoginView: View {
                     }
                     .buttonStyle(.plain)
                     Spacer()
-                    Button {
-                        // Placeholder for forgot-password flow (will deep-link to Supabase reset).
+                    NavigationLink {
+                        ForgotPasswordView()
                     } label: {
                         Text("Forgot password?")
                             .font(NemaraFont.bodySmall.weight(.semibold))

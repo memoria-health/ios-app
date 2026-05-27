@@ -12,6 +12,13 @@ struct NemaraCaregiverApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var environment: AppEnvironment
 
+    /// Set when the user taps a `nemara://reset-password?code=…` link
+    /// from a password-recovery email. Triggers a full-screen
+    /// `ResetPasswordView` cover on top of whatever's currently
+    /// rendered (welcome screen if signed out, dashboard if signed
+    /// in). Cleared when the cover dismisses.
+    @State private var pendingResetCode: String?
+
     init() {
         let env = AppEnvironment.live()
         _environment = State(initialValue: env)
@@ -59,6 +66,40 @@ struct NemaraCaregiverApp: App {
                 .task {
                     await Self.requestPushAuthorization()
                 }
+                .onOpenURL { url in
+                    handleIncomingURL(url)
+                }
+                .fullScreenCover(
+                    isPresented: Binding(
+                        get: { pendingResetCode != nil },
+                        set: { presented in if !presented { pendingResetCode = nil } },
+                    ),
+                ) {
+                    if let code = pendingResetCode {
+                        ResetPasswordView(code: code)
+                            .environment(environment)
+                    }
+                }
+        }
+    }
+
+    /// Route `nemara://` deep links to the right surface. Today only
+    /// `reset-password?code=…` is wired; future flows (auth-callback,
+    /// pairing, etc.) branch off the host component below.
+    private func handleIncomingURL(_ url: URL) {
+        guard url.scheme == "nemara" else { return }
+        let host = url.host(percentEncoded: false)
+        switch host {
+        case "reset-password":
+            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            // Supabase puts the recovery token in `?code=…`. Without
+            // it there's nothing to exchange, so we silently drop the
+            // open — RootView's existing UI is the right fallback.
+            if let code = comps?.queryItems?.first(where: { $0.name == "code" })?.value {
+                pendingResetCode = code
+            }
+        default:
+            break
         }
     }
 
