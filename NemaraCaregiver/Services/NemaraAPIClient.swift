@@ -263,6 +263,89 @@ final class NemaraAPIClient {
         }
     }
 
+    // MARK: - Face enrollment (Re-ID)
+
+    /// Upload N selfies for the patient's Re-ID gallery. Multipart
+    /// with one `photos` part per image. Server returns the
+    /// placeholder rows (status=processing); the caller polls
+    /// `faceEnrollmentSummary` for completion.
+    @discardableResult
+    func submitFaceEmbeddings(
+        _ patientId: UUID,
+        photos: [Data],
+    ) async throws -> [FaceEmbedding] {
+        precondition(!photos.isEmpty, "submitFaceEmbeddings requires at least one photo")
+        let boundary = "nemara-\(UUID().uuidString)"
+        let body = _multipartManyParts(
+            boundary: boundary,
+            partName: "photos",
+            contentType: "image/jpeg",
+            datas: photos,
+        )
+        var request = try await makeRequest(
+            method: "POST",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/face-embeddings",
+        )
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type",
+        )
+        request.httpBody = body
+        return try await sendRequest(request)
+    }
+
+    /// Pull the status-card summary for a patient. Renders the same
+    /// numbers the web dashboard shows.
+    func faceEnrollmentSummary(_ patientId: UUID) async throws -> FaceEnrollmentSummary {
+        try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/face-embeddings/summary",
+        )
+    }
+
+    /// List all face embeddings for the patient. The dashboard uses
+    /// this when the user wants a full breakdown; the status card
+    /// uses the summary endpoint above instead.
+    func listFaceEmbeddings(_ patientId: UUID) async throws -> [FaceEmbedding] {
+        try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/face-embeddings",
+        )
+    }
+
+    /// Delete one face embedding. The backend cascades to delete the
+    /// Storage object too. Used by future audit UI (v0.1).
+    func deleteFaceEmbedding(_ embeddingId: UUID) async throws {
+        try await sendNoBodyVoid(
+            method: "DELETE",
+            path: "/v1/face-embeddings/\(embeddingId.uuidString.lowercased())",
+        )
+    }
+
+    /// Compose a multipart/form-data body with N parts that all share
+    /// the same field name (the `photos` field is repeated per the
+    /// FastAPI convention for `list[UploadFile]`).
+    private func _multipartManyParts(
+        boundary: String,
+        partName: String,
+        contentType: String,
+        datas: [Data],
+    ) -> Data {
+        var body = Data()
+        for (idx, data) in datas.enumerated() {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append(
+                "Content-Disposition: form-data; name=\"\(partName)\"; filename=\"photo_\(idx).jpg\"\r\n"
+                    .data(using: .utf8)!,
+            )
+            body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+            body.append(data)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
+    }
+
     /// Compose a multipart/form-data body for a single binary part.
     /// We hand-roll this instead of pulling in a multipart library —
     /// it's one part, the boundary is fresh per call, and avoiding
@@ -347,6 +430,43 @@ final class NemaraAPIClient {
             method: "POST",
             path: "/v1/cameras/\(cameraId.uuidString.lowercased())/pairing-code",
         )
+    }
+
+    /// List sensor cameras that have announced themselves to the
+    /// backend but have not yet been paired to a patient. Drives the
+    /// "Sensor Camera" tab of the add-camera sheet. The backend
+    /// filters to recently-seen (within 5 minutes) unclaimed rows.
+    func listDiscoveredCameras() async throws -> [DiscoveredCamera] {
+        let resp: DiscoveredCamerasResponse = try await sendNoBody(
+            method: "GET", path: "/v1/cameras/discovered",
+        )
+        return resp.pis
+    }
+
+    /// Pair a discovered sensor camera to this patient. The discovery
+    /// ID comes from `listDiscoveredCameras`; the backend looks up
+    /// the URL from the discovery record, creates a `cameras` row
+    /// with `source_type='pi'`, and marks the discovery claimed so
+    /// it disappears from subsequent `listDiscoveredCameras` calls.
+    /// We refresh the patient's camera list so the new row shows
+    /// up immediately.
+    func provisionSensorCamera(
+        forPatient pid: UUID,
+        room: String,
+        iconName: String = "tv",
+        discoveryId: UUID,
+    ) async throws -> ProvisionSensorCameraResponse {
+        let response: ProvisionSensorCameraResponse = try await sendJSON(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/pi-provision",
+            body: ProvisionSensorCameraRequest(
+                room: room,
+                iconName: iconName,
+                discoveryId: discoveryId,
+            ),
+        )
+        try await loadCameras(forPatient: pid)
+        return response
     }
 
     func deleteCamera(_ id: UUID) async throws {

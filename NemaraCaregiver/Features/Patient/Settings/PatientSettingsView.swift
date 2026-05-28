@@ -30,6 +30,11 @@ struct PatientSettingsView: View {
     @State private var showingDeleteConfirm = false
     @State private var isDeleting = false
 
+    // Face enrollment status surface. Loaded on appear and on
+    // dismiss of the re-enrollment cover so the counts stay fresh.
+    @State private var enrollmentSummary: FaceEnrollmentSummary?
+    @State private var showingReEnrollment = false
+
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
     }
@@ -39,6 +44,7 @@ struct PatientSettingsView: View {
             VStack(spacing: 14) {
                 profileCard
                 monitoringCard
+                identityCard
                 feedbackEntry
 
                 NemaraButton(
@@ -76,9 +82,96 @@ struct PatientSettingsView: View {
         .navigationDestination(isPresented: $showingFeedback) {
             FeedbackView()
         }
+        .fullScreenCover(isPresented: $showingReEnrollment) {
+            FaceEnrollmentStepView(patientId: patientId) {
+                showingReEnrollment = false
+                Task { await loadEnrollmentSummary() }
+            }
+            .environment(env)
+        }
+        .task { await loadEnrollmentSummary() }
+    }
+
+    /// Fetch the patient's face-enrollment status so the identity
+    /// card can render the same numbers the web dashboard shows.
+    /// Best-effort: a transient failure leaves the card in its
+    /// previous state.
+    private func loadEnrollmentSummary() async {
+        do {
+            enrollmentSummary = try await env.api.faceEnrollmentSummary(patientId)
+        } catch {
+            NSLog("[PatientSettings] enrollment summary load failed: %@", "\(error)")
+        }
     }
 
     // MARK: - sections
+
+    /// Re-ID enrollment status card. The wording renders three states
+    /// matched byte-for-byte with the web dashboard's
+    /// PatientIdentityStatus card so a caregiver flipping between
+    /// devices sees the same language.
+    private var identityCard: some View {
+        let state = identityState
+        let name = patient?.preferredName ?? patient?.fullName ?? "this patient"
+        return NemaraCard(padding: 14) {
+            HStack(spacing: 12) {
+                identityIndicator(state)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(identityCardTitle(state: state, name: name))
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                }
+                Spacer()
+                Button {
+                    showingReEnrollment = true
+                } label: {
+                    Text(state == .enrolled ? "Re-enroll" : "Enroll")
+                        .font(NemaraFont.bodySmallStrong)
+                        .foregroundStyle(NemaraColor.terra)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+    }
+
+    private enum IdentityCardState { case loading, enrolled, processing, notEnrolled }
+
+    private var identityState: IdentityCardState {
+        guard let s = enrollmentSummary else { return .loading }
+        if s.isProcessing { return .processing }
+        if s.isEnrolled { return .enrolled }
+        return .notEnrolled
+    }
+
+    private func identityCardTitle(state: IdentityCardState, name: String) -> String {
+        switch state {
+        case .loading:      return "Patient identity"
+        case .enrolled:     return "\(name)'s face enrollment is complete"
+        case .processing:   return "\(name)'s face enrollment is in progress"
+        case .notEnrolled:  return "\(name)'s face enrollment is incomplete"
+        }
+    }
+
+    @ViewBuilder
+    private func identityIndicator(_ state: IdentityCardState) -> some View {
+        switch state {
+        case .enrolled:
+            Image(systemName: "checkmark.circle.fill")
+                .resizable()
+                .foregroundStyle(NemaraColor.success)
+        case .processing:
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(NemaraColor.terra)
+        case .notEnrolled, .loading:
+            Image(systemName: "circle.dashed")
+                .resizable()
+                .foregroundStyle(NemaraColor.ink3)
+        }
+    }
 
     /// Big "Monitoring" toggle. When off, every camera in the patient's
     /// home stops streaming and detectors stop firing — surfaces as a
