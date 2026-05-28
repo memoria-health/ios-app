@@ -60,9 +60,11 @@ struct PatientCamerasView: View {
         }
         .sheet(isPresented: $showingPairingCode) {
             PairingCodeSheet(
-                patientId: patientId,
+                source: .create(
+                    patientId: patientId,
+                    iconName: defaultIcon(for: pairingRoom),
+                ),
                 room: pairingRoom,
-                iconName: defaultIcon(for: pairingRoom),
             )
             .presentationDetents([.medium, .large])
         }
@@ -113,7 +115,18 @@ struct PatientCamerasView: View {
     // we no longer want a dependency on that file).
 
     private func nextDefaultRoomName() -> String {
-        "Camera \(cameras.count + 1)"
+        // Find the lowest unused integer N such that "Camera N" doesn't
+        // collide with an existing room name. count + 1 was buggy: if
+        // a caregiver deletes Camera 2 of three, count is now 2 and we
+        // suggest "Camera 3" — which already exists → 409 on submit.
+        let existing = Set(cameras.map { $0.room.lowercased() })
+        for n in 1...1000 {
+            let candidate = "Camera \(n)"
+            if !existing.contains(candidate.lowercased()) {
+                return candidate
+            }
+        }
+        return "Camera \(cameras.count + 1)"
     }
 
     private func defaultIcon(for room: String) -> String {
@@ -166,7 +179,7 @@ private struct CameraRow: View {
 
     private var statusLine: String {
         let id = "CAM \(String(format: "%02d", camera.displayId))"
-        if camera.livekitIdentity == nil {
+        if !camera.paired {
             return "\(id) · PAIRING"
         }
         if camera.desiredState == .disconnected {
@@ -195,7 +208,7 @@ private struct CameraRow: View {
             NemaraChip("HIDDEN", tone: .warning)
         } else if camera.aiPaused {
             NemaraChip("AI PAUSED", tone: .neutral)
-        } else if camera.livekitIdentity == nil {
+        } else if !camera.paired {
             NemaraChip("PAIRING", tone: .action)
         }
     }

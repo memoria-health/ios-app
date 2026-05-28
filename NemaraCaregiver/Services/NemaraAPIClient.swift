@@ -336,6 +336,19 @@ final class NemaraAPIClient {
         return response
     }
 
+    /// Re-mint a pairing code for an unpaired camera. Used by the
+    /// CameraDetailView "Show pairing code" button when the user
+    /// dismissed the original sheet without entering the code on the
+    /// wall phone. Backend returns 409 if the camera is already
+    /// paired (UI hides the button in that case anyway). Same
+    /// response shape as `createPairingCode`.
+    func regeneratePairingCode(forCamera cameraId: UUID) async throws -> CreatePairingCodeResponse {
+        try await sendNoBody(
+            method: "POST",
+            path: "/v1/cameras/\(cameraId.uuidString.lowercased())/pairing-code",
+        )
+    }
+
     func deleteCamera(_ id: UUID) async throws {
         try await sendNoBodyVoid(method: "DELETE", path: "/v1/cameras/\(id.uuidString.lowercased())")
         for (pid, cams) in camerasByPatient {

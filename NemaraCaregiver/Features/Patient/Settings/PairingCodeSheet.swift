@@ -1,13 +1,26 @@
 import SwiftUI
 
-/// Bottom sheet shown after the caregiver taps "Pair a new phone".
-/// Calls `env.api.createPairingCode(...)` on appear, displays the
-/// 6-digit code in extra-large mono type with a live countdown to
-/// expiry. Closes on success or user-tap-Dismiss.
+/// Bottom sheet shown when the caregiver wants a 6-digit pairing
+/// code. Two modes, selected by `Source`:
+///
+///   - `.create` — first-time pairing flow, called from the "Pair a
+///     new phone" button. Inserts a new `cameras` row with the code.
+///   - `.regenerate` — re-mint flow on an EXISTING unpaired camera,
+///     called from CameraDetailView's "Show pairing code" button when
+///     the user dismissed the original sheet without entering the
+///     code on a wall phone.
+///
+/// Both modes return the same `CreatePairingCodeResponse` shape and
+/// render the same UI; only the loader differs.
 struct PairingCodeSheet: View {
-    let patientId: UUID
+    /// Which API path to hit when the sheet appears.
+    enum Source {
+        case create(patientId: UUID, iconName: String)
+        case regenerate(cameraId: UUID)
+    }
+
+    let source: Source
     let room: String
-    let iconName: String
 
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
@@ -129,9 +142,15 @@ struct PairingCodeSheet: View {
     @MainActor
     private func load() async {
         do {
-            let response = try await env.api.createPairingCode(
-                forPatient: patientId, room: room, iconName: iconName,
-            )
+            let response: CreatePairingCodeResponse
+            switch source {
+            case .create(let patientId, let iconName):
+                response = try await env.api.createPairingCode(
+                    forPatient: patientId, room: room, iconName: iconName,
+                )
+            case .regenerate(let cameraId):
+                response = try await env.api.regeneratePairingCode(forCamera: cameraId)
+            }
             state = .ready(code: response.pairingCode, expiresAt: response.expiresAt)
         } catch {
             state = .error((error as? LocalizedError)?.errorDescription

@@ -33,9 +33,14 @@ struct CameraDetailView: View {
     @State private var togglingHide = false
     @State private var togglingAiPause = false
     @State private var togglingDisconnect = false
+    @State private var deleting = false
     @State private var actionError: String?
 
     @State private var showingDisconnectConfirm = false
+    @State private var showingDeleteConfirm = false
+    @State private var showingPairingCode = false
+
+    @Environment(\.dismiss) private var dismiss
 
     private var camera: Camera? {
         env.api.camerasByPatient[patientId]?.first(where: { $0.id == cameraId })
@@ -49,8 +54,12 @@ struct CameraDetailView: View {
             VStack(spacing: 14) {
                 if let cam = camera {
                     headerCard(cam)
+                    if !cam.paired {
+                        pairingCodeSection(cam)
+                    }
                     stateControls(cam)
                     detectorsSection
+                    deleteCameraButton(cam)
                 } else {
                     Text("Camera not found")
                         .font(NemaraFont.bodySemibold)
@@ -66,6 +75,21 @@ struct CameraDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: cameraId) { await loadAssignments() }
         .alert(
+            "Delete this camera?",
+            isPresented: $showingDeleteConfirm,
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task { await deleteCamera() }
+            }
+        } message: {
+            Text(
+                "The wall phone will unpair on its next poll. "
+                + "Its event history is preserved. You can pair "
+                + "a new phone to this patient any time."
+            )
+        }
+        .alert(
             "Disconnect this camera?",
             isPresented: $showingDisconnectConfirm,
         ) {
@@ -80,6 +104,48 @@ struct CameraDetailView: View {
                 + "about 1-2 seconds.",
             )
         }
+        .sheet(isPresented: $showingPairingCode) {
+            if let cam = camera {
+                PairingCodeSheet(
+                    source: .regenerate(cameraId: cam.id),
+                    room: cam.room,
+                )
+                .presentationDetents([.medium, .large])
+            }
+        }
+    }
+
+    /// "Awaiting pairing" card shown only when the camera row exists
+    /// but no wall phone has completed /v1/cameras/pair yet. Tap-tap
+    /// opens the regenerate-code sheet — fresh 6-digit code each time
+    /// the sheet appears.
+    private func pairingCodeSection(_ cam: Camera) -> some View {
+        NemaraCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                NemaraEyebrow("AWAITING PAIRING")
+                Text("No wall phone has claimed this camera yet.")
+                    .font(NemaraFont.bodySmall)
+                    .foregroundStyle(NemaraColor.ink2)
+                Text(
+                    "Tap below for a 6-digit code, then enter it on the "
+                    + "NemaraCam wall-phone app to complete pairing."
+                )
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 4)
+                NemaraButton(
+                    "Show pairing code",
+                    variant: .primary,
+                    block: true,
+                    systemImage: "qrcode",
+                ) {
+                    showingPairingCode = true
+                }
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Sections
@@ -383,6 +449,53 @@ struct CameraDetailView: View {
             )
         } catch {
             actionError = "Couldn't disconnect: " + error.localizedDescription
+        }
+    }
+
+    /// Delete the camera row from the backend. The wall phone polls
+    /// /v1/cameras/me/desired-state every 1s; after 5 consecutive
+    /// 401/403/404 it self-unpairs (see DesiredStateMonitor in
+    /// NemaraCam). Local cache update from the realtime DELETE event
+    /// will remove the camera from `camerasByPatient` so the parent
+    /// list updates without a refresh.
+    private func deleteCameraButton(_ cam: Camera) -> some View {
+        VStack(spacing: 8) {
+            NemaraEyebrow("DANGER ZONE")
+                .padding(.horizontal, 16)
+            Button {
+                showingDeleteConfirm = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(deleting ? "Deleting…" : "Delete camera")
+                        .font(NemaraFont.bodySmallStrong)
+                    Spacer()
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity)
+                .foregroundStyle(NemaraColor.terra)
+                .background(NemaraColor.terraSoft)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(deleting)
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func deleteCamera() async {
+        deleting = true
+        actionError = nil
+        defer { deleting = false }
+        do {
+            try await env.api.deleteCamera(cameraId)
+            // Pop back to the parent (Cameras list) immediately; the
+            // realtime DELETE event will also remove the row from
+            // env.api.camerasByPatient so the list updates.
+            await MainActor.run { dismiss() }
+        } catch {
+            actionError = "Couldn't delete: " + error.localizedDescription
         }
     }
 

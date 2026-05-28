@@ -57,6 +57,12 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     var lastSeenAt: Date?
     var createdAt: Date
 
+    /// True once the wall phone has completed the /pair handshake.
+    /// False = row exists with an open pairing code, no phone has
+    /// claimed it yet. Drives the "PAIRING" status badge and the
+    /// "Show pairing code" button on CameraDetailView.
+    var paired: Bool
+
     enum CodingKeys: String, CodingKey {
         case id
         case patientId = "patient_id"
@@ -70,6 +76,96 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case livekitIdentity = "livekit_identity"
         case lastSeenAt = "last_seen_at"
         case createdAt = "created_at"
+        case paired
+        // Realtime-payload-only. The backend's REST shape exposes
+        // `paired` directly; Supabase Realtime ships the raw DB row,
+        // which has `api_key_hash` but no `paired`. We read it on
+        // decode (below) to derive `paired` and then drop it.
+        case apiKeyHash = "api_key_hash"
+    }
+
+    /// Custom decoder so a Camera can be hydrated from BOTH:
+    ///   1. The REST response (`paired` is present, explicit).
+    ///   2. A Supabase Realtime row (no `paired`, derive from
+    ///      `api_key_hash` — null hash → unpaired).
+    /// Without (2) the realtime handler would silently fail to decode
+    /// every cameras-table change (paired is a required Bool with no
+    /// default), leaving the iOS cache stale across pair/unpair events.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        patientId = try c.decode(UUID.self, forKey: .patientId)
+        displayId = try c.decode(Int.self, forKey: .displayId)
+        room = try c.decode(String.self, forKey: .room)
+        iconName = try c.decode(String.self, forKey: .iconName)
+        online = try c.decode(Bool.self, forKey: .online)
+        disabled = try c.decode(Bool.self, forKey: .disabled)
+        aiPaused = try c.decode(Bool.self, forKey: .aiPaused)
+        desiredState = try c.decode(DesiredState.self, forKey: .desiredState)
+        livekitIdentity = try c.decodeIfPresent(String.self, forKey: .livekitIdentity)
+        lastSeenAt = try c.decodeIfPresent(Date.self, forKey: .lastSeenAt)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        if let explicit = try c.decodeIfPresent(Bool.self, forKey: .paired) {
+            paired = explicit
+        } else {
+            let hash = try c.decodeIfPresent(String.self, forKey: .apiKeyHash)
+            paired = (hash != nil)
+        }
+    }
+
+    /// Custom encoder needed because we added `apiKeyHash` to
+    /// CodingKeys (for decode-only) without a stored property — that
+    /// blocks Encodable auto-synthesis. We emit every "real" field
+    /// and skip apiKeyHash entirely (we never need to send it back
+    /// to the server; it's read-only on the wire).
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(patientId, forKey: .patientId)
+        try c.encode(displayId, forKey: .displayId)
+        try c.encode(room, forKey: .room)
+        try c.encode(iconName, forKey: .iconName)
+        try c.encode(online, forKey: .online)
+        try c.encode(disabled, forKey: .disabled)
+        try c.encode(aiPaused, forKey: .aiPaused)
+        try c.encode(desiredState, forKey: .desiredState)
+        try c.encodeIfPresent(livekitIdentity, forKey: .livekitIdentity)
+        try c.encodeIfPresent(lastSeenAt, forKey: .lastSeenAt)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(paired, forKey: .paired)
+    }
+
+    /// Memberwise init kept available for fixtures + AppEnvironment
+    /// previews. Swift auto-synthesizes one until you write any custom
+    /// init; once we added `init(from:)`, we have to spell this out.
+    init(
+        disabled: Bool,
+        aiPaused: Bool,
+        desiredState: DesiredState,
+        id: UUID,
+        patientId: UUID,
+        displayId: Int,
+        room: String,
+        iconName: String,
+        online: Bool,
+        livekitIdentity: String?,
+        lastSeenAt: Date?,
+        createdAt: Date,
+        paired: Bool,
+    ) {
+        self.disabled = disabled
+        self.aiPaused = aiPaused
+        self.desiredState = desiredState
+        self.id = id
+        self.patientId = patientId
+        self.displayId = displayId
+        self.room = room
+        self.iconName = iconName
+        self.online = online
+        self.livekitIdentity = livekitIdentity
+        self.lastSeenAt = lastSeenAt
+        self.createdAt = createdAt
+        self.paired = paired
     }
 }
 
