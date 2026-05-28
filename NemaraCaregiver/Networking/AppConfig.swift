@@ -26,7 +26,7 @@ enum AppConfig {
             return fromEnv
         }
         #if DEBUG
-        // Local Supabase started by `supabase start` — API on port 54341.
+        // Local Supabase started by `supabase start`, API on port 54341.
         // Bonjour hostname so both iOS Simulator and a physical iPhone
         // on the same Wi-Fi resolve the Mac's current LAN IP without
         // hardcoding it. See AppConfig.backendURL below for the same
@@ -46,7 +46,7 @@ enum AppConfig {
             return raw
         }
         #if DEBUG
-        // Local Supabase publishable key — deterministic per supabase-cli
+        // Local Supabase publishable key, deterministic per supabase-cli
         // version. Refresh via `supabase status -o env | grep
         // PUBLISHABLE_KEY` if a CLI upgrade ever changes it.
         return "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH"
@@ -80,7 +80,7 @@ enum AppConfig {
         // switching between coffee-shop / home / hotspot networks
         // without code changes. Both iOS Simulator and a physical
         // iPhone on the same Wi-Fi resolve it.
-        return URL(string: "http://sunnys-macbook-air.local:8000")!
+        return URL(string: "http://MacBook-Pro-6.local:8002")!
         #else
         return URL(string: "https://nemara-backend-production.up.railway.app")!
         #endif
