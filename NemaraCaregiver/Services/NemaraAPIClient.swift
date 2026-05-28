@@ -423,6 +423,14 @@ final class NemaraAPIClient {
         return created
     }
 
+    /// Classify + structure a plain-English detector request for the
+    /// create review screen. Synchronous (the user is waiting on
+    /// "Generate"). Returns shape/category/icon/sensitivity + schedule
+    /// (nulls where the model was unsure).
+    func inferDetector(_ body: InferDetectorRequest) async throws -> InferDetectorResponse {
+        try await sendJSON(method: "POST", path: "/v1/detectors/infer", body: body)
+    }
+
     func updateDetector(_ id: UUID, _ body: UpdateDetectorRequest) async throws -> Detector {
         let updated: Detector = try await sendJSON(
             method: "PATCH", path: "/v1/detectors/\(id.uuidString.lowercased())", body: body,

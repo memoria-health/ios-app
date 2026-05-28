@@ -22,12 +22,14 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// the detector row.
     enum Shape: String, Sendable, Codable {
         case pointInTime = "point_in_time"
-        case state       = "state"
+        case state       = "state"       // legacy preset (agitation); not offered in UI
+        case scheduled   = "scheduled"   // absence detector — fires if signal absent in window
 
         var displayName: String {
             switch self {
             case .pointInTime: return "POINT-IN-TIME"
             case .state:       return "STATE"
+            case .scheduled:   return "SCHEDULED"
             }
         }
     }
@@ -40,6 +42,29 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
 
         var displayName: String {
             rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+        }
+    }
+
+    /// Evaluation window for a `scheduled` detector. Fields are optional
+    /// so the LLM can return a partial inference (blanks the user fills
+    /// in). Times are local "HH:MM" 24h; daysOfWeek is 0=Mon..6=Sun.
+    struct ScheduleConfig: Codable, Hashable, Sendable {
+        enum Cadence: String, Codable, Sendable {
+            case daily
+            case weekly
+        }
+        var cadence: Cadence?
+        var daysOfWeek: [Int]?
+        var windowStart: String?
+        var windowEnd: String?
+        var deadline: String?
+
+        enum CodingKeys: String, CodingKey {
+            case cadence
+            case daysOfWeek = "days_of_week"
+            case windowStart = "window_start"
+            case windowEnd = "window_end"
+            case deadline
         }
     }
 
@@ -63,6 +88,8 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// with `identifier=null` while the compile runs (~3-5s); UI can
     /// show a "compiling…" state during that window.
     var identifier: String?
+    /// Null for reactive detectors; the evaluation window for `scheduled`.
+    var scheduleConfig: ScheduleConfig?
     var createdAt: Date
     var updatedAt: Date
 
@@ -81,34 +108,64 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case isOn = "is_on"
         case customPrompt = "custom_prompt"
         case identifier
+        case scheduleConfig = "schedule_config"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
 }
 
 /// Body of `POST /v1/patients/{id}/detectors`. Server forces
-/// `source = custom`; `customPrompt` is required.
+/// `source = custom`. Only `name` + `customPrompt` are required; the
+/// rest are normally LLM-inferred then confirmed on the review screen.
+/// `whereScope`/`whenScope` default server-side (no longer shown in UI).
 struct CreateDetectorRequest: Encodable, Sendable {
     var name: String
-    var iconName: String
-    var description: String
-    var category: Detector.Category
-    var shape: Detector.Shape
-    var whereScope: String
-    var whenScope: String
     var customPrompt: String
+    var description: String = "Custom detector"
+    var category: Detector.Category = .safety
+    var shape: Detector.Shape = .pointInTime
+    var iconName: String = "eye"
+    var whereScope: String = "ALL ROOMS"
+    var whenScope: String = "ALWAYS"
     var sensitivity: Detector.Sensitivity = .standard
+    var scheduleConfig: Detector.ScheduleConfig? = nil
 
     enum CodingKeys: String, CodingKey {
         case name
-        case iconName = "icon_name"
+        case customPrompt = "custom_prompt"
         case description
         case category
         case shape
+        case iconName = "icon_name"
         case whereScope = "where_scope"
         case whenScope = "when_scope"
-        case customPrompt = "custom_prompt"
         case sensitivity
+        case scheduleConfig = "schedule_config"
+    }
+}
+
+/// Body of `POST /v1/detectors/infer` — the plain-English ask the LLM
+/// classifies + structures for the create review screen.
+struct InferDetectorRequest: Encodable, Sendable {
+    var name: String?
+    var prompt: String
+}
+
+/// LLM-inferred fields for the create review screen. Nulls where the
+/// model couldn't confidently determine a value.
+struct InferDetectorResponse: Decodable, Sendable {
+    var shape: Detector.Shape
+    var category: Detector.Category
+    var iconName: String
+    var sensitivity: Detector.Sensitivity
+    var scheduleConfig: Detector.ScheduleConfig?
+
+    enum CodingKeys: String, CodingKey {
+        case shape
+        case category
+        case iconName = "icon_name"
+        case sensitivity
+        case scheduleConfig = "schedule_config"
     }
 }
 
