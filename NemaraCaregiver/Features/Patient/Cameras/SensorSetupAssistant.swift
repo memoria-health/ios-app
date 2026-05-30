@@ -72,7 +72,14 @@ struct SensorSetupAssistant: View {
                     Button("Close") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showingPortal) {
+            // When the captive portal closes, the camera is now joining
+            // the home WiFi. Dismiss this assistant so the caregiver
+            // lands back on the Available cameras list, where the new
+            // camera appears within ~60s via the polling loop. iOS does
+            // not expose success vs cancel from SFSafariViewController,
+            // so any Safari close path collapses to this. If something
+            // went wrong, the caregiver re-opens the assistant.
+            .sheet(isPresented: $showingPortal, onDismiss: { dismiss() }) {
                 SafariView(url: Self._portalUrl)
                     .ignoresSafeArea()
             }

@@ -195,6 +195,25 @@ final class SupabaseAuthService {
         }
     }
 
+    // MARK: - Email change
+
+    /// Asks Supabase Auth to change the user's email. Triggers a
+    /// confirmation link to the new address (and, depending on the
+    /// project's Secure-Email-Change setting, also to the old one).
+    /// Until the user clicks it, `auth.users.email` is unchanged and
+    /// the DB trigger that mirrors into `caregivers.email` does not
+    /// fire — so `currentCaregiver.email` keeps returning the old
+    /// value, which is the correct behavior to display.
+    func requestEmailChange(_ newEmail: String) async throws {
+        do {
+            _ = try await client.auth.update(user: UserAttributes(email: newEmail))
+        } catch let authError as AuthError {
+            throw mapAuthError(authError)
+        } catch {
+            throw APIError.other(message: error.localizedDescription)
+        }
+    }
+
     // MARK: - Sign out
 
     func signOut() async {

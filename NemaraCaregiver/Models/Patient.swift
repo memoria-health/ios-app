@@ -3,8 +3,8 @@ import Foundation
 /// A patient under care. Mirrors `nemara-backend/src/schemas/patient.py`
 /// `PatientResponse`.
 ///
-/// `state`, `statusLine`, `lastEventAt`, `batteryPercent`, `camerasPaused`
-/// are server-managed — wall phones / backend services own these. iOS
+/// `state`, `statusLine`, `lastEventAt`, `camerasPaused` are
+/// server-managed. Wall phones / backend services own these. iOS
 /// never PATCHes them directly except via `cameras_paused` (the explicit
 /// Monitoring toggle).
 struct Patient: Identifiable, Hashable, Sendable, Codable {
@@ -42,8 +42,16 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     var state: State
     var statusLine: String
     var lastEventAt: Date?
-    var batteryPercent: Int?
     var camerasPaused: Bool
+    /// Per-patient master toggle for event-driven email alerts. When on,
+    /// the backend fans alerts to the owning caregiver's account email
+    /// plus every address in `emailAlertRecipients`. Mirrors the web
+    /// dashboard's per-patient EmailAlertsSettings card.
+    var emailAlertsEnabled: Bool
+    /// Additional email addresses (beyond the caregiver's account email)
+    /// to copy on this patient's alerts. Server replaces the full array
+    /// on every PATCH, so clients send the whole list.
+    var emailAlertRecipients: [String]
     /// Bucket-relative key in patient-photos (e.g. "{id}.jpg") when
     /// the caregiver has uploaded an avatar. NULL falls back to
     /// the initials placeholder in `NemaraAvatar`. The signed URL
@@ -64,8 +72,9 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case state
         case statusLine = "status_line"
         case lastEventAt = "last_event_at"
-        case batteryPercent = "battery_percent"
         case camerasPaused = "cameras_paused"
+        case emailAlertsEnabled = "email_alerts_enabled"
+        case emailAlertRecipients = "email_alert_recipients"
         case photoStorageKey = "photo_storage_key"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -128,6 +137,9 @@ struct UpdatePatientRequest: Encodable, Sendable {
     var relation: Patient.Relation?
     var homeAddress: String?
     var camerasPaused: Bool?
+    var emailAlertsEnabled: Bool?
+    /// Send the full array. The backend replaces the column wholesale.
+    var emailAlertRecipients: [String]?
 
     enum CodingKeys: String, CodingKey {
         case fullName = "full_name"
@@ -137,6 +149,8 @@ struct UpdatePatientRequest: Encodable, Sendable {
         case relation
         case homeAddress = "home_address"
         case camerasPaused = "cameras_paused"
+        case emailAlertsEnabled = "email_alerts_enabled"
+        case emailAlertRecipients = "email_alert_recipients"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -152,5 +166,13 @@ struct UpdatePatientRequest: Encodable, Sendable {
         try c.encodeIfPresent(relation, forKey: .relation)
         try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
         try c.encodeIfPresent(camerasPaused, forKey: .camerasPaused)
+        try c.encodeIfPresent(emailAlertsEnabled, forKey: .emailAlertsEnabled)
+        try c.encodeIfPresent(emailAlertRecipients, forKey: .emailAlertRecipients)
     }
+}
+
+/// Body returned by `POST /v1/patients/{id}/test-email`. Echoes a
+/// human-readable status the iOS UI shows next to the Send test button.
+struct TestEmailResponse: Decodable, Sendable {
+    var status: String
 }

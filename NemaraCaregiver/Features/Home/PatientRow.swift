@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// Roster row card — Avatar + name/age + status line (pulse on critical)
-/// + last-event + battery + chevron.
+/// + last-event + chevron.
 ///
 /// Critical state paints the entire card with a terra-soft tint and a
 /// 1.5pt terra border; offline state mutes the status text. Otherwise
 /// the row is a default Card with hairline borders.
 struct PatientRow: View {
+    @Environment(AppEnvironment.self) private var env
     let patient: Patient
 
     /// Paused overrides everything else — caregiver-driven state takes
@@ -14,6 +15,10 @@ struct PatientRow: View {
     /// whose cameras have been paused renders as PAUSED on the roster,
     /// not as critical, because there's nothing live to alarm about.
     private var isPaused: Bool { patient.camerasPaused }
+
+    private var unopenedCount: Int {
+        env.api.eventsByPatient[patient.id]?.filter { !$0.opened }.count ?? 0
+    }
 
     var body: some View {
         NemaraCard(
@@ -60,12 +65,12 @@ struct PatientRow: View {
                             .font(NemaraFont.monoSmall)
                             .tracking(0.5)
                             .foregroundStyle(NemaraColor.ink3)
-                        Text("·").foregroundStyle(NemaraColor.line)
-                        HStack(spacing: 4) {
-                            BatteryGlyph(percent: patient.batteryPercent, color: batteryColor)
-                            Text(batteryLabel)
+                        if !isPaused, unopenedCount > 0 {
+                            Text("·").foregroundStyle(NemaraColor.line)
+                            Text("\(unopenedCount) NEW")
                                 .font(NemaraFont.monoSmall)
-                                .foregroundStyle(batteryColor)
+                                .tracking(0.5)
+                                .foregroundStyle(NemaraColor.terra)
                         }
                     }
                     .opacity(isPaused ? 0.55 : 1)
@@ -88,15 +93,6 @@ struct PatientRow: View {
         case .calm:     return NemaraColor.ink
         }
     }
-    private var batteryColor: Color {
-        guard let p = patient.batteryPercent else { return NemaraColor.ink3 }
-        if p < 20 { return NemaraColor.terra }
-        if p < 40 { return NemaraColor.warning }
-        return NemaraColor.ink3
-    }
-    private var batteryLabel: String {
-        patient.batteryPercent.map { "\($0)%" } ?? "—"
-    }
     private var lastEventLabel: String {
         guard let when = patient.lastEventAt else { return "" }
         let now = Date()
@@ -106,30 +102,6 @@ struct PatientRow: View {
         let hours = minutes / 60
         if hours < 24 { return "\(hours) H AGO" }
         return "YESTERDAY"
-    }
-}
-
-/// Tiny battery glyph matching the design's 16×8 rect-with-tab.
-private struct BatteryGlyph: View {
-    let percent: Int?
-    let color: Color
-
-    var body: some View {
-        let w: CGFloat = 16, h: CGFloat = 8
-        Canvas { ctx, size in
-            let outline = CGRect(x: 0.5, y: 0.5, width: w - 1, height: h - 1)
-            ctx.stroke(Path(roundedRect: outline, cornerRadius: 1.5),
-                       with: .color(color), lineWidth: 1)
-            // tab
-            ctx.fill(Path(roundedRect: CGRect(x: w, y: h * 0.3, width: 1.5, height: h * 0.4), cornerRadius: 0.5),
-                     with: .color(color))
-            if let percent {
-                let fillW = max(1.5, (CGFloat(percent) / 100.0) * (w - 2))
-                ctx.fill(Path(CGRect(x: 2, y: 2, width: fillW, height: h - 4)),
-                         with: .color(color))
-            }
-        }
-        .frame(width: w + 2, height: h)
     }
 }
 

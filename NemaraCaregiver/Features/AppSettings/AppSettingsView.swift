@@ -4,13 +4,15 @@ import SwiftUI
 /// app shell. Lists patients, notification toggles, account actions.
 struct AppSettingsView: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var showingDailySummary = false
-    // Notifications backend isn't wired yet — these are local-only
-    // toggles for now and will be swapped to caregiver-row settings in
-    // a later plan.
+    @State private var showingEditProfile = false
+    @State private var showingContactSupport = false
+    @State private var showingPrivacy = false
+    @State private var showingNewPatient = false
+    @State private var openPatientId: UUID?
+    // Push toggle is local-only for now; wired to caregiver-row settings
+    // in a later plan. Email alerts moved to per-patient settings to
+    // mirror web (PatientEmailAlertsCard).
     @State private var pushEnabled: Bool = true
-    @State private var callEnabled: Bool = true
-    @State private var dailyEmailEnabled: Bool = false
 
     var body: some View {
         ScrollView {
@@ -22,7 +24,7 @@ struct AppSettingsView: View {
                     NemaraEyebrow("YOUR PATIENTS").frame(maxWidth: .infinity, alignment: .leading)
                     patientsCard
                     NemaraButton("Add another patient", variant: .ghost, size: .sm, systemImage: "plus") {
-                        // Reuses RosterView's + sheet — for now this just navigates back to Home tab.
+                        showingNewPatient = true
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -49,32 +51,54 @@ struct AppSettingsView: View {
             }
         }
         .background(NemaraColor.paper)
-        .sheet(isPresented: $showingDailySummary) {
-            DailySummaryPreviewView()
+        .sheet(isPresented: $showingEditProfile) {
+            EditProfileView()
+                .environment(env)
+        }
+        .sheet(isPresented: $showingContactSupport) {
+            SupportContactView()
+                .environment(env)
+        }
+        .sheet(isPresented: $showingPrivacy) {
+            PrivacyPolicyView()
+        }
+        .sheet(isPresented: $showingNewPatient) {
+            NewPatientView()
+                .environment(env)
+        }
+        .fullScreenCover(item: Binding(
+            get: { openPatientId.map(SettingsPatientNav.init) },
+            set: { openPatientId = $0?.id }
+        )) { wrap in
+            PatientShell(patientId: wrap.id)
+                .environment(env)
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
     }
 
     private var caregiverCard: some View {
-        NemaraCard(padding: 16) {
-            HStack(spacing: 12) {
-                NemaraAvatar(letter: env.auth.currentCaregiver?.displayName.first.map(String.init) ?? "J", size: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(env.auth.currentCaregiver?.displayName ?? "Jane Patel")
-                        .font(NemaraFont.title2)
-                        .foregroundStyle(NemaraColor.ink)
-                        .kerning(-0.3)
-                    Text(env.auth.currentCaregiver?.email ?? "jane@patel.co")
-                        .font(NemaraFont.caption)
+        Button { showingEditProfile = true } label: {
+            NemaraCard(padding: 16) {
+                HStack(spacing: 12) {
+                    NemaraAvatar(letter: env.auth.currentCaregiver?.displayName.first.map(String.init) ?? "J", size: 56)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(env.auth.currentCaregiver?.displayName ?? "Jane Patel")
+                            .font(NemaraFont.title2)
+                            .foregroundStyle(NemaraColor.ink)
+                            .kerning(-0.3)
+                        Text(env.auth.currentCaregiver?.email ?? "jane@patel.co")
+                            .font(NemaraFont.caption)
+                            .foregroundStyle(NemaraColor.ink3)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(NemaraColor.ink3)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(NemaraColor.ink3)
             }
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 16)
     }
 
@@ -83,18 +107,21 @@ struct AppSettingsView: View {
             VStack(spacing: 0) {
                 ForEach(env.api.patients.indices, id: \.self) { i in
                     let p = env.api.patients[i]
-                    HStack(spacing: 12) {
-                        NemaraAvatar(letter: p.avatarLetter, size: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(p.fullName).font(NemaraFont.bodySemibold).foregroundStyle(NemaraColor.ink)
-                            Text(p.relation.displayName).font(NemaraFont.caption).foregroundStyle(NemaraColor.ink3)
+                    Button { openPatientId = p.id } label: {
+                        HStack(spacing: 12) {
+                            NemaraAvatar(letter: p.avatarLetter, size: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.fullName).font(NemaraFont.bodySemibold).foregroundStyle(NemaraColor.ink)
+                                Text(p.relation.displayName).font(NemaraFont.caption).foregroundStyle(NemaraColor.ink3)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(NemaraColor.ink3)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(NemaraColor.ink3)
+                        .padding(12)
                     }
-                    .padding(12)
+                    .buttonStyle(.plain)
                     if i < env.api.patients.count - 1 {
                         NemaraColor.line.frame(height: 1)
                     }
@@ -107,24 +134,6 @@ struct AppSettingsView: View {
         NemaraCard(padding: 0) {
             VStack(spacing: 0) {
                 rowToggle(icon: "bell.fill", title: "Push notifications", isOn: $pushEnabled)
-                NemaraColor.line.frame(height: 1)
-                rowToggle(icon: "phone.fill", title: "Phone calls for critical events", isOn: $callEnabled)
-                NemaraColor.line.frame(height: 1)
-                HStack(spacing: 12) {
-                    iconTile("envelope.fill")
-                    Text("Daily email summary").font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
-                    Spacer()
-                    NemaraToggle(isOn: Binding(
-                        get: { dailyEmailEnabled },
-                        set: { newValue in
-                            if newValue && !dailyEmailEnabled {
-                                showingDailySummary = true
-                            }
-                            dailyEmailEnabled = newValue
-                        }
-                    ))
-                }
-                .padding(14)
             }
         }
     }
@@ -132,9 +141,15 @@ struct AppSettingsView: View {
     private var accountCard: some View {
         NemaraCard(padding: 0) {
             VStack(spacing: 0) {
-                rowChevron(icon: "lock.shield.fill", title: "Privacy & data")
+                Button { showingPrivacy = true } label: {
+                    rowChevron(icon: "lock.shield.fill", title: "Privacy & data")
+                }
+                .buttonStyle(.plain)
                 NemaraColor.line.frame(height: 1)
-                rowChevron(icon: "envelope.fill", title: "Contact support")
+                Button { showingContactSupport = true } label: {
+                    rowChevron(icon: "envelope.fill", title: "Contact support")
+                }
+                .buttonStyle(.plain)
                 NemaraColor.line.frame(height: 1)
                 Button {
                     Task { await env.auth.signOut() }
@@ -188,6 +203,13 @@ struct AppSettingsView: View {
         }
         .padding(14)
     }
+}
+
+/// `fullScreenCover(item:)` requires `Identifiable`. UUID itself can't
+/// safely conform (potential stdlib conflict), so we wrap. Mirrors the
+/// private wrapper in RosterView.
+private struct SettingsPatientNav: Identifiable, Hashable {
+    let id: UUID
 }
 
 #if DEBUG

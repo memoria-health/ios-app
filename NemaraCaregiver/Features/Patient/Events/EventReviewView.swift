@@ -153,29 +153,62 @@ struct EventReviewView: View {
 
     private var footer: some View {
         NemaraButton("Submit review", variant: .primary, size: .lg, block: true) {
-            let trimmedNotes = notes.isEmpty ? nil : notes
-            Task {
-                _ = try? await env.api.updateEvent(
-                    event.id,
-                    UpdateEventRequest(
-                        opened: true,
-                        reviewed: true,
-                        reviewChoice: choice,
-                        reviewNotes: trimmedNotes,
-                    ),
-                )
-                if let onSubmitted {
-                    onSubmitted()
-                } else {
-                    dismiss()
-                }
-            }
+            submit()
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 14)
         .background(NemaraColor.paper)
         .overlay(NemaraColor.line.frame(height: 1), alignment: .top)
+    }
+
+    /// Optimistic submit: write the reviewed state into the local
+    /// observable cache and dismiss immediately, then fire the PATCH
+    /// in a background Task. On failure we roll the cache back to the
+    /// snapshot and publish the error on `env.api.lastReviewError` so
+    /// the events view can show a dismissible banner. iOS gives the
+    /// caregiver a snappy modal close without hiding network failures.
+    private func submit() {
+        let trimmedNotes = notes.isEmpty ? nil : notes
+        let original = event
+        let nowChoice = choice
+
+        if var arr = env.api.eventsByPatient[patientId],
+           let idx = arr.firstIndex(where: { $0.id == original.id }) {
+            arr[idx].opened = true
+            arr[idx].reviewed = true
+            arr[idx].reviewChoice = nowChoice
+            arr[idx].reviewNotes = trimmedNotes
+            arr[idx].reviewedAt = Date()
+            env.api.eventsByPatient[patientId] = arr
+        }
+
+        if let onSubmitted {
+            onSubmitted()
+        } else {
+            dismiss()
+        }
+
+        Task {
+            do {
+                _ = try await env.api.updateEvent(
+                    original.id,
+                    UpdateEventRequest(
+                        opened: true,
+                        reviewed: true,
+                        reviewChoice: nowChoice,
+                        reviewNotes: trimmedNotes,
+                    ),
+                )
+            } catch {
+                if var arr = env.api.eventsByPatient[patientId],
+                   let idx = arr.firstIndex(where: { $0.id == original.id }) {
+                    arr[idx] = original
+                    env.api.eventsByPatient[patientId] = arr
+                }
+                env.api.lastReviewError = "Couldn't save your review. \(error.localizedDescription) Tap the event to try again."
+            }
+        }
     }
 
     private func subText(_ k: DetectionEvent.ReviewChoice) -> String {

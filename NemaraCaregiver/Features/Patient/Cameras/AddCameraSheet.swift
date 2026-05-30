@@ -317,11 +317,11 @@ private struct SensorCameraTab: View {
     private var setupHelp: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 8) {
-                helpLine("1.", "Plug the camera in and wait ~30 seconds.")
-                helpLine("2.", "On this phone, go to Settings → WiFi and connect to the network named Nemara-Setup-XXXXXX.")
-                helpLine("3.", "Your phone should automatically open a setup page. If not, open Safari and visit 192.168.4.1.")
-                helpLine("4.", "Pick your home WiFi and enter the password.")
-                helpLine("5.", "Reconnect to your home WiFi. The camera will appear below within about a minute.")
+                helpLine("1.", "Plug the camera in and wait about 30 seconds for it to power on.")
+                helpLine("2.", "Tap \"Set up a new sensor camera\" below.")
+                helpLine("3.", "Enter the 6-character code printed on the camera, then tap \"Connect to camera\". iOS will ask permission to join the camera's setup WiFi.")
+                helpLine("4.", "The setup page opens automatically. Pick your home WiFi and enter the password.")
+                helpLine("5.", "The camera joins your home WiFi and appears under Available cameras within about a minute.")
             }
             .padding(.top, 8)
         } label: {
@@ -482,13 +482,13 @@ private struct AssignSensorForm: View {
 private struct IconPicker: View {
     @Binding var selection: String
 
-    private let options: [(String, String)] = [
-        ("tv", "Living room"),
-        ("fork.knife", "Kitchen"),
-        ("bed.double", "Bedroom"),
-        ("shower", "Bathroom"),
-        ("door.left.hand.open", "Hallway"),
-        ("car", "Garage"),
+    private let options: [String] = [
+        "tv",
+        "fork.knife",
+        "bed.double",
+        "shower",
+        "door.left.hand.open",
+        "car",
     ]
 
     var body: some View {
@@ -498,44 +498,35 @@ private struct IconPicker: View {
                 .foregroundStyle(NemaraColor.ink2)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(options, id: \.0) { name, label in
+                    ForEach(options, id: \.self) { name in
                         Button {
                             selection = name
                         } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: name)
-                                    .font(.system(size: 18, weight: .regular))
-                                    .foregroundStyle(
-                                        selection == name
-                                        ? NemaraColor.ink
-                                        : NemaraColor.ink3
-                                    )
-                                Text(label)
-                                    .font(NemaraFont.monoSmall)
-                                    .foregroundStyle(
-                                        selection == name
-                                        ? NemaraColor.ink2
-                                        : NemaraColor.ink3
-                                    )
-                            }
-                            .frame(width: 64, height: 56)
-                            .background(
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .fill(
-                                        selection == name
-                                        ? NemaraColor.cardAlt
-                                        : NemaraColor.paperDim
-                                    )
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .stroke(
-                                        selection == name
-                                        ? NemaraColor.ink2
-                                        : Color.clear,
-                                        lineWidth: 1,
-                                    )
-                            )
+                            Image(systemName: name)
+                                .font(.system(size: 20, weight: .regular))
+                                .foregroundStyle(
+                                    selection == name
+                                    ? NemaraColor.ink
+                                    : NemaraColor.ink3
+                                )
+                                .frame(width: 52, height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        .fill(
+                                            selection == name
+                                            ? NemaraColor.cardAlt
+                                            : NemaraColor.paperDim
+                                        )
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        .stroke(
+                                            selection == name
+                                            ? NemaraColor.ink2
+                                            : Color.clear,
+                                            lineWidth: 1,
+                                        )
+                                )
                         }
                         .buttonStyle(.plain)
                     }

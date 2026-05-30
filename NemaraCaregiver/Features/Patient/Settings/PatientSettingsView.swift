@@ -45,6 +45,7 @@ struct PatientSettingsView: View {
                 profileCard
                 monitoringCard
                 identityCard
+                PatientEmailAlertsCard(patientId: patientId)
                 feedbackEntry
 
                 NemaraButton(
@@ -56,10 +57,9 @@ struct PatientSettingsView: View {
                 .foregroundStyle(NemaraColor.terra)
                 .disabled(isDeleting || patient == nil)
                 .padding(.top, 8)
-                // Clear the floating tab bar at the bottom — without
-                // this the destructive button sits behind it and taps
-                // route to the wrong view.
-                .padding(.bottom, 120)
+                // Clear the floating tab bar. 40 sits comfortably above
+                // the Liquid Glass bar without leaving dead space.
+                .padding(.bottom, 40)
             }
             .padding(.top, 12)
         }
@@ -182,45 +182,95 @@ struct PatientSettingsView: View {
         return NemaraCard(
             tone: paused ? .alt : .default,
             padding: 14,
-            borderColor: paused ? NemaraColor.line : NemaraColor.line
+            borderColor: NemaraColor.line
         ) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(paused ? NemaraColor.paperDim : NemaraColor.actionSoft)
-                    Image(systemName: paused ? "video.slash.fill" : "video.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(paused ? NemaraColor.ink3 : NemaraColor.action)
-                }
-                .frame(width: 38, height: 38)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(paused ? "Monitoring paused" : "Monitoring on")
-                        .font(NemaraFont.bodySemibold)
-                        .foregroundStyle(NemaraColor.ink)
-                    Text(paused
-                         ? "Every camera in the home is off. No detection, no live feed."
-                         : "All cameras are streaming and detectors are running.")
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink3)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                NemaraToggle(isOn: Binding(
-                    get: { !(patient?.camerasPaused ?? false) },
-                    set: { newValue in
-                        guard let id = patient?.id else { return }
-                        Task {
-                            _ = try? await env.api.updatePatient(
-                                id, UpdatePatientRequest(camerasPaused: !newValue),
-                            )
-                        }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(paused ? NemaraColor.paperDim : NemaraColor.actionSoft)
+                        Image(systemName: paused ? "video.slash.fill" : "video.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(paused ? NemaraColor.ink3 : NemaraColor.action)
                     }
-                ))
+                    .frame(width: 38, height: 38)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(paused ? "Monitoring paused" : "Monitoring on")
+                            .font(NemaraFont.bodySemibold)
+                            .foregroundStyle(NemaraColor.ink)
+                        Text(paused
+                             ? "AI calls are off and every camera has left LiveKit. Resume to reconnect, about 1 to 2 seconds per camera."
+                             : "Pausing stops AI calls and disconnects every camera from LiveKit so nothing is streaming. Resume reconnects them automatically.")
+                            .font(NemaraFont.caption)
+                            .foregroundStyle(NemaraColor.ink3)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    NemaraToggle(isOn: Binding(
+                        get: { !(patient?.camerasPaused ?? false) },
+                        set: { newValue in monitoringToggle(turningOn: newValue) }
+                    ))
+                }
+
+                if let context = monitoringContext(paused: paused) {
+                    Text(context)
+                        .font(NemaraFont.captionStrong)
+                        .tracking(0.4)
+                        .foregroundStyle(NemaraColor.ink3)
+                        .padding(.leading, 50)
+                }
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    /// Camera roll-up that appears below the monitoring toggle. Renders
+    /// only when the camera list is loaded; the parent view never
+    /// blocks on this. Format mirrors web's pause-monitoring toggle.
+    private func monitoringContext(paused: Bool) -> String? {
+        guard let id = patient?.id,
+              let cams = env.api.camerasByPatient[id]
+        else { return nil }
+        let paired = cams.filter { $0.paired }
+        let total = paired.count
+        if total == 0 { return nil }
+        let disabled = paired.filter { $0.disabled }.count
+        let visible = total - disabled
+        let camWord = total == 1 ? "camera" : "cameras"
+        if paused {
+            return "ALL \(total) \(camWord.uppercased()) HIDDEN"
+        }
+        if disabled == 0 {
+            return "\(visible) OF \(total) \(camWord.uppercased()) VISIBLE"
+        }
+        return "\(visible) OF \(total) CAMERAS VISIBLE · \(disabled) INDIVIDUALLY DISABLED"
+    }
+
+    /// Optimistic flip with rollback. Writes the new value into the
+    /// observable `patients` array before firing the PATCH so the UI
+    /// updates instantly; on failure we revert to the previous value.
+    /// Same-value writes are a server no-op (the cascade is skipped),
+    /// so this is safe to re-issue.
+    private func monitoringToggle(turningOn: Bool) {
+        guard let id = patient?.id,
+              let idx = env.api.patients.firstIndex(where: { $0.id == id })
+        else { return }
+        let previous = env.api.patients[idx].camerasPaused
+        let next = !turningOn
+        env.api.patients[idx].camerasPaused = next
+        Task {
+            do {
+                _ = try await env.api.updatePatient(
+                    id, UpdatePatientRequest(camerasPaused: next),
+                )
+            } catch {
+                if let i = env.api.patients.firstIndex(where: { $0.id == id }) {
+                    env.api.patients[i].camerasPaused = previous
+                }
+            }
+        }
     }
 
     private var profileCard: some View {

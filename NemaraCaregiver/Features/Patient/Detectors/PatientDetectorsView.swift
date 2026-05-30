@@ -36,7 +36,7 @@ struct PatientDetectorsView: View {
                     showingAddDetector = true
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 120)
+                .padding(.bottom, 40)
             }
             .padding(.top, 12)
         }

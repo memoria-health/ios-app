@@ -29,6 +29,12 @@ final class NemaraAPIClient {
     var detectorsByPatient: [UUID: [Detector]] = [:]
     var eventsByPatient: [UUID: [DetectionEvent]] = [:]
 
+    /// Last failed event-review submission. Set by view code that does
+    /// optimistic review submits when the background PATCH errors; the
+    /// events view observes this and renders a dismissible banner.
+    /// Stays set until the user dismisses the banner (writes nil back).
+    var lastReviewError: String?
+
     /// `true` while `bootstrap()` is in flight. Roster + tabs use this
     /// to show a single loading affordance instead of three per-screen
     /// spinners.
@@ -49,6 +55,15 @@ final class NemaraAPIClient {
     /// One channel per replicated table. Held so `teardown()` can
     /// `unsubscribe()` cleanly on sign-out.
     private var channels: [RealtimeChannelV2] = []
+
+    /// Set by `AppEnvironment` so the cameras Realtime handler can
+    /// poke the LiveKit reconciler without taking a hard dependency on
+    /// `LiveKitClient`. Called with the camera's `livekit_identity`
+    /// whenever a Realtime UPDATE arrives with `online=true` — gives
+    /// the iOS SDK a chance to re-subscribe to a track it may have
+    /// missed during a publisher reconnect (the iOS analog of the
+    /// backend's REST reconciler).
+    var onCameraOnline: (@MainActor (String) -> Void)?
 
     /// Long-running tasks that consume each channel's `AsyncStream`.
     /// Cancelled in `teardown()`.
@@ -153,6 +168,19 @@ final class NemaraAPIClient {
         )
     }
 
+    // MARK: - Contact Support (POST /v1/support)
+
+    /// Forwards a Contact Support message from Settings to the team via
+    /// Resend. The backend resolves the caregiver from the JWT and
+    /// sets replyTo to their account email so replies land in their
+    /// inbox. Returns the server's status string for a friendly toast.
+    func sendSupport(subject: String, message: String) async throws -> SupportResponse {
+        try await sendJSON(
+            method: "POST", path: "/v1/support",
+            body: SupportRequest(subject: subject, message: message),
+        )
+    }
+
     // MARK: - Device tokens (POST /v1/me/devices)
 
     /// Register or refresh an APNs device token for the caller.
@@ -196,6 +224,16 @@ final class NemaraAPIClient {
             patients[idx] = updated
         }
         return updated
+    }
+
+    /// Trigger a one-off test alert email for a patient. Sends to the
+    /// patient's configured recipients (account email + extras)
+    /// regardless of `emailAlertsEnabled`; the backend treats this as
+    /// an explicit user action. Returns a human-readable status string.
+    func sendPatientTestEmail(_ id: UUID) async throws -> TestEmailResponse {
+        try await sendNoBody(
+            method: "POST", path: "/v1/patients/\(id.uuidString.lowercased())/test-email",
+        )
     }
 
     /// Upload (or replace) a patient's avatar. Multipart with one part
@@ -950,6 +988,7 @@ extension NemaraAPIClient {
             var arr = camerasByPatient[cam.patientId] ?? []
             if !arr.contains(where: { $0.id == cam.id }) { arr.append(cam) }
             camerasByPatient[cam.patientId] = arr.sorted { $0.displayId < $1.displayId }
+            notifyOnlineIfNeeded(cam)
         case .update(let a):
             guard let cam = try? a.decodeRecord(as: Camera.self, decoder: dec) else { return }
             var arr = camerasByPatient[cam.patientId] ?? []
@@ -959,6 +998,7 @@ extension NemaraAPIClient {
                 arr.append(cam)
             }
             camerasByPatient[cam.patientId] = arr.sorted { $0.displayId < $1.displayId }
+            notifyOnlineIfNeeded(cam)
         case .delete(let a):
             guard let id = uuid(from: a.oldRecord["id"]) else { return }
             for (pid, arr) in camerasByPatient {
@@ -968,6 +1008,18 @@ extension NemaraAPIClient {
                 }
             }
         }
+    }
+
+    /// Fires `onCameraOnline` whenever a Realtime UPDATE/INSERT lands
+    /// a row with `online=true` AND `livekitIdentity` set. The hook
+    /// lets `AppEnvironment` ask `LiveKitClient.ensureSubscribed` to
+    /// recover from any SDK-side `track_subscribed` event that got
+    /// lost during a brief publisher disconnect. Cheap to call on
+    /// every UPDATE: `ensureSubscribed` no-ops when the track is
+    /// already present.
+    private func notifyOnlineIfNeeded(_ cam: Camera) {
+        guard cam.online, let identity = cam.livekitIdentity else { return }
+        onCameraOnline?(identity)
     }
 
     private func handleDetectorChange(_ action: AnyAction) {

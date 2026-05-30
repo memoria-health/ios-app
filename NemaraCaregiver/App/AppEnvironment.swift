@@ -37,6 +37,18 @@ final class AppEnvironment {
         let liveKit = LiveKitClient()
         let env = AppEnvironment(auth: auth, api: api, liveKit: liveKit)
 
+        // iOS analog of the backend's REST-poll reconciler. When
+        // Supabase Realtime delivers a `cameras` row with online=true,
+        // ask LiveKitClient to make sure we're subscribed to its
+        // tracks — recovers from any SDK-side `track_subscribed` that
+        // got lost during a brief publisher reconnect. The API client
+        // doesn't know about LiveKit; the wiring lives here so the
+        // two services stay decoupled.
+        api.onCameraOnline = { [weak liveKit] identity in
+            guard let liveKit else { return }
+            Task { await liveKit.ensureSubscribed(identity: identity) }
+        }
+
         // Provisioning + bootstrap pipeline. AppEnvironment owns the
         // composition; auth + api stay decoupled.
         auth.onAuthenticated = { [weak api] signUpDisplayName in
@@ -90,8 +102,9 @@ final class AppEnvironment {
             state: .critical,
             statusLine: "Possible fall, living room",
             lastEventAt: now.addingTimeInterval(-42 * 60),
-            batteryPercent: 78,
             camerasPaused: false,
+            emailAlertsEnabled: false,
+            emailAlertRecipients: [],
             photoStorageKey: nil,
             createdAt: now.addingTimeInterval(-86_400 * 30),
             updatedAt: now,

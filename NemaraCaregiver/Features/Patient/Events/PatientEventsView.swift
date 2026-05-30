@@ -37,6 +37,9 @@ struct PatientEventsView: View {
         ScrollView {
             VStack(spacing: 12) {
                 titleRow
+                if let err = env.api.lastReviewError {
+                    reviewErrorBanner(err)
+                }
                 filterChips
                 ForEach(visible) { ev in
                     Button {
@@ -87,6 +90,34 @@ struct PatientEventsView: View {
                 .clipShape(Capsule(style: .continuous))
         }
         .padding(.top, 2)
+    }
+
+    private func reviewErrorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(NemaraColor.terra)
+                .padding(.top, 1)
+            Text(message)
+                .font(NemaraFont.bodySmall)
+                .foregroundStyle(NemaraColor.ink)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button { env.api.lastReviewError = nil } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(NemaraColor.terraSoft)
+        .overlay(
+            RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous)
+                .strokeBorder(NemaraColor.terra.opacity(0.3), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
     }
 
     private var filterChips: some View {

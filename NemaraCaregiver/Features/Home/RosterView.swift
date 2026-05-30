@@ -7,6 +7,7 @@ import SwiftUI
 struct RosterView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var showingNewPatient = false
+    @State private var showingEditProfile = false
     @State private var openPatientId: UUID?
 
     var body: some View {
@@ -16,7 +17,7 @@ struct RosterView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
-                        roster_largeTitle(sub: "Good morning, \(firstName)", title: "Today") {
+                        roster_largeTitle(sub: "\(greeting), \(firstName)", title: "Today") {
                             AnyView(
                                 HStack(spacing: 12) {
                                     Button { showingNewPatient = true } label: {
@@ -25,7 +26,10 @@ struct RosterView: View {
                                             .foregroundStyle(NemaraColor.ink)
                                     }
                                     .buttonStyle(.plain)
-                                    NemaraAvatar(letter: firstName, size: 28)
+                                    Button { showingEditProfile = true } label: {
+                                        NemaraAvatar(letter: firstName, size: 28)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             )
                         }
@@ -68,12 +72,24 @@ struct RosterView: View {
         .sheet(isPresented: $showingNewPatient) {
             NewPatientView()
         }
+        .sheet(isPresented: $showingEditProfile) {
+            EditProfileView()
+                .environment(env)
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
     }
 
     private var firstName: String {
         env.auth.currentCaregiver?.displayName.split(separator: " ").first.map(String.init) ?? "Jane"
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12:  return "Good morning"
+        case 12..<17: return "Good afternoon"
+        default:      return "Good evening"
+        }
     }
 }
 
