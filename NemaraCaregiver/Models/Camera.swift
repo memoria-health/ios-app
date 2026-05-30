@@ -94,9 +94,11 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case paired
         // Realtime-payload-only. The backend's REST shape exposes
         // `paired` directly; Supabase Realtime ships the raw DB row,
-        // which has `api_key_hash` but no `paired`. We read it on
-        // decode (below) to derive `paired` and then drop it.
+        // which has `api_key_hash` / `ingest_token_hash` but no
+        // `paired`. We read these on decode (below) to derive
+        // `paired` source-type-aware and then drop them.
         case apiKeyHash = "api_key_hash"
+        case ingestTokenHash = "ingest_token_hash"
     }
 
     /// Custom decoder so a Camera can be hydrated from BOTH:
@@ -117,14 +119,27 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         disabled = try c.decode(Bool.self, forKey: .disabled)
         aiPaused = try c.decode(Bool.self, forKey: .aiPaused)
         desiredState = try c.decode(DesiredState.self, forKey: .desiredState)
+        // Default to .phone for Supabase Realtime payloads that predate
+        // the source_type column. Without this fallback, decoding older
+        // rows would fail and crash the realtime stream.
+        sourceType = try c.decodeIfPresent(SourceType.self, forKey: .sourceType) ?? .phone
         livekitIdentity = try c.decodeIfPresent(String.self, forKey: .livekitIdentity)
         lastSeenAt = try c.decodeIfPresent(Date.self, forKey: .lastSeenAt)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         if let explicit = try c.decodeIfPresent(Bool.self, forKey: .paired) {
             paired = explicit
         } else {
-            let hash = try c.decodeIfPresent(String.self, forKey: .apiKeyHash)
-            paired = (hash != nil)
+            // Derive from auth-credential columns. iPhone cameras carry
+            // their bearer hash on api_key_hash; Pi cameras skip the
+            // pairing-code/api_key flow and store the equivalent on
+            // ingest_token_hash. The previous code only checked
+            // api_key_hash, which made every Pi camera decode as
+            // paired=false from Realtime — UI then flipped to
+            // "PAIRING" on every UPDATE even though pairing
+            // completed at provision time.
+            let apiKeyHash = try c.decodeIfPresent(String.self, forKey: .apiKeyHash)
+            let ingestTokenHash = try c.decodeIfPresent(String.self, forKey: .ingestTokenHash)
+            paired = (apiKeyHash != nil) || (ingestTokenHash != nil)
         }
     }
 
@@ -144,6 +159,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         try c.encode(disabled, forKey: .disabled)
         try c.encode(aiPaused, forKey: .aiPaused)
         try c.encode(desiredState, forKey: .desiredState)
+        try c.encode(sourceType, forKey: .sourceType)
         try c.encodeIfPresent(livekitIdentity, forKey: .livekitIdentity)
         try c.encodeIfPresent(lastSeenAt, forKey: .lastSeenAt)
         try c.encode(createdAt, forKey: .createdAt)
@@ -156,6 +172,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     init(
         disabled: Bool,
         aiPaused: Bool,
+        sourceType: SourceType = .phone,
         desiredState: DesiredState,
         id: UUID,
         patientId: UUID,
@@ -170,6 +187,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     ) {
         self.disabled = disabled
         self.aiPaused = aiPaused
+        self.sourceType = sourceType
         self.desiredState = desiredState
         self.id = id
         self.patientId = patientId
@@ -183,56 +201,27 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         self.paired = paired
     }
 
-    /// Default to .phone when decoding from a Supabase Realtime
-    /// payload that predates the source_type column. Without this
-    /// initializer, older payloads would fail decode and crash the
-    /// realtime stream.
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try c.decode(UUID.self, forKey: .id)
-        self.patientId = try c.decode(UUID.self, forKey: .patientId)
-        self.displayId = try c.decode(Int.self, forKey: .displayId)
-        self.room = try c.decode(String.self, forKey: .room)
-        self.iconName = try c.decode(String.self, forKey: .iconName)
-        self.online = try c.decode(Bool.self, forKey: .online)
-        self.disabled = try c.decode(Bool.self, forKey: .disabled)
-        self.desiredState = try c.decode(DesiredState.self, forKey: .desiredState)
-        self.sourceType = try c.decodeIfPresent(SourceType.self, forKey: .sourceType) ?? .phone
-        self.livekitIdentity = try c.decodeIfPresent(String.self, forKey: .livekitIdentity)
-        self.lastSeenAt = try c.decodeIfPresent(Date.self, forKey: .lastSeenAt)
-        self.createdAt = try c.decode(Date.self, forKey: .createdAt)
-    }
-
-    /// Explicit memberwise init kept for in-app construction (e.g.,
-    /// optimistic Camera rows built before the network round-trip).
-    /// Parameter order matches the field declaration order so it
-    /// reads the same as the synthesized memberwise init would.
-    init(
-        disabled: Bool,
-        sourceType: SourceType = .phone,
-        desiredState: DesiredState,
-        id: UUID,
-        patientId: UUID,
-        displayId: Int,
-        room: String,
-        iconName: String,
-        online: Bool,
-        livekitIdentity: String?,
-        lastSeenAt: Date?,
-        createdAt: Date,
-    ) {
-        self.disabled = disabled
-        self.sourceType = sourceType
-        self.desiredState = desiredState
-        self.id = id
-        self.patientId = patientId
-        self.displayId = displayId
-        self.room = room
-        self.iconName = iconName
-        self.online = online
-        self.livekitIdentity = livekitIdentity
-        self.lastSeenAt = lastSeenAt
-        self.createdAt = createdAt
+    /// Eligibility predicate for the Live tab: "this camera SHOULD be
+    /// rendered as a tile right now, subject to the LiveKit SDK
+    /// having (or being about to have) a video track for it."
+    ///
+    /// History note: this used to also gate on `online` (a backend
+    /// signal). As of the REST-polled reconciler refactor (2026-05-29),
+    /// the SDK's `videoTracksByIdentity` map is the source of truth
+    /// for "is the camera actually publishing right now" and the Live
+    /// tab gates rendering on track presence directly via
+    /// `LiveKitClient.connectivity`. `online` is still a meaningful
+    /// signal — it's used for the Cameras-tab settings pill — but the
+    /// Live tab no longer reads it. This stops the failure mode where
+    /// the backend's `online` would lie (e.g., during the SDK-event-
+    /// loss bug) and hide a tile whose publisher was actually fine.
+    ///
+    /// True iff: paired (has a livekit_identity), not user-hidden,
+    /// the caregiver intent is connected.
+    var isLiveStreaming: Bool {
+        livekitIdentity != nil
+            && !disabled
+            && desiredState == .connected
     }
 }
 

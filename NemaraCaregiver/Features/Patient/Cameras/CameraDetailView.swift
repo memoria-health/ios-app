@@ -54,7 +54,11 @@ struct CameraDetailView: View {
             VStack(spacing: 14) {
                 if let cam = camera {
                     headerCard(cam)
-                    if !cam.paired {
+                    // Pairing-code section only applies to wall-phone
+                    // cameras. Sensor (Pi) cameras get their ingest
+                    // token at provision time, so a 6-digit code would
+                    // be misleading on this surface.
+                    if cam.sourceType == .phone && !cam.paired {
                         pairingCodeSection(cam)
                     }
                     stateControls(cam)

@@ -116,14 +116,7 @@ private struct CameraRow: View {
                     .foregroundStyle(NemaraColor.ink3)
             }
             Spacer()
-            if camera.sourceType == .sensor {
-                // Always-on badge identifying this row as a sensor
-                // camera. Placed before the interesting-state pill so
-                // a sensor camera that is also disconnected/hidden
-                // shows both chips, source first.
-                NemaraChip("SENSOR", tone: .sky)
-            }
-            stateBadge
+            userToggleBadges
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(NemaraColor.ink3)
@@ -132,39 +125,35 @@ private struct CameraRow: View {
         .contentShape(Rectangle())
     }
 
+    /// Single connection signal: ONLINE iff the backend has recently
+    /// observed frames arriving (state_machine writes `online=true`
+    /// on each detector tick; the periodic stale-online sweeper
+    /// writes `online=false` when frames stop). Unpaired rows can't
+    /// flip online=true by construction (online requires a tick
+    /// which requires CameraIngest which requires credentials), so
+    /// they always render OFFLINE without us having to check
+    /// `paired` here.
     private var statusLine: String {
         let id = "CAM \(String(format: "%02d", camera.displayId))"
-        if !camera.paired {
-            return "\(id) · PAIRING"
-        }
-        if camera.desiredState == .disconnected {
-            return "\(id) · DISCONNECTED"
-        }
-        if camera.disabled {
-            return "\(id) · HIDDEN"
-        }
-        if camera.aiPaused {
-            return "\(id) · AI PAUSED"
-        }
-        return "\(id) · \(camera.online ? "LIVE" : "OFFLINE")"
+        return "\(id) · \(camera.online ? "ONLINE" : "OFFLINE")"
     }
 
-    /// Compact pill to the right of the row. Only shows when state is
-    /// "interesting" (i.e., not the default Connected+visible). Lets
-    /// the caregiver eyeball at-a-glance which cameras need attention.
-    /// NemaraChip tones come from {neutral, terra, sky, action,
-    /// warning, dark} — picked for semantic weight (terra=destructive,
-    /// warning=needs-attention, action=informational).
+    /// User-triggered settings render as independent additive chips.
+    /// All three can be active at once; we show each one that is.
+    /// Distinct from the ONLINE/OFFLINE primary status, which is the
+    /// system's observation of frame arrival, not the user's intent.
     @ViewBuilder
-    private var stateBadge: some View {
-        if camera.desiredState == .disconnected {
-            NemaraChip("OFF", tone: .terra)
-        } else if camera.disabled {
-            NemaraChip("HIDDEN", tone: .warning)
-        } else if camera.aiPaused {
-            NemaraChip("AI PAUSED", tone: .neutral)
-        } else if !camera.paired {
-            NemaraChip("PAIRING", tone: .action)
+    private var userToggleBadges: some View {
+        HStack(spacing: 4) {
+            if camera.desiredState == .disconnected {
+                NemaraChip("DISCONNECTED", tone: .terra)
+            }
+            if camera.disabled {
+                NemaraChip("HIDDEN", tone: .warning)
+            }
+            if camera.aiPaused {
+                NemaraChip("AI PAUSED", tone: .neutral)
+            }
         }
     }
 }

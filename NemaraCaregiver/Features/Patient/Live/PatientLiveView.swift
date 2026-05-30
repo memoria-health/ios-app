@@ -387,6 +387,34 @@ struct PatientLiveView: View {
                 HStack {
                     statePill(connectivity: connectivity)
                     Spacer()
+                    // Per-tile audio mute toggle. Independent of Talk
+                    // mode: tapping unmutes a tile so the caregiver can
+                    // listen passively without starting a call. The
+                    // active Talk camera is always audible regardless of
+                    // this toggle; the toggle controls the non-Talk
+                    // default mute state for each tile.
+                    if let id = identity {
+                        Button {
+                            _ = env.liveKit.toggleAudio(forIdentity: id)
+                        } label: {
+                            Image(
+                                systemName: env.liveKit.audioEnabledByIdentity.contains(id)
+                                    ? "speaker.wave.2.fill"
+                                    : "speaker.slash.fill"
+                            )
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(NemaraColor.terraInk)
+                            .padding(8)
+                            .background(NemaraColor.ink.opacity(0.55))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            env.liveKit.audioEnabledByIdentity.contains(id)
+                                ? "Mute \(cam.room) audio"
+                                : "Unmute \(cam.room) audio"
+                        )
+                    }
                     Button {
                         fullScreenCameraId = cam.id
                     } label: {
@@ -660,26 +688,29 @@ struct PatientLiveView: View {
     }
     /// Cameras visible in the carousel right now.
     ///
-    /// Filter rules (matches the web dashboard's `visibleCameras`):
-    ///   1. `livekitIdentity != nil` — only PAIRED cameras. The
-    ///      `online` field is unreliable for never-paired rows: it
-    ///      defaults to `true` at INSERT time and only flips to
-    ///      `false` when a LiveKit participant_left webhook fires.
-    ///      For rows that never had a participant join, it sticks
-    ///      at `true` forever — so filtering on `.online` shows ghost
-    ///      rooms that have no actual phone behind them.
-    ///   2. `!disabled` — caregiver hasn't paused this camera.
-    ///   3. `desiredState == .connected` — caregiver hasn't asked
-    ///      the phone to leave LiveKit entirely.
+    /// SDK-direct rule: a tile is in the carousel iff
+    ///   1. The camera is eligible (`isLiveStreaming` — paired, not
+    ///      user-hidden, intent=connected).
+    ///   2. The LiveKit SDK has a subscribed video track for the
+    ///      camera's identity (`videoTracksByIdentity` contains it).
     ///
-    /// Note the variable is still named `onlineCameras` — 6 callsites
-    /// reference it, and "online" colloquially means "currently
-    /// visible / participating," which still fits.
+    /// Rule 2 is the bug fix from the 2026-05-29 incident: the
+    /// backend's `cameras.online` column would lag the SDK by up to
+    /// ~10s (the REST reconcile interval) and, before the reconciler
+    /// refactor, could go stale for hours. Reading the SDK's track
+    /// map directly puts the tile state in lockstep with the actual
+    /// stream: as soon as `track_subscribed` fires the tile appears,
+    /// as soon as `track_unsubscribed` fires it disappears.
+    ///
+    /// Note the variable is still named `onlineCameras` for the 6
+    /// callsites; the semantic is now "cameras with a live video
+    /// track right now," which still fits colloquially.
     private var onlineCameras: [Camera] {
-        allCameras.filter { cam in
-            cam.livekitIdentity != nil
-              && !cam.disabled
-              && cam.desiredState == .connected
+        let tracks = env.liveKit.videoTracksByIdentity
+        return allCameras.filter { cam in
+            guard cam.isLiveStreaming else { return false }
+            guard let identity = cam.livekitIdentity else { return false }
+            return tracks[identity] != nil
         }
     }
 }

@@ -105,6 +105,17 @@ final class LiveKitClient {
     /// `audioLevels` entry; all other identities stay flat.
     private var activeCallIdentity: String?
 
+    /// Per-camera user-set audio listen state. When an identity is in
+    /// this set, its remote audio is played to the caregiver's speaker
+    /// even outside a Talk call. The caregiver toggles this via the
+    /// per-tile mute button on the Live tab.
+    ///
+    /// Audio plays iff `identity in audioEnabledByIdentity || identity
+    /// == activeCallIdentity`. Talk wins (the active call always plays
+    /// regardless of user-set state), and the previous mute state is
+    /// preserved across Talk start/end so silencing a tile sticks.
+    private(set) var audioEnabledByIdentity: Set<String> = []
+
     /// Tap on the combined remote-audio buffer (all remote tracks
     /// mixed just before playback). The per-track
     /// `RemoteAudioTrack.add(audioRenderer:)` path was dead in
@@ -148,11 +159,19 @@ final class LiveKitClient {
     /// view / call" and "show offline / waiting". Don't read `state`,
     /// `cam.online`, or `videoTracksByIdentity` directly — the
     /// answer can disagree across them during transient reconnects.
+    ///
+    /// `cam.online` is intentionally NOT consulted: the SDK's
+    /// `videoTracksByIdentity` map IS the most direct signal for
+    /// "video is flowing from this publisher right now," and the
+    /// backend's `online` column can lag the SDK by up to ~10s (the
+    /// REST reconcile interval). Using SDK presence keeps the chip
+    /// honest at the same instant the tile starts/stops rendering
+    /// video.
     func connectivity(of cam: Camera) -> CameraConnectivity {
         guard let identity = cam.livekitIdentity else { return .unpaired }
         guard state == .connected else { return .roomDown }
         if videoTracksByIdentity[identity] != nil { return .live }
-        return cam.online ? .joining : .offline
+        return .offline
     }
 
     /// Convenience for the common "is fully live" gate (call buttons,
@@ -178,6 +197,60 @@ final class LiveKitClient {
         }
     }
 
+    // MARK: - Best-effort re-subscribe (Realtime-driven reconciler)
+
+    /// Best-effort re-subscribe path for the case where the SDK has
+    /// missed a `track_subscribed` event for an identity that we know
+    /// (via Supabase Realtime `cameras.online=true`) is currently
+    /// publishing. This is the iOS analog of the backend's REST-poll
+    /// reconciler: the SDK's in-memory event-sourced view of a room
+    /// can drift after the WebRTC engine restarts internally (we saw
+    /// this on the backend with the `recreateEngine` bug class).
+    ///
+    /// Steps, in order of escalation:
+    ///   1. Already have a video track for this identity → no-op.
+    ///   2. Room not connected yet → bail; the connect-time backfill
+    ///      will pick it up.
+    ///   3. Participant present in `remoteParticipants` but tracks
+    ///      missing → walk publications and call `set(subscribed:
+    ///      true)` so the SDK re-issues the subscribe RPC.
+    ///   4. Participant absent from SDK entirely (true desync) →
+    ///      force a room disconnect. The caller's supervisor /
+    ///      connect-time backfill brings it back with a fresh
+    ///      participant list.
+    ///
+    /// Idempotent and cheap; safe to call from every Realtime
+    /// `cameras` UPDATE.
+    func ensureSubscribed(identity: String) async {
+        guard state == .connected else { return }
+        if videoTracksByIdentity[identity] != nil { return }
+
+        let participant = room.remoteParticipants.values.first(where: {
+            $0.identity?.stringValue == identity
+        })
+        guard let participant else {
+            #if DEBUG
+            print("[LiveKit] ensureSubscribed: identity=\(identity) missing from SDK — forcing reconnect")
+            #endif
+            await room.disconnect()
+            return
+        }
+
+        #if DEBUG
+        print("[LiveKit] ensureSubscribed: identity=\(identity) found; re-subscribing \(participant.trackPublications.count) publication(s)")
+        #endif
+        for pub in participant.trackPublications.values {
+            guard let remotePub = pub as? RemoteTrackPublication else { continue }
+            do {
+                try await remotePub.set(subscribed: true)
+            } catch {
+                #if DEBUG
+                print("[LiveKit] ensureSubscribed: set(subscribed:) failed for sid=\(pub.sid.stringValue): \(error)")
+                #endif
+            }
+        }
+    }
+
     func disconnect() async {
         await room.disconnect()
         // Explicitly null the tracks now so the UI shows empty tiles
@@ -187,6 +260,9 @@ final class LiveKitClient {
         remoteAudioTracksByIdentity = [:]
         audioLevels = [:]
         activeCallIdentity = nil
+        // Per-tile mute state is connection-scoped: a fresh patient
+        // session should start with every tile muted again.
+        audioEnabledByIdentity = []
         currentRoom = nil
         state = .disconnected
     }
@@ -200,6 +276,10 @@ final class LiveKitClient {
     ///
     /// - Parameter identity: the camera whose audio should be heard,
     ///   or nil to mute all remote audio (call ended / not started).
+    ///
+    /// The per-tile mute state (`audioEnabledByIdentity`) is preserved
+    /// — the active call identity only overlays an additional unmute,
+    /// it does not clear the user's listen choices.
     func setRemoteAudioPlayback(enabledFor identity: String?) {
         activeCallIdentity = identity
         if identity == nil {
@@ -208,15 +288,52 @@ final class LiveKitClient {
             // the next render that won't come.
             audioLevels = [:]
         }
-        // Volume 1.0 = unity gain (normal playback), 0.0 = silent
-        // speaker output. Tracks stay subscribed either way so the
-        // combined renderer keeps receiving PCM.
-        for (id, track) in remoteAudioTracksByIdentity {
-            track.volume = (id == identity) ? 1.0 : 0.0
-        }
+        applyAudioGate()
         #if DEBUG
         print("[LiveKit] setRemoteAudioPlayback active=\(identity ?? "nil"), tracks=\(remoteAudioTracksByIdentity.count)")
         #endif
+    }
+
+    /// Per-tile user-driven mute toggle. Independent of Talk mode —
+    /// the caregiver can unmute a passive tile to listen in without
+    /// starting a Talk call. State persists across Talk start/end.
+    ///
+    /// Returns the new audio-enabled state (true = audible, false =
+    /// muted). UI uses the returned value to update the button icon
+    /// without a separate read.
+    @discardableResult
+    func toggleAudio(forIdentity identity: String) -> Bool {
+        let nowEnabled: Bool
+        if audioEnabledByIdentity.contains(identity) {
+            audioEnabledByIdentity.remove(identity)
+            nowEnabled = false
+        } else {
+            audioEnabledByIdentity.insert(identity)
+            nowEnabled = true
+        }
+        applyAudioGate()
+        return nowEnabled
+    }
+
+    /// True iff the caregiver will hear audio from this camera right
+    /// now — either because they unmuted it via the per-tile toggle,
+    /// or because Talk is active on this camera.
+    func isAudioAudible(forIdentity identity: String) -> Bool {
+        audioEnabledByIdentity.contains(identity)
+            || identity == activeCallIdentity
+    }
+
+    /// Apply the combined Talk + per-tile mute state to every
+    /// subscribed remote audio track's `volume`. Volume gating is
+    /// preferred over (un)subscribing because the combined-remote
+    /// renderer doesn't recover cleanly from churned subscriptions —
+    /// see the comment on `remoteAudioTracksByIdentity` above.
+    private func applyAudioGate() {
+        for (id, track) in remoteAudioTracksByIdentity {
+            let audible =
+                audioEnabledByIdentity.contains(id) || id == activeCallIdentity
+            track.volume = audible ? 1.0 : 0.0
+        }
     }
 
     // MARK: - Microphone publish (Talk mode)
@@ -246,13 +363,18 @@ final class LiveKitClient {
         if let remote = track as? RemoteAudioTrack {
             remoteAudioTracksByIdentity[identity] = remote
             // Silent speaker by default — track stays subscribed and
-            // decodes, but no audible output until the caregiver taps
-            // Call (which flips the active camera's volume to 1.0
-            // via setRemoteAudioPlayback). Continuous decode is what
-            // keeps the combined-remote renderer firing reliably; the
-            // earlier `publication.set(enabled:)` approach churned the
-            // SDK's audio engine and the renderer never recovered.
-            remote.volume = (identity == activeCallIdentity) ? 1.0 : 0.0
+            // decodes, but no audible output until either (a) the
+            // caregiver taps Call (which flips the active camera's
+            // volume to 1.0 via setRemoteAudioPlayback) or (b) the
+            // caregiver unmutes the tile via toggleAudio. Continuous
+            // decode is what keeps the combined-remote renderer firing
+            // reliably; the earlier `publication.set(enabled:)`
+            // approach churned the SDK's audio engine and the renderer
+            // never recovered.
+            let audible =
+                audioEnabledByIdentity.contains(identity)
+                    || identity == activeCallIdentity
+            remote.volume = audible ? 1.0 : 0.0
         }
         #if DEBUG
         print("[LiveKit] subscribed audio: identity=\(identity), volume=\((track as? RemoteAudioTrack)?.volume ?? -1)")
