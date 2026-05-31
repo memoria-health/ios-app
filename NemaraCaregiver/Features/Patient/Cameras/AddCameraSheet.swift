@@ -520,11 +520,11 @@ private struct IconPicker: View {
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                        .stroke(
+                                        .strokeBorder(
                                             selection == name
                                             ? NemaraColor.ink2
                                             : Color.clear,
-                                            lineWidth: 1,
+                                            lineWidth: 1.5,
                                         )
                                 )
                         }
