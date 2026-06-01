@@ -86,7 +86,7 @@ struct FaceEnrollmentStepView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 6) {
             NemaraEyebrow("PATIENT IDENTITY", color: NemaraColor.terra)
-            Text("Help Nemara recognize \(patientName())")
+            Text("Help Memoria recognize \(patientName())")
                 .font(NemaraFont.title2)
                 .kerning(-0.4)
                 .foregroundStyle(NemaraColor.ink)

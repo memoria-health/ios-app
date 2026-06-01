@@ -439,7 +439,7 @@ struct PatientSettingsView: View {
                             Text("Feedback & support")
                                 .font(NemaraFont.bodySmallStrong)
                                 .foregroundStyle(NemaraColor.ink)
-                            Text("Send feedback, contact the team, or share Nemara")
+                            Text("Send feedback, contact the team, or share Memoria")
                                 .font(NemaraFont.caption)
                                 .foregroundStyle(NemaraColor.ink3)
                         }

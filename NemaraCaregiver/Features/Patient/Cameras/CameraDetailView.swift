@@ -132,7 +132,7 @@ struct CameraDetailView: View {
                     .foregroundStyle(NemaraColor.ink2)
                 Text(
                     "Tap below for a 6-digit code, then enter it on the "
-                    + "NemaraCam wall-phone app to complete pairing."
+                    + "MemoriaSensor wall-phone app to complete pairing."
                 )
                 .font(NemaraFont.caption)
                 .foregroundStyle(NemaraColor.ink3)
@@ -459,7 +459,7 @@ struct CameraDetailView: View {
     /// Delete the camera row from the backend. The wall phone polls
     /// /v1/cameras/me/desired-state every 1s; after 5 consecutive
     /// 401/403/404 it self-unpairs (see DesiredStateMonitor in
-    /// NemaraCam). Local cache update from the realtime DELETE event
+    /// MemoriaSensor). Local cache update from the realtime DELETE event
     /// will remove the camera from `camerasByPatient` so the parent
     /// list updates without a refresh.
     private func deleteCameraButton(_ cam: Camera) -> some View {

@@ -9,11 +9,14 @@ struct NewPatientView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var fullName = ""
-    @State private var preferredName = ""
-    @State private var dateOfBirth = Calendar.current.date(from: DateComponents(year: 1955, month: 1, day: 1)) ?? Date()
+    // Required, no silent default — the caregiver must pick a date (it also
+    // drives which preset detectors get seeded: under 18 = child set).
+    @State private var dateOfBirth: Date?
+    @State private var showDOBSheet = false
+    @State private var dobMonth = 1
+    @State private var dobYear = Calendar.current.component(.year, from: Date()) - 70
     @State private var gender = "Female"
     @State private var relation: Patient.Relation = .parent
-    @State private var homeAddress = ""
 
     // Photo is picked here but uploaded only AFTER createPatient
     // returns the new patient_id — the upload endpoint is keyed by
@@ -23,20 +26,19 @@ struct NewPatientView: View {
     @State private var pickedPhotoPreview: UIImage?
     @State private var isLoadingPhoto = false
 
-    // Submit state. Replaces the prior fire-and-forget `try?` —
-    // failures now surface inline so the caregiver knows the
+    // Submit state. Failures surface inline so the caregiver knows the
     // patient wasn't actually created.
     @State private var isSubmitting = false
     @State private var submitError: String?
 
-    // Step 2 (face enrollment) trigger. After Step 1 (profile) submit
-    // succeeds, we present FaceEnrollmentStepView as a full-screen
-    // cover. Either completion path (Submit photos / Skip for now)
-    // dismisses the whole flow.
-    @State private var enrollmentPatientId: UUID?
+    // After Step 1 (profile) submit succeeds we present the post-create
+    // flow: a facial-detection consent screen, then (if they proceed) the
+    // face-enrollment capture step. Set to the new patient_id on success.
+    @State private var createdPatientId: UUID?
 
     private var canSubmit: Bool {
         !fullName.trimmingCharacters(in: .whitespaces).isEmpty
+            && dateOfBirth != nil
     }
 
     var body: some View {
@@ -46,17 +48,10 @@ struct NewPatientView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         intro
-                        NemaraField("Full name", text: $fullName, placeholder: "Margaret O'Brien",
+                        NemaraField("Name", text: $fullName, placeholder: "Margaret O'Brien",
                                     autocapitalization: .words)
-                        NemaraField("Preferred name", text: $preferredName,
-                                    placeholder: "Maggie",
-                                    autocapitalization: .words,
-                                    hint: "What the people who love them actually call them.")
                         dateOfBirthAndGender
                         relationshipPicker
-                        NemaraField("Home address", text: $homeAddress,
-                                    placeholder: "84 Birch Lane, Cambridge MA",
-                                    hint: "Optional")
                         photoRow
                     }
                     .padding(.horizontal, 20)
@@ -68,18 +63,19 @@ struct NewPatientView: View {
             .background(NemaraColor.paper)
             .fullScreenCover(
                 isPresented: Binding(
-                    get: { enrollmentPatientId != nil },
-                    set: { if !$0 { enrollmentPatientId = nil } },
+                    get: { createdPatientId != nil },
+                    set: { if !$0 { createdPatientId = nil } },
                 ),
             ) {
-                if let pid = enrollmentPatientId {
-                    FaceEnrollmentStepView(patientId: pid) {
-                        enrollmentPatientId = nil
+                if let pid = createdPatientId {
+                    PostCreateEnrollmentFlow(patientId: pid) {
+                        createdPatientId = nil
                         dismiss()
                     }
                     .environment(env)
                 }
             }
+            .sheet(isPresented: $showDOBSheet) { dobSheet }
         }
     }
 
@@ -129,12 +125,25 @@ struct NewPatientView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 6) {
                 NemaraEyebrow("DATE OF BIRTH")
-                DatePicker("", selection: $dateOfBirth, displayedComponents: .date)
-                    .datePickerStyle(.compact)
-                    .labelsHidden()
-                    .tint(NemaraColor.terra)
+                Button {
+                    if let dob = dateOfBirth {
+                        let c = Calendar.current.dateComponents([.month, .year], from: dob)
+                        dobMonth = c.month ?? dobMonth
+                        dobYear = c.year ?? dobYear
+                    }
+                    showDOBSheet = true
+                } label: {
+                    HStack {
+                        Text(dateOfBirth.map(Self.dobFormatter.string(from:)) ?? "Select")
+                            .font(NemaraFont.bodyLarge)
+                            .foregroundStyle(dateOfBirth == nil ? NemaraColor.ink3 : NemaraColor.ink)
+                        Spacer()
+                        Image(systemName: "calendar")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(NemaraColor.ink3)
+                    }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 11)
+                    .padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(NemaraColor.card)
                     .overlay(
@@ -142,6 +151,8 @@ struct NewPatientView: View {
                             .strokeBorder(NemaraColor.line, lineWidth: 1)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
             VStack(alignment: .leading, spacing: 6) {
                 NemaraEyebrow("GENDER")
@@ -199,7 +210,7 @@ struct NewPatientView: View {
 
     private var photoRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            NemaraEyebrow("A PHOTO")
+            NemaraEyebrow("A PHOTO (OPTIONAL)")
             HStack(spacing: 12) {
                 avatarOrPickedPreview
                 PhotosPicker(
@@ -248,7 +259,7 @@ struct NewPatientView: View {
                 .clipShape(Circle())
         } else {
             NemaraAvatar(
-                letter: String(preferredName.first ?? fullName.first ?? "?"),
+                letter: String(fullName.first ?? "?"),
                 size: 68,
             )
         }
@@ -282,16 +293,16 @@ struct NewPatientView: View {
     // MARK: - actions
 
     private func submit() {
-        let pref = preferredName.trimmingCharacters(in: .whitespaces).isEmpty
-            ? (fullName.split(separator: " ").first.map(String.init) ?? fullName)
-            : preferredName
+        // Preferred name is no longer collected — mirror it from the name.
+        // Cap at the backend's 80-char `preferred_name` limit.
+        let name = fullName.trimmingCharacters(in: .whitespaces)
         let body = CreatePatientRequest(
-            fullName: fullName,
-            preferredName: pref,
+            fullName: name,
+            preferredName: String(name.prefix(80)),
             relation: relation,
             dateOfBirth: dateOfBirth,
             gender: gender.isEmpty ? nil : gender,
-            homeAddress: homeAddress.isEmpty ? nil : homeAddress,
+            homeAddress: nil,
         )
 
         Task {
@@ -311,9 +322,9 @@ struct NewPatientView: View {
                         NSLog("[NewPatient] photo upload failed: %@", "\(error)")
                     }
                 }
-                // Transition to Step 2 (face enrollment). The cover
-                // dismisses the whole flow on its onComplete callback.
-                enrollmentPatientId = patient.id
+                // Step 2: present the facial-detection consent flow, which
+                // (on Proceed) leads into face enrollment.
+                createdPatientId = patient.id
             } catch {
                 submitError = error.localizedDescription
             }
@@ -354,6 +365,141 @@ struct NewPatientView: View {
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         return resized.jpegData(compressionQuality: quality)
+    }
+
+    private static let dobFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("yMMMM")  // e.g. "March 1955"
+        return f
+    }()
+
+    private static let monthSymbols: [String] = DateFormatter().monthSymbols
+
+    private var dobSheet: some View {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        return NavigationStack {
+            HStack(spacing: 0) {
+                Picker("Month", selection: $dobMonth) {
+                    ForEach(1...12, id: \.self) { m in
+                        Text(Self.monthSymbols[m - 1]).tag(m)
+                    }
+                }
+                .pickerStyle(.wheel)
+                Picker("Year", selection: $dobYear) {
+                    ForEach(Array(1920...currentYear), id: \.self) { y in
+                        Text(String(y)).tag(y)
+                    }
+                }
+                .pickerStyle(.wheel)
+            }
+            .tint(NemaraColor.terra)
+            .padding()
+            .navigationTitle("Date of birth")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showDOBSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        if let d = Calendar.current.date(
+                            from: DateComponents(year: dobYear, month: dobMonth, day: 1)
+                        ) {
+                            dateOfBirth = d
+                        }
+                        showDOBSheet = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+
+// MARK: - Post-create facial-detection consent flow
+
+/// Local persistence for the "Don't ask me again" choice on the consent
+/// screen, per patient. The reminder banner that would read this is a
+/// future addition; for now both "Maybe later" and "Don't ask me again"
+/// simply dismiss — the choice is just recorded for later.
+enum FaceConsentPrefs {
+    private static func key(_ patientId: UUID) -> String {
+        "faceConsentDismissed.\(patientId.uuidString)"
+    }
+    static func isDismissed(_ patientId: UUID) -> Bool {
+        UserDefaults.standard.bool(forKey: key(patientId))
+    }
+    static func setDismissed(_ patientId: UUID) {
+        UserDefaults.standard.set(true, forKey: key(patientId))
+    }
+}
+
+/// Shown right after a patient is created: the facial-detection consent
+/// screen, then the face-enrollment capture step if they proceed. Swaps
+/// content within one cover so there's no dismiss/re-present flash.
+private struct PostCreateEnrollmentFlow: View {
+    let patientId: UUID
+    let onFinish: () -> Void
+    @Environment(AppEnvironment.self) private var env
+    @State private var showEnrollment = false
+
+    var body: some View {
+        if showEnrollment {
+            FaceEnrollmentStepView(patientId: patientId) { onFinish() }
+                .environment(env)
+        } else {
+            FaceDetectionConsentView(
+                onProceed: { showEnrollment = true },
+                onMaybeLater: onFinish,
+                onDontAskAgain: {
+                    FaceConsentPrefs.setDismissed(patientId)
+                    onFinish()
+                }
+            )
+        }
+    }
+}
+
+/// "Would you like to add facial detection?" — the consent screen.
+private struct FaceDetectionConsentView: View {
+    let onProceed: () -> Void
+    let onMaybeLater: () -> Void
+    let onDontAskAgain: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            VStack(alignment: .leading, spacing: 16) {
+                ZStack {
+                    Circle().fill(NemaraColor.terraSoft).frame(width: 64, height: 64)
+                    Image(systemName: "faceid")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(NemaraColor.terra)
+                }
+                Text("Would you like to add facial detection?")
+                    .font(NemaraFont.title1)
+                    .foregroundStyle(NemaraColor.ink)
+                    .kerning(-0.6)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Adding facial detection lets Memoria be more accurate, so alerts are more timely and consistent. No photos or personal information is saved or stored.")
+                    .font(NemaraFont.body)
+                    .foregroundStyle(NemaraColor.ink2)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 24)
+            Spacer()
+            VStack(spacing: 10) {
+                NemaraButton("Proceed", variant: .primary, block: true, action: onProceed)
+                NemaraButton("Maybe later", variant: .secondary, block: true, action: onMaybeLater)
+                NemaraButton("Don't ask me again", variant: .ghost, block: true, action: onDontAskAgain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NemaraColor.paper)
     }
 }
 

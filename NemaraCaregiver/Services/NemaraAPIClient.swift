@@ -168,6 +168,15 @@ final class NemaraAPIClient {
         )
     }
 
+    /// Permanently delete the caregiver's account and all server-side
+    /// data. The backend removes the Supabase auth user — cascading every
+    /// patient, camera, detector, event, and device-token row — plus the
+    /// storage objects they referenced. After this returns the Supabase
+    /// session is dead, so the caller signs out to reset local state.
+    func deleteAccount() async throws {
+        try await sendNoBodyVoid(method: "DELETE", path: "/v1/me")
+    }
+
     // MARK: - Contact Support (POST /v1/support)
 
     /// Forwards a Contact Support message from Settings to the team via

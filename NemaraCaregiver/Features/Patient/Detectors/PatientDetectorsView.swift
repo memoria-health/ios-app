@@ -52,7 +52,7 @@ struct PatientDetectorsView: View {
                 Text("No detectors yet")
                     .font(NemaraFont.bodySemibold)
                     .foregroundStyle(NemaraColor.ink)
-                Text("Add a custom detector to describe in plain language what Nemara should watch for.")
+                Text("Add a custom detector to describe in plain language what Memoria should watch for.")
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
                     .lineSpacing(2)

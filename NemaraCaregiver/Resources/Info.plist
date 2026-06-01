@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Nemara</string>
+	<string>Memoria</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -39,13 +39,13 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Nemara would use the camera to take a quick photo of the patient for their profile.</string>
+	<string>Memoria uses the camera to take a quick profile photo of the person you care for.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Nemara connects to your Mac's local nemara-backend during development. Allow to test on a physical device.</string>
+	<string>Memoria uses your local network to find and set up nearby camera devices on the same Wi-Fi.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Nemara uses the microphone so you can speak live to your patient through their paired wall phone.</string>
+	<string>Memoria uses the microphone so you can speak live to the person you care for through their paired camera.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Nemara uses photos you pick to personalize the patient's profile.</string>
+	<string>Memoria uses photos you choose to personalize the profile of the person you care for.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Fraunces144Soft-Regular.ttf</string>

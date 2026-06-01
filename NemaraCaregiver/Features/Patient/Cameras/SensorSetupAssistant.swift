@@ -8,7 +8,7 @@ import SwiftUI
 ///
 /// The hard part is hidden: `NEHotspotConfigurationManager.shared
 /// .apply(_:)` programmatically connects this phone to the camera's
-/// open WiFi network ("Nemara-Setup-XXXXXX") with one tap, no
+/// open WiFi network ("Memoria-Setup-XXXXXX") with one tap, no
 /// detour through Settings.app. After the join succeeds we open
 /// http://192.168.4.1/ in an in-app Safari view so the captive
 /// portal renders without leaving the app.
@@ -42,7 +42,7 @@ struct SensorSetupAssistant: View {
         case error(String)
     }
 
-    private static let _ssidPrefix = "Nemara-Setup"
+    private static let _ssidPrefix = "Memoria-Setup"
     private static let _portalUrl = URL(string: "http://192.168.4.1/")!
 
     var body: some View {

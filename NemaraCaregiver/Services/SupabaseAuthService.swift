@@ -49,6 +49,12 @@ final class SupabaseAuthService {
     /// cleared and any open Realtime channels close.
     var onSignedOut: (() async -> Void)?
 
+    /// Called when the user permanently deletes their account.
+    /// AppEnvironment wires this to `NemaraAPIClient.deleteAccount()`
+    /// (DELETE /v1/me), keeping the API client out of this class's
+    /// dependency graph exactly like `onAuthenticated` / `onSignedOut`.
+    var onDeleteAccount: (() async throws -> Void)?
+
     /// Underlying Supabase client. Shared with `NemaraAPIClient` for
     /// Realtime subscriptions.
     let client: SupabaseClient
@@ -217,6 +223,24 @@ final class SupabaseAuthService {
     // MARK: - Sign out
 
     func signOut() async {
+        try? await client.auth.signOut()
+        currentCaregiver = nil
+        await onSignedOut?()
+    }
+
+    // MARK: - Delete account
+
+    /// Permanently delete the account. Runs the backend delete (via the
+    /// injected `onDeleteAccount` closure → DELETE /v1/me), then tears
+    /// down the now-dead local session exactly like `signOut`. The
+    /// Supabase sign-out is best-effort (`try?`) because the auth user no
+    /// longer exists once the backend call succeeds. Throws if the
+    /// backend delete fails — the caller keeps the user signed in and
+    /// surfaces the error rather than leaving a half-deleted account.
+    func deleteAccount() async throws {
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+        try await onDeleteAccount?()
         try? await client.auth.signOut()
         currentCaregiver = nil
         await onSignedOut?()

@@ -34,7 +34,7 @@ struct SignUpView: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 18) {
                     NemaraMark(size: 44)
-                    Text("Make a Nemara account.")
+                    Text("Make a Memoria account.")
                         .font(NemaraFont.largeTitle)
                         .foregroundStyle(NemaraColor.ink)
                         .kerning(-1)
@@ -126,7 +126,7 @@ struct SignUpView: View {
             }
             .buttonStyle(.plain)
 
-            Text("I agree to the **Terms** and acknowledge the **Privacy Notice**, including how Nemara handles audio and video.")
+            Text("I agree to the **Terms** and acknowledge the **Privacy Notice**, including how Memoria handles audio and video.")
                 .font(NemaraFont.caption)
                 .foregroundStyle(NemaraColor.ink2)
                 .fixedSize(horizontal: false, vertical: true)

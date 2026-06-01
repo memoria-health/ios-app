@@ -6,7 +6,7 @@ import SwiftUI
 ///   Phone Camera (existing flow):
 ///     Caregiver types a room name + icon, taps "Generate code",
 ///     the sheet shows a 6-digit pairing code with a live countdown.
-///     The wall phone enters the code in the NemaraCam app and the
+///     The wall phone enters the code in the MemoriaSensor app and the
 ///     placeholder cameras row flips to online via Realtime.
 ///
 ///   Sensor Camera (new flow):
@@ -137,7 +137,7 @@ private struct PhoneCameraTab: View {
             }
             .disabled(room.trimmingCharacters(in: .whitespaces).isEmpty)
             .padding(.top, 4)
-            Text("Open the Nemara camera app on your wall phone and enter the code that appears.")
+            Text("Open the MemoriaSensor app on your wall phone and enter the code that appears.")
                 .font(NemaraFont.caption)
                 .foregroundStyle(NemaraColor.ink3)
                 .padding(.top, 4)

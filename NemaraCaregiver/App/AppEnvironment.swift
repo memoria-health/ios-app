@@ -67,6 +67,12 @@ final class AppEnvironment {
         auth.onSignedOut = { [weak api] in
             await api?.teardown()
         }
+        auth.onDeleteAccount = { [weak api] in
+            guard let api else {
+                throw APIError.other(message: "API client released before account delete.")
+            }
+            try await api.deleteAccount()
+        }
         return env
     }
 

@@ -9,10 +9,10 @@ struct AppSettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingNewPatient = false
     @State private var openPatientId: UUID?
-    // Push toggle is local-only for now; wired to caregiver-row settings
-    // in a later plan. Email alerts moved to per-patient settings to
-    // mirror web (PatientEmailAlertsCard).
-    @State private var pushEnabled: Bool = true
+    // Account-deletion flow state.
+    @State private var showDeleteConfirm = false
+    @State private var isDeleting = false
+    @State private var deleteError: String?
 
     var body: some View {
         ScrollView {
@@ -27,12 +27,6 @@ struct AppSettingsView: View {
                         showingNewPatient = true
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 16)
-
-                Group {
-                    NemaraEyebrow("NOTIFICATIONS").frame(maxWidth: .infinity, alignment: .leading)
-                    notificationsCard
                 }
                 .padding(.horizontal, 16)
 
@@ -75,6 +69,37 @@ struct AppSettingsView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
+        .alert("Delete your account?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) { deleteAccount() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes your account, your loved ones' profiles, cameras, and all data. This can't be undone.")
+        }
+        .alert("Couldn't delete account", isPresented: Binding(
+            get: { deleteError != nil },
+            set: { if !$0 { deleteError = nil } }
+        )) {
+            Button("OK", role: .cancel) { deleteError = nil }
+        } message: {
+            Text(deleteError ?? "")
+        }
+    }
+
+    /// Run the irreversible account delete. On success `RootView` swaps to
+    /// the welcome flow automatically (currentCaregiver becomes nil), so
+    /// this view is torn down; on failure we keep the user here and show
+    /// the error. `isDeleting` is reset in a `defer` so a thrown error
+    /// can't leave the button permanently disabled.
+    private func deleteAccount() {
+        Task {
+            isDeleting = true
+            defer { isDeleting = false }
+            do {
+                try await env.auth.deleteAccount()
+            } catch {
+                deleteError = error.localizedDescription
+            }
+        }
     }
 
     private var caregiverCard: some View {
@@ -130,14 +155,6 @@ struct AppSettingsView: View {
         }
     }
 
-    private var notificationsCard: some View {
-        NemaraCard(padding: 0) {
-            VStack(spacing: 0) {
-                rowToggle(icon: "bell.fill", title: "Push notifications", isOn: $pushEnabled)
-            }
-        }
-    }
-
     private var accountCard: some View {
         NemaraCard(padding: 0) {
             VStack(spacing: 0) {
@@ -165,6 +182,26 @@ struct AppSettingsView: View {
                     .padding(14)
                 }
                 .buttonStyle(.plain)
+                NemaraColor.line.frame(height: 1)
+                Button {
+                    showDeleteConfirm = true
+                } label: {
+                    HStack(spacing: 12) {
+                        iconTile("trash.fill")
+                        Text("Delete account").font(NemaraFont.body).foregroundStyle(NemaraColor.danger)
+                        Spacer()
+                        if isDeleting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(NemaraColor.ink3)
+                        }
+                    }
+                    .padding(14)
+                }
+                .buttonStyle(.plain)
+                .disabled(isDeleting)
             }
         }
     }
@@ -180,16 +217,6 @@ struct AppSettingsView: View {
                 .foregroundStyle(NemaraColor.ink2)
         }
         .frame(width: 32, height: 32)
-    }
-
-    private func rowToggle(icon: String, title: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 12) {
-            iconTile(icon)
-            Text(title).font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
-            Spacer()
-            NemaraToggle(isOn: isOn)
-        }
-        .padding(14)
     }
 
     private func rowChevron(icon: String, title: String) -> some View {

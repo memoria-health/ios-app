@@ -101,12 +101,12 @@ struct AddDetectorView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 6) {
             NemaraEyebrow("CUSTOM DETECTION", color: NemaraColor.terra)
-            Text("What should Nemara watch for?")
+            Text("What should Memoria watch for?")
                 .font(NemaraFont.title1)
                 .kerning(-0.7)
                 .foregroundStyle(NemaraColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Describe it in plain words. Nemara figures out the rest — including whether it's a live alert or a daily/weekly check.")
+            Text("Describe it in plain words. Memoria figures out the rest — including whether it's a live alert or a daily/weekly check.")
                 .font(NemaraFont.bodySmall)
                 .foregroundStyle(NemaraColor.ink2)
                 .lineSpacing(2)
@@ -252,7 +252,7 @@ struct AddDetectorView: View {
                     .labelsHidden()
             }
             if timesUncertain {
-                Text("Nemara wasn't sure of the exact times — please confirm them.")
+                Text("Memoria wasn't sure of the exact times — please confirm them.")
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.terra)
             }

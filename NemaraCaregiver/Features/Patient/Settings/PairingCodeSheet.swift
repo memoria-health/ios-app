@@ -108,7 +108,7 @@ struct PairingCodeSheet: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 6) {
-            label("1.", "Open Nemara on the wall phone.")
+            label("1.", "Open MemoriaSensor on the wall phone.")
             label("2.", "Enter the code above when prompted.")
             label("3.", "The camera will appear here once it's paired.")
         }

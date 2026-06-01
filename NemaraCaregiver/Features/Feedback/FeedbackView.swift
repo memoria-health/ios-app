@@ -56,7 +56,7 @@ struct FeedbackView: View {
                     }
                     Spacer()
                 }
-                Text("Nemara is early, and your patient's story shapes what we build next. Tell us what landed, what didn't, what you wish it did.")
+                Text("Memoria is early, and your patient's story shapes what we build next. Tell us what landed, what didn't, what you wish it did.")
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(5)
@@ -143,7 +143,7 @@ struct FeedbackView: View {
             NemaraEyebrow("WHAT'S FRUSTRATING?")
             ZStack(alignment: .topLeading) {
                 if whatsFrustrating.isEmpty {
-                    Text("Where Nemara fell short for you…")
+                    Text("Where Memoria fell short for you…")
                         .font(NemaraFont.bodySmall)
                         .foregroundStyle(NemaraColor.ink3)
                         .padding(12)

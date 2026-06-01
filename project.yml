@@ -62,7 +62,7 @@ targets:
     info:
       path: NemaraCaregiver/Resources/Info.plist
       properties:
-        CFBundleDisplayName: Nemara
+        CFBundleDisplayName: Memoria
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         UILaunchScreen:
@@ -86,7 +86,7 @@ targets:
         # private IPs like 10.0.0.x — the Mac's LAN address during dev.
         # Without it the OS silently blocks the connection and surfaces
         # it as "Internet connection appears to be offline" in the SDK.
-        NSLocalNetworkUsageDescription: Nemara connects to your Mac's local nemara-backend during development. Allow to test on a physical device.
+        NSLocalNetworkUsageDescription: Memoria uses your local network to find and set up nearby camera devices on the same Wi-Fi.
         # `nemara://` URL scheme reserved for future Supabase password-
         # reset deep links. Wired in MenoraApp pattern when real auth
         # ships — not handled in v0.
@@ -94,14 +94,14 @@ targets:
           - CFBundleURLName: co.sunny.nemara
             CFBundleURLSchemes:
               - nemara
-        NSCameraUsageDescription: Nemara would use the camera to take a quick photo of the patient for their profile.
-        NSPhotoLibraryUsageDescription: Nemara uses photos you pick to personalize the patient's profile.
+        NSCameraUsageDescription: Memoria uses the camera to take a quick profile photo of the person you care for.
+        NSPhotoLibraryUsageDescription: Memoria uses photos you choose to personalize the profile of the person you care for.
         # Required so iOS doesn't terminate the app when the Talk
         # button enables the microphone for live two-way audio with
         # the patient's wall phone. (Without this string, iOS treats
         # setMicrophone(enabled: true) as an unauthorized access and
         # crashes the process before the user even sees a prompt.)
-        NSMicrophoneUsageDescription: Nemara uses the microphone so you can speak live to your patient through their paired wall phone.
+        NSMicrophoneUsageDescription: Memoria uses the microphone so you can speak live to the person you care for through their paired camera.
         UIAppFonts:
           - Fraunces144Soft-Regular.ttf
           - Fraunces144Soft-Medium.ttf

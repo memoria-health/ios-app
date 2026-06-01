@@ -46,6 +46,11 @@ struct PatientLiveView: View {
     /// screen view active. Driven by the expand-icon tap.
     @State private var fullScreenCameraId: UUID?
 
+    /// True while the disconnect-all / reconnect-all PATCH is in flight.
+    /// Disables the button so a rapid double-tap can't fire overlapping
+    /// toggles (which made the label flash between Disconnect/Reconnect).
+    @State private var isTogglingMonitoring = false
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -57,12 +62,18 @@ struct PatientLiveView: View {
                     cameraCarousel
                 }
                 camerasCard
+                if !allCameras.isEmpty {
+                    disconnectAllButton
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 16)
         }
         .background(NemaraColor.paper)
+        .navigationDestination(for: UUID.self) { cameraId in
+            CameraDetailView(cameraId: cameraId, patientId: patientId)
+        }
         .task(id: patientId) { await bootstrap() }
         .onDisappear { Task { await tabAwayCleanup() } }
         .onReceive(timer) { now in clockTick = now }
@@ -645,26 +656,90 @@ struct PatientLiveView: View {
                 }
                 VStack(spacing: 8) {
                     ForEach(allCameras) { cam in
-                        HStack(spacing: 10) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(NemaraColor.paperDim)
-                                Image(systemName: cam.iconName)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(NemaraColor.ink2)
+                        NavigationLink(value: cam.id) {
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(NemaraColor.paperDim)
+                                    Image(systemName: cam.iconName)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(NemaraColor.ink2)
+                                }
+                                .frame(width: 26, height: 26)
+                                Text(cam.room).font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink)
+                                Spacer()
+                                Text(String(format: "Cam %02d", cam.displayId))
+                                    .font(NemaraFont.monoSmall)
+                                    .foregroundStyle(NemaraColor.ink3)
+                                cameraStatusDot(for: cam, paused: paused)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(NemaraColor.ink3)
                             }
-                            .frame(width: 26, height: 26)
-                            Text(cam.room).font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink)
-                            Spacer()
-                            Text(String(format: "Cam %02d", cam.displayId))
-                                .font(NemaraFont.monoSmall)
-                                .foregroundStyle(NemaraColor.ink3)
-                            cameraStatusDot(for: cam, paused: paused)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 .opacity(paused ? 0.55 : 1)
             }
+        }
+    }
+
+    /// "Disconnect all cameras" button below the camera list. Drives the
+    /// patient-level `cameras_paused` flag — the backend cascades
+    /// desired_state='disconnected' to every camera (wall phones poll,
+    /// then leave the LiveKit room) AND the per-tick loop short-circuits
+    /// before the Gemini call, so no AI calls fire. Same lever as the
+    /// Settings "Monitoring" toggle; both read the same observable
+    /// `camerasPaused` so they stay in sync automatically.
+    private var disconnectAllButton: some View {
+        let paused = patient?.camerasPaused ?? false
+        return NemaraButton(
+            paused ? "Reconnect all cameras" : "Disconnect all cameras",
+            variant: paused ? .primary : .secondary,
+            size: .md,
+            block: true,
+            systemImage: paused ? "video.fill" : "video.slash"
+        ) {
+            toggleMonitoring(pause: !paused)
+        }
+        .disabled(isTogglingMonitoring)
+        .opacity(isTogglingMonitoring ? 0.6 : 1)
+    }
+
+    /// Optimistic flip with rollback — mirrors PatientSettingsView's
+    /// monitoring toggle. Writes the new value into the observable
+    /// `patients` array immediately so the UI (here + the carousel's
+    /// paused overlay + the Settings toggle) updates instantly, then
+    /// PATCHes `/v1/patients/{id}`; reverts on failure.
+    private func toggleMonitoring(pause: Bool) {
+        guard !isTogglingMonitoring,
+              let id = patient?.id,
+              let idx = env.api.patients.firstIndex(where: { $0.id == id })
+        else { return }
+        let previous = env.api.patients[idx].camerasPaused
+        env.api.patients[idx].camerasPaused = pause
+        isTogglingMonitoring = true
+        Task {
+            // Reset busy in `defer` (not the catch) so a thrown error can't
+            // leave the button permanently disabled.
+            defer { isTogglingMonitoring = false }
+            do {
+                _ = try await env.api.updatePatient(
+                    id, UpdatePatientRequest(camerasPaused: pause),
+                )
+            } catch {
+                if let i = env.api.patients.firstIndex(where: { $0.id == id }) {
+                    env.api.patients[i].camerasPaused = previous
+                }
+            }
+            // Cooldown. On localhost the PATCH returns in ~20ms — faster than
+            // a human's spam-tap interval (~100ms) — so disabling only for the
+            // request window doesn't block spam. Hold the disable ~600ms past
+            // the round-trip for a real cooldown that stops the rapid re-toggle
+            // (and the out-of-order Realtime echoes it caused).
+            try? await Task.sleep(nanoseconds: 600_000_000)
         }
     }
 
