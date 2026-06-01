@@ -68,7 +68,6 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     /// as the canonical "this row is a real paired camera" check
     /// (more reliable than `online`, which lies for unpaired rows).
     var livekitIdentity: String?
-    var lastSeenAt: Date?
     var createdAt: Date
 
     /// True once the wall phone has completed the /pair handshake.
@@ -89,7 +88,6 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case desiredState = "desired_state"
         case sourceType = "source_type"
         case livekitIdentity = "livekit_identity"
-        case lastSeenAt = "last_seen_at"
         case createdAt = "created_at"
         case paired
         // Realtime-payload-only. The backend's REST shape exposes
@@ -124,7 +122,6 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         // rows would fail and crash the realtime stream.
         sourceType = try c.decodeIfPresent(SourceType.self, forKey: .sourceType) ?? .phone
         livekitIdentity = try c.decodeIfPresent(String.self, forKey: .livekitIdentity)
-        lastSeenAt = try c.decodeIfPresent(Date.self, forKey: .lastSeenAt)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         if let explicit = try c.decodeIfPresent(Bool.self, forKey: .paired) {
             paired = explicit
@@ -161,7 +158,6 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         try c.encode(desiredState, forKey: .desiredState)
         try c.encode(sourceType, forKey: .sourceType)
         try c.encodeIfPresent(livekitIdentity, forKey: .livekitIdentity)
-        try c.encodeIfPresent(lastSeenAt, forKey: .lastSeenAt)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(paired, forKey: .paired)
     }
@@ -181,7 +177,6 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         iconName: String,
         online: Bool,
         livekitIdentity: String?,
-        lastSeenAt: Date?,
         createdAt: Date,
         paired: Bool,
     ) {
@@ -196,7 +191,6 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         self.iconName = iconName
         self.online = online
         self.livekitIdentity = livekitIdentity
-        self.lastSeenAt = lastSeenAt
         self.createdAt = createdAt
         self.paired = paired
     }
