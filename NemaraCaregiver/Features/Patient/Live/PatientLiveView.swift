@@ -75,6 +75,44 @@ struct PatientLiveView: View {
             CameraDetailView(cameraId: cameraId, patientId: patientId)
         }
         .task(id: patientId) { await bootstrap() }
+        .onChange(of: patient?.camerasPaused) { oldValue, newValue in
+            // Reconnect-all. `.task` keys on patientId, so it never
+            // re-fires when the kill switch flips back on, and a camera
+            // only re-enters `onlineCameras` once it has BOTH
+            // `desired_state == .connected` (the `isLiveStreaming` gate)
+            // AND a live LiveKit track. Both have to recover, and the
+            // publishers (Memoria Sensor) take a few seconds to rejoin
+            // (backend cascades desired_state→connected, then each sensor
+            // polls + republishes). So reconcile until live instead of
+            // trusting a single event:
+            //   • REST-refetch the camera rows each pass so desired_state
+            //     is fresh — do NOT depend on a Realtime echo arriving
+            //     (the most likely reason the old one-shot reconnect still
+            //     showed an empty grid: track was back but isLiveStreaming
+            //     stayed false).
+            //   • Force one clean LiveKit rejoin (pass 0) so we
+            //     re-subscribe to every republished track from scratch —
+            //     the Swift SDK can drop `track_subscribed` across a
+            //     publisher leave/rejoin.
+            // Bail the moment a camera is actually live, max ~15s.
+            guard oldValue == true, newValue == false else { return }
+            Task {
+                for attempt in 0..<6 {
+                    await bootstrap(force: attempt == 0)
+                    try? await env.api.loadCameras(forPatient: patientId)
+                    #if DEBUG
+                    let snapshot = allCameras.map { cam -> String in
+                        let hasTrack = cam.livekitIdentity
+                            .flatMap { env.liveKit.videoTracksByIdentity[$0] } != nil
+                        return "\(cam.displayId):\(cam.desiredState):\(hasTrack ? "trk" : "-")"
+                    }
+                    print("[reconnect-all] attempt=\(attempt) online=\(onlineCameras.count) lkState=\(env.liveKit.state) \(snapshot)")
+                    #endif
+                    if !onlineCameras.isEmpty { break }
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                }
+            }
+        }
         .onDisappear { Task { await tabAwayCleanup() } }
         .onReceive(timer) { now in clockTick = now }
         .onChange(of: selectedCameraId) { _, newValue in
@@ -169,7 +207,7 @@ struct PatientLiveView: View {
 
     // MARK: - Lifecycle
 
-    private func bootstrap() async {
+    private func bootstrap(force: Bool = false) async {
         guard patient?.camerasPaused != true else { return }
         let expectedRoom = "patient_\(patientId.uuidString.lowercased())"
 
@@ -184,7 +222,14 @@ struct PatientLiveView: View {
         // doubles as a token-expiry escape hatch: if the SDK has
         // dropped the room, `state` won't be `.connected` and we
         // fall through to a fresh mint.
-        if env.liveKit.currentRoom == expectedRoom
+        //
+        // `force` bypasses the short-circuit: the reconnect-all path
+        // needs a clean re-join so we re-subscribe to every track the
+        // wall phones re-publish, rather than trusting a stale session
+        // whose subscriptions the SDK may have silently dropped during
+        // the publishers' leave/rejoin.
+        if !force
+            && env.liveKit.currentRoom == expectedRoom
             && env.liveKit.state == .connected {
             lkError = nil
             // Only re-resolve the carousel selection if it's stale

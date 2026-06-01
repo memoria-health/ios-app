@@ -1019,15 +1019,27 @@ extension NemaraAPIClient {
         }
     }
 
-    /// Fires `onCameraOnline` whenever a Realtime UPDATE/INSERT lands
-    /// a row with `online=true` AND `livekitIdentity` set. The hook
-    /// lets `AppEnvironment` ask `LiveKitClient.ensureSubscribed` to
-    /// recover from any SDK-side `track_subscribed` event that got
-    /// lost during a brief publisher disconnect. Cheap to call on
-    /// every UPDATE: `ensureSubscribed` no-ops when the track is
-    /// already present.
+    /// Fires `onCameraOnline` whenever a Realtime UPDATE/INSERT lands a
+    /// row for a camera that's meant to be live AND has a
+    /// `livekitIdentity`. The hook lets `AppEnvironment` ask
+    /// `LiveKitClient.ensureSubscribed` to recover from any SDK-side
+    /// `track_subscribed` event that got lost during a publisher
+    /// reconnect.
+    ///
+    /// "Meant to be live" = `online==true` (worker-confirmed presence)
+    /// OR `desired_state==.connected` (caregiver intent). The old code
+    /// gated ONLY on `online` — but `online` is written by the detector
+    /// worker's reconciler, so in local/dev (or any moment the worker
+    /// hasn't flipped it yet) the realtime UPDATE arrived with
+    /// online=false and we silently skipped the re-subscribe, leaving the
+    /// tile black even though the publisher was live. `desired_state` is
+    /// always present in the row, so it's the reliable trigger. Cheap to
+    /// over-call: `ensureSubscribed` no-ops when the track already exists
+    /// and (reconnectIfAbsent:false) no-ops when the publisher hasn't
+    /// rejoined yet.
     private func notifyOnlineIfNeeded(_ cam: Camera) {
-        guard cam.online, let identity = cam.livekitIdentity else { return }
+        guard cam.online || cam.desiredState == .connected,
+              let identity = cam.livekitIdentity else { return }
         onCameraOnline?(identity)
     }
 

@@ -38,15 +38,25 @@ final class AppEnvironment {
         let env = AppEnvironment(auth: auth, api: api, liveKit: liveKit)
 
         // iOS analog of the backend's REST-poll reconciler. When
-        // Supabase Realtime delivers a `cameras` row with online=true,
-        // ask LiveKitClient to make sure we're subscribed to its
-        // tracks — recovers from any SDK-side `track_subscribed` that
-        // got lost during a brief publisher reconnect. The API client
+        // Supabase Realtime delivers a `cameras` row that's meant to be
+        // live (desired_state==connected, or worker-confirmed
+        // online=true), ask LiveKitClient to make sure we're subscribed
+        // to its tracks — recovers from any SDK-side `track_subscribed`
+        // that got lost during a publisher reconnect. The API client
         // doesn't know about LiveKit; the wiring lives here so the
         // two services stay decoupled.
+        //
+        // `reconnectIfAbsent: false`: this fires on every qualifying
+        // `cameras` UPDATE, including before the publisher has actually
+        // rejoined the room. In that window the participant is legitimately
+        // absent and we must NOT tear the room down (there's no supervisor
+        // to re-mint outside the Live view's bootstrap) — we just no-op
+        // and let the SDK's own `didSubscribeTrack` / a later UPDATE catch
+        // it. The destructive force-reconnect stays available for callers
+        // that KNOW the publisher is present.
         api.onCameraOnline = { [weak liveKit] identity in
             guard let liveKit else { return }
-            Task { await liveKit.ensureSubscribed(identity: identity) }
+            Task { await liveKit.ensureSubscribed(identity: identity, reconnectIfAbsent: false) }
         }
 
         // Provisioning + bootstrap pipeline. AppEnvironment owns the

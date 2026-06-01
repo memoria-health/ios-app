@@ -183,6 +183,9 @@ final class LiveKitClient {
     // MARK: - Connection
 
     func connect(url: String, token: String, room roomName: String) async {
+        #if DEBUG
+        print("[LiveKit] connect → room=\(roomName) url=\(url) (prevState=\(state))")
+        #endif
         if state != .disconnected {
             await room.disconnect()
         }
@@ -191,9 +194,15 @@ final class LiveKitClient {
         do {
             try await room.connect(url: url, token: token)
             // Terminal state arrives via the delegate; don't pre-flip.
+            #if DEBUG
+            print("[LiveKit] connect → room.connect() returned ok; remoteParticipants=\(room.remoteParticipants.keys.map { $0.stringValue })")
+            #endif
         } catch {
             state = .failed("\(error)")
             currentRoom = nil
+            #if DEBUG
+            print("[LiveKit] connect FAILED room=\(roomName): \(error)")
+            #endif
         }
     }
 
@@ -221,8 +230,13 @@ final class LiveKitClient {
     ///
     /// Idempotent and cheap; safe to call from every Realtime
     /// `cameras` UPDATE.
-    func ensureSubscribed(identity: String) async {
-        guard state == .connected else { return }
+    func ensureSubscribed(identity: String, reconnectIfAbsent: Bool = true) async {
+        guard state == .connected else {
+            #if DEBUG
+            print("[LiveKit] ensureSubscribed: identity=\(identity) skipped — room not connected (state=\(state))")
+            #endif
+            return
+        }
         if videoTracksByIdentity[identity] != nil { return }
 
         let participant = room.remoteParticipants.values.first(where: {
@@ -230,9 +244,18 @@ final class LiveKitClient {
         })
         guard let participant else {
             #if DEBUG
-            print("[LiveKit] ensureSubscribed: identity=\(identity) missing from SDK — forcing reconnect")
+            print("[LiveKit] ensureSubscribed: identity=\(identity) absent from SDK (reconnectIfAbsent=\(reconnectIfAbsent))")
             #endif
-            await room.disconnect()
+            // Force a fresh reconnect ONLY when the caller knows the
+            // publisher really is in the room (worker-confirmed
+            // `online=true`) — that's a true SDK desync. The realtime
+            // `desired_state==connected` path over-calls this while the
+            // publisher may simply not have rejoined yet; tearing the
+            // room down there would strand us (nothing re-mints on iOS
+            // outside the view's bootstrap).
+            if reconnectIfAbsent {
+                await room.disconnect()
+            }
             return
         }
 
@@ -437,7 +460,10 @@ enum LiveKitClientError: Error, LocalizedError {
 
 extension LiveKitClient: RoomDelegate {
 
-    nonisolated func room(_: Room, didUpdateConnectionState newState: ConnectionState, from _: ConnectionState) {
+    nonisolated func room(_: Room, didUpdateConnectionState newState: ConnectionState, from oldState: ConnectionState) {
+        #if DEBUG
+        print("[LiveKit] connState \(oldState) → \(newState)")
+        #endif
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             switch newState {
@@ -463,6 +489,9 @@ extension LiveKitClient: RoomDelegate {
         let track = publication.track
         let identity = participant.identity?.stringValue ?? ""
         guard !identity.isEmpty else { return }
+        #if DEBUG
+        print("[LiveKit] didSubscribeTrack identity=\(identity) kind=\(publication.kind)")
+        #endif
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             if let vt = track as? VideoTrack {
