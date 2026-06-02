@@ -170,35 +170,20 @@ schemes:
       gatherCoverageData: false
     run:
       config: Debug
-      # The env vars below put the app on the live local stack out of
-      # the box. AppConfig reads them via ProcessInfo at launch.
-      #
-      # The anon key here is the well-known LOCAL Supabase anon key —
-      # generated deterministically from the local JWT secret
-      # (`super-secret-jwt-token-with-at-least-32-characters-long`)
-      # and identical across every developer's `supabase start`. Not
-      # a real secret. Production keys come from the build environment.
+      # Per-developer URLs (backend, Supabase) are NOT injected via this
+      # scheme anymore. Scheme env vars only fire when launched from
+      # Xcode, which means the binary breaks the moment you tap the
+      # app icon on a real device. Use NemaraCaregiver/Networking/
+      # LocalAppConfig.swift instead: file is tracked once with nil
+      # defaults, each dev marks it skip-worktree and edits their own
+      # URLs locally. AppConfig reads LocalAppConfig first, then env,
+      # then the DEBUG fallback.
       #
       # OS_ACTIVITY_MODE silences the simulator's verbose os_log
       # chatter (variant selector, RTIInputSystemClient, persona /
       # runningboard) without affecting our own logs.
       environmentVariables:
         OS_ACTIVITY_MODE: disable
-        # mDNS .local hostname resolves to whichever Mac is currently
-        # running nemara-backend on this Wi-Fi network — survives IP
-        # changes / DHCP renewals / coffee-shop Wi-Fi without manually
-        # re-editing the IP every time. Both the iOS Simulator and a
-        # real iPhone (with NSAllowsLocalNetworking + the local-network
-        # permission already granted via Info.plist) resolve this fine.
-        #
-        # **This is Sunny's Mac's hostname.** If you're another
-        # developer (e.g. Aryaman), override these locally — either by
-        # editing this file (don't commit), changing your scheme env
-        # vars in Xcode (gets wiped on next `xcodegen generate`), or
-        # creating a user-specific scheme in xcuserdata.
-        NEMARA_BACKEND_URL: http://Sunnys-MacBook-Air.local:8002
-        SUPABASE_URL: http://Sunnys-MacBook-Air.local:54341
-        SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
     profile:
       config: Release
     archive:

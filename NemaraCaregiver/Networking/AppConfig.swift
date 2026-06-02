@@ -2,45 +2,51 @@ import Foundation
 
 /// `AppConfig` — single static configuration the app reads at launch.
 ///
-/// All deployment-specific values are sourced from process environment
-/// variables, so the same binary works for local dev, staging, and
-/// production. Set the env vars in the Xcode scheme (Run → Arguments →
-/// Environment Variables); the bundled scheme already points at the
-/// local nemara-backend + Supabase stack so a fresh clone runs out of
-/// the box.
-///
-/// Recognized variables:
-/// - `SUPABASE_URL`        — e.g. `http://127.0.0.1:54341` (local) or
-///                            `https://<project>.supabase.co`
-/// - `SUPABASE_ANON_KEY`   — the publishable anon key
-/// - `NEMARA_BACKEND_URL`  — e.g. `http://127.0.0.1:8002` (local) or
-///                            production URL
+/// Resolution order for every field:
+///   1. `LocalAppConfig.<field>` — per-developer override, gitignored via
+///      skip-worktree. The right place to point YOUR Debug build at YOUR
+///      stack (local Supabase, your Mac's ngrok URL, etc.). Wins because
+///      it travels with the binary, so the app works the same whether
+///      launched from Xcode or from the home-screen icon.
+///   2. `ProcessInfo.processInfo.environment[<KEY>]` — runtime env var,
+///      useful for CI/CD or one-off `KEY=val xcrun ...` invocations. Not
+///      populated by the bundled scheme anymore.
+///   3. `#if DEBUG` fallback — Sunny's Mac via Bonjour. Lets the canonical
+///      dev stack run on Sunny's machine without any per-dev setup.
+///   4. `#if !DEBUG` (Release) — production Supabase + Railway backend.
+///      What real users hit.
 enum AppConfig {
 
-    /// Supabase project URL. Env-var first, then a Debug-only baked-in
-    /// fallback pointing at the local stack. Release builds must have
-    /// `SUPABASE_URL` set — no fallback.
+    /// Supabase project URL. Override via `LocalAppConfig.supabaseURL`
+    /// or `SUPABASE_URL` env. Release builds default to prod Supabase.
     static let supabaseURL: URL? = {
+        if let override = LocalAppConfig.supabaseURL {
+            return override
+        }
         if let fromEnv = ProcessInfo.processInfo.environment["SUPABASE_URL"]
             .flatMap(URL.init) {
             return fromEnv
         }
         #if DEBUG
         // Local Supabase started by `supabase start`, API on port 54341.
-        // Bonjour hostname so both iOS Simulator and a physical iPhone
-        // on the same Wi-Fi resolve the Mac's current LAN IP without
-        // hardcoding it. See AppConfig.backendURL below for the same
-        // pattern applied to the backend URL.
+        // Bonjour hostname resolves to whichever Mac is currently
+        // running nemara-backend on this Wi-Fi network. Tracks Sunny's
+        // machine by default; if you're another dev, set
+        // `LocalAppConfig.supabaseURL` to your own LAN IP / hostname.
         return URL(string: "http://sunnys-macbook-air.local:54341")
         #else
         return URL(string: "https://zgifmvjnggmgzvtnosnu.supabase.co")
         #endif
     }()
 
-    /// Supabase anon (publishable) key. Env-var first, then a Debug-only
-    /// fallback. Publishable / anon keys are designed to be shipped in
-    /// client apps; safe to embed.
+    /// Supabase anon (publishable) key. Override via
+    /// `LocalAppConfig.supabaseAnonKey` or `SUPABASE_ANON_KEY` env.
+    /// Publishable / anon keys are designed to be shipped in client
+    /// apps; safe to embed.
     static let supabaseAnonKey: String? = {
+        if let override = LocalAppConfig.supabaseAnonKey, !override.isEmpty {
+            return override
+        }
         if let raw = ProcessInfo.processInfo.environment["SUPABASE_ANON_KEY"],
            !raw.isEmpty {
             return raw
@@ -60,27 +66,22 @@ enum AppConfig {
     /// allow-list. Wiring lands in a later plan.
     static let supabasePasswordResetRedirect = URL(string: "nemara://reset-password")!
 
-    /// nemara-backend API base URL.
-    ///
-    /// Resolution order:
-    ///   1. `NEMARA_BACKEND_URL` scheme env var — per-machine override.
-    ///   2. Debug builds (Cmd-R from Xcode) → local uvicorn on the Mac's
-    ///      LAN IP. Lets the inner-loop dev cycle run without redeploying
-    ///      to Railway every change.
-    ///   3. Release builds (Archive / TestFlight / App Store) → Railway
-    ///      prod. This is what real users hit.
+    /// nemara-backend API base URL. Override via
+    /// `LocalAppConfig.backendURL` or `NEMARA_BACKEND_URL` env. Release
+    /// builds default to the Railway production deployment.
     static let backendURL: URL = {
+        if let override = LocalAppConfig.backendURL {
+            return override
+        }
         if let fromEnv = ProcessInfo.processInfo.environment["NEMARA_BACKEND_URL"]
             .flatMap(URL.init) {
             return fromEnv
         }
         #if DEBUG
-        // Bonjour/mDNS hostname — resolves to whatever IP this Mac
-        // currently has on Wi-Fi. Survives DHCP reassignments and
-        // switching between coffee-shop / home / hotspot networks
-        // without code changes. Both iOS Simulator and a physical
-        // iPhone on the same Wi-Fi resolve it.
-        return URL(string: "http://MacBook-Pro-6.local:8002")!
+        // Bonjour/mDNS hostname for Sunny's Mac. If you're another dev,
+        // set `LocalAppConfig.backendURL` to your own (e.g. an ngrok
+        // URL that publishes your local uvicorn).
+        return URL(string: "http://sunnys-macbook-air.local:8002")!
         #else
         return URL(string: "https://nemara-backend-production.up.railway.app")!
         #endif
