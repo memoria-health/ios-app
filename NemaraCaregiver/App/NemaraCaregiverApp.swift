@@ -11,6 +11,7 @@ import UserNotifications
 struct NemaraCaregiverApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var environment: AppEnvironment
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Set when the user taps a `nemara://reset-password?code=…` link
     /// from a password-recovery email. Triggers a full-screen
@@ -59,12 +60,24 @@ struct NemaraCaregiverApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .dismissKeyboardOnTap()
                 .environment(environment)
                 .preferredColorScheme(.light)   // design is light-only
                 .tint(NemaraColor.terra)
                 .background(NemaraColor.paper)
                 .task {
                     await Self.requestPushAuthorization()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    // Realtime catch-up. The Supabase socket is severed
+                    // while the app is suspended, and Realtime has no
+                    // replay — any event created while we were
+                    // backgrounded is never pushed on resume. Refetch on
+                    // foreground so new events land immediately, without
+                    // the user pulling to refresh. No-op before the first
+                    // bootstrap (resync guards on an empty roster).
+                    guard newPhase == .active else { return }
+                    Task { await environment.api.resync() }
                 }
                 .onOpenURL { url in
                     handleIncomingURL(url)

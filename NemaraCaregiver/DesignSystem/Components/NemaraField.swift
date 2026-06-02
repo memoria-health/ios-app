@@ -58,6 +58,10 @@ struct NemaraField: View {
                 .font(NemaraFont.bodyLarge.weight(.regular))
                 .foregroundStyle(NemaraColor.ink)
                 .tint(NemaraColor.terra)
+                // Native keyboard "Done" — the Return key is relabeled and
+                // pressing it dismisses the keyboard. No floating toolbar.
+                .submitLabel(.done)
+                .onSubmit { Self.resignFirstResponder() }
 
                 if let trailing { trailing }
             }

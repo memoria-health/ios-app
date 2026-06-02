@@ -92,7 +92,7 @@ struct FaceEnrollmentStepView: View {
                 .foregroundStyle(NemaraColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Text(
-                "Take \(EnrollmentPrompts.count) photos from a few angles so we can tell them apart from others in their household. The photos stay private to your account.",
+                "Take \(EnrollmentPrompts.count) photos from different angles. Keep their face within the circle. This helps Memoria look after the patient more accurately.",
             )
             .font(NemaraFont.bodySmall)
             .foregroundStyle(NemaraColor.ink3)

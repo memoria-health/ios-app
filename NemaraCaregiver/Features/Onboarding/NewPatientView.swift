@@ -14,6 +14,7 @@ struct NewPatientView: View {
     @State private var dateOfBirth: Date?
     @State private var showDOBSheet = false
     @State private var dobMonth = 1
+    @State private var dobDay = 1
     @State private var dobYear = Calendar.current.component(.year, from: Date()) - 70
     @State private var gender = "Female"
     @State private var relation: Patient.Relation = .parent
@@ -127,8 +128,9 @@ struct NewPatientView: View {
                 NemaraEyebrow("DATE OF BIRTH")
                 Button {
                     if let dob = dateOfBirth {
-                        let c = Calendar.current.dateComponents([.month, .year], from: dob)
+                        let c = Calendar.current.dateComponents([.day, .month, .year], from: dob)
                         dobMonth = c.month ?? dobMonth
+                        dobDay = c.day ?? dobDay
                         dobYear = c.year ?? dobYear
                     }
                     showDOBSheet = true
@@ -369,19 +371,48 @@ struct NewPatientView: View {
 
     private static let dobFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("yMMMM")  // e.g. "March 1955"
+        f.setLocalizedDateFormatFromTemplate("yMMMMd")  // e.g. "March 1, 1955"
         return f
     }()
 
     private static let monthSymbols: [String] = DateFormatter().monthSymbols
 
+    /// Days available in the currently-selected month/year — handles
+    /// 28/29/30/31 and leap years so the day wheel never offers an
+    /// invalid date like Feb 30.
+    private func daysInSelectedMonth() -> Int {
+        var comps = DateComponents()
+        comps.year = dobYear
+        comps.month = dobMonth
+        if let date = Calendar.current.date(from: comps),
+           let range = Calendar.current.range(of: .day, in: .month, for: date) {
+            return range.count
+        }
+        return 31
+    }
+
+    /// If the selected month/year shrinks the valid day range (e.g.
+    /// switching to February), pull an out-of-range day back to the last
+    /// valid day so "Done" never builds an invalid date.
+    private func clampDOBDay() {
+        let maxDay = daysInSelectedMonth()
+        if dobDay > maxDay { dobDay = maxDay }
+    }
+
     private var dobSheet: some View {
         let currentYear = Calendar.current.component(.year, from: Date())
+        let dayCount = daysInSelectedMonth()
         return NavigationStack {
             HStack(spacing: 0) {
                 Picker("Month", selection: $dobMonth) {
                     ForEach(1...12, id: \.self) { m in
                         Text(Self.monthSymbols[m - 1]).tag(m)
+                    }
+                }
+                .pickerStyle(.wheel)
+                Picker("Day", selection: $dobDay) {
+                    ForEach(1...dayCount, id: \.self) { d in
+                        Text(String(d)).tag(d)
                     }
                 }
                 .pickerStyle(.wheel)
@@ -393,6 +424,8 @@ struct NewPatientView: View {
                 .pickerStyle(.wheel)
             }
             .tint(NemaraColor.terra)
+            .onChange(of: dobMonth) { _, _ in clampDOBDay() }
+            .onChange(of: dobYear) { _, _ in clampDOBDay() }
             .padding()
             .navigationTitle("Date of birth")
             .navigationBarTitleDisplayMode(.inline)
@@ -403,7 +436,7 @@ struct NewPatientView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         if let d = Calendar.current.date(
-                            from: DateComponents(year: dobYear, month: dobMonth, day: 1)
+                            from: DateComponents(year: dobYear, month: dobMonth, day: dobDay)
                         ) {
                             dateOfBirth = d
                         }
@@ -482,7 +515,7 @@ private struct FaceDetectionConsentView: View {
                     .foregroundStyle(NemaraColor.ink)
                     .kerning(-0.6)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Adding facial detection lets Memoria be more accurate, so alerts are more timely and consistent. No photos or personal information is saved or stored.")
+                Text("Adding facial detection lets Memoria be more accurate, so alerts are more timely and consistent.")
                     .font(NemaraFont.body)
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(3)

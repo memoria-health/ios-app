@@ -41,6 +41,18 @@ struct TalkStartRequest: Encodable, Sendable {
     }
 }
 
+/// Request body for the dev-only
+/// `POST /v1/patients/{id}/cameras/{cid}/record-clip` (data collection).
+/// Tells the wall camera to record the next `durationSeconds` seconds
+/// and ship the clip to the laptop receiver. Backend clamps to 5–300s.
+struct RecordClipRequest: Encodable, Sendable {
+    var durationSeconds: Int = 15
+
+    enum CodingKeys: String, CodingKey {
+        case durationSeconds = "duration_seconds"
+    }
+}
+
 /// Response from `GET /v1/patients/{id}/active-camera`. The Live tab
 /// uses this to default the carousel to the right tile; `cameraId`
 /// is nil when no qualifying analyses row exists in the last 30s.

@@ -27,7 +27,7 @@ struct PatientCamerasView: View {
                     list
                 }
                 NemaraButton(
-                    "Add a camera",
+                    "Add a sensor",
                     variant: .secondary,
                     block: true,
                     systemImage: "plus",
@@ -51,10 +51,10 @@ struct PatientCamerasView: View {
     private var emptyCard: some View {
         NemaraCard(padding: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("No cameras yet")
+                Text("No sensors yet")
                     .font(NemaraFont.bodySemibold)
                     .foregroundStyle(NemaraColor.ink)
-                Text("Pair a wall phone to start monitoring. Each pairing generates a 6-digit code valid for ~10 minutes.")
+                Text("Pair a Memoria Sensor from **Add a sensor** to start monitoring.")
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
                     .lineSpacing(2)
@@ -66,14 +66,14 @@ struct PatientCamerasView: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 8) {
-            NemaraEyebrow("CAMERAS · \(cameras.count) PAIRED")
+            NemaraEyebrow("SENSORS · \(cameras.count) PAIRED")
                 .padding(.horizontal, 16)
             NemaraCard(padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(cameras.indices, id: \.self) { i in
                         let cam = cameras[i]
                         NavigationLink(value: cam.id) {
-                            CameraRow(camera: cam)
+                            CameraRow(camera: cam, preparing: env.api.isPreparing(cam))
                         }
                         .buttonStyle(.plain)
                         if i < cameras.count - 1 {
@@ -96,6 +96,11 @@ struct PatientCamerasView: View {
 /// for why we don't use it as the visibility filter on the Live tab).
 private struct CameraRow: View {
     let camera: Camera
+    /// First-connect transitional state: paired + intended-on but not
+    /// online yet, and never been online before. Computed by the caller
+    /// (`env.api.isPreparing`). Drives a "starting up" treatment so a
+    /// brand-new sensor doesn't read as broken while it boots.
+    var preparing: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -113,9 +118,14 @@ private struct CameraRow: View {
                     .foregroundStyle(NemaraColor.ink)
                 Text(statusLine)
                     .font(NemaraFont.monoSmall)
-                    .foregroundStyle(NemaraColor.ink3)
+                    .foregroundStyle(preparing ? NemaraColor.action : NemaraColor.ink3)
             }
             Spacer()
+            if preparing {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(NemaraColor.action)
+            }
             userToggleBadges
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
@@ -134,7 +144,12 @@ private struct CameraRow: View {
     /// they always render OFFLINE without us having to check
     /// `paired` here.
     private var statusLine: String {
-        let id = "CAM \(String(format: "%02d", camera.displayId))"
+        let id = "SENSOR \(String(format: "%02d", camera.displayId))"
+        // Caregiver intent wins over the (lagging) backend `online` flag:
+        // a sensor they disconnected reads OFFLINE immediately, even though
+        // the reconciler takes a few seconds to flip `online` false.
+        if camera.desiredState == .disconnected { return "\(id) · OFFLINE" }
+        if preparing { return "\(id) · STARTING UP…" }
         return "\(id) · \(camera.online ? "ONLINE" : "OFFLINE")"
     }
 

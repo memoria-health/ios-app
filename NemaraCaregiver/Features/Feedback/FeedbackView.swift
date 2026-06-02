@@ -5,19 +5,54 @@ import SwiftUI
 /// nested navigation.
 struct FeedbackView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppEnvironment.self) private var env
     @State private var rating: Int = 0
     @State private var whatsWorking: String = ""
     @State private var whatsFrustrating: String = ""
     @State private var category: String?
+    @State private var isSubmitting = false
+    @State private var submitted = false
+    @State private var submitError: String?
 
-    private let categories = ["Detection", "Live feed", "Alerts", "Daily summary", "Settings", "Something else"]
+    // Macro themes, not per-tab/feature buckets — feature-specific items
+    // read like bug reports. These capture how Memoria is landing overall.
+    private let categories = ["Ease of use", "Accuracy & reliability", "Peace of mind", "Feature request", "Pricing", "Something else"]
+
+    private var canSubmit: Bool {
+        rating > 0
+            || !whatsWorking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !whatsFrustrating.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @MainActor
+    private func submit() async {
+        guard canSubmit, !isSubmitting else { return }
+        isSubmitting = true
+        submitError = nil
+        defer { isSubmitting = false }
+        func nonBlank(_ s: String) -> String? {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+        do {
+            _ = try await env.api.submitFeedback(
+                rating: rating == 0 ? nil : rating,
+                whatsWorking: nonBlank(whatsWorking),
+                whatsFrustrating: nonBlank(whatsFrustrating),
+                category: category,
+            )
+            submitted = true
+        } catch {
+            submitError = "Couldn't send feedback. \(error.localizedDescription)"
+        }
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
                 foundersCard
                 feedbackForm
-                Text("THANK YOU · NEMARA v0.1")
+                Text("THANK YOU · MEMORIA v0.1")
                     .font(NemaraFont.eyebrow)
                     .tracking(0.5)
                     .foregroundStyle(NemaraColor.ink3)
@@ -28,6 +63,8 @@ struct FeedbackView: View {
             .padding(.top, 8)
         }
         .background(NemaraColor.paper)
+        .scrollDismissesKeyboard(.interactively)
+        .dismissKeyboardOnTap()
         .navigationTitle("Feedback")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -73,8 +110,34 @@ struct FeedbackView: View {
                     workingField
                     frustratingField
                     categorySection
-                    NemaraButton("Send feedback", variant: .primary, size: .lg, block: true, systemImage: "paperplane.fill") {}
+                    if submitted {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(NemaraColor.action)
+                            Text("Thanks — we got it.")
+                                .font(NemaraFont.bodySmallStrong)
+                                .foregroundStyle(NemaraColor.ink)
+                        }
+                        .frame(maxWidth: .infinity)
                         .padding(.top, 6)
+                    } else {
+                        if let submitError {
+                            Text(submitError)
+                                .font(NemaraFont.caption)
+                                .foregroundStyle(NemaraColor.terra)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        NemaraButton(
+                            isSubmitting ? "Sending…" : "Send feedback",
+                            variant: .primary, size: .lg, block: true,
+                            systemImage: "paperplane.fill",
+                        ) {
+                            Task { await submit() }
+                        }
+                        .disabled(isSubmitting || !canSubmit)
+                        .opacity((isSubmitting || !canSubmit) ? 0.5 : 1)
+                        .padding(.top, 6)
+                    }
                 }
             }
         }
@@ -82,7 +145,7 @@ struct FeedbackView: View {
 
     private var satisfactionScale: some View {
         VStack(alignment: .leading, spacing: 6) {
-            NemaraEyebrow("HOW IS NEMARA GOING FOR YOU?")
+            NemaraEyebrow("HOW IS MEMORIA GOING FOR YOU?")
             let palette: [Color] = [
                 Color(red: 0xA0/255, green: 0x43/255, blue: 0x31/255),
                 Color(red: 0xC2/255, green: 0x62/255, blue: 0x44/255),

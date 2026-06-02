@@ -52,7 +52,7 @@ struct PatientShell: View {
                     if let patient { PHeader(patient: patient) { dismiss() } }
                 }
             }
-            .tabItem { Label("Cameras", systemImage: "camera.fill") }
+            .tabItem { Label("Sensors", systemImage: "camera.fill") }
             .tag(PatientTab.cameras)
 
             NavigationStack {
@@ -69,13 +69,18 @@ struct PatientShell: View {
                 patientTab {
                     PatientSettingsView(patientId: patientId)
                 } header: {
-                    if let patient { PHeader(patient: patient) { dismiss() } }
+                    if let patient { PHeader(patient: patient, showsIdentity: false) { dismiss() } }
                 }
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }
             .tag(PatientTab.settings)
         }
         .background(NemaraColor.paper)
+        // Tap-outside-to-dismiss for the whole patient experience. The
+        // app-root copy on RootView doesn't reach here — PatientShell is
+        // a fullScreenCover (separate hosting context) — so the gesture
+        // has to be re-applied inside the cover.
+        .dismissKeyboardOnTap()
         // The single LiveKit teardown point. .onDisappear on the
         // outer TabView fires when the whole patient cover is
         // dismissed, NOT on inner sub-tab switches — so the room

@@ -51,6 +51,13 @@ struct PatientLiveView: View {
     /// toggles (which made the label flash between Disconnect/Reconnect).
     @State private var isTogglingMonitoring = false
 
+    /// Dev-only data-collection state (gated by `AppConfig.enableClipCapture`).
+    /// `capturingCameraId` is the camera whose record-clip request is
+    /// in flight (disables its button); `captureNote` is a short toast
+    /// shown on that camera's tile after the trigger fires.
+    @State private var capturingCameraId: UUID? = nil
+    @State private var captureNote: (cameraId: UUID, text: String)? = nil
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -62,7 +69,7 @@ struct PatientLiveView: View {
                 // the bulk-button state. (Disconnect-all simply leaves no live
                 // cameras → the empty card.)
                 if onlineCameras.isEmpty {
-                    emptyCard
+                    if showPreparingCard { preparingCard } else { emptyCard }
                 } else {
                     cameraCarousel
                 }
@@ -450,7 +457,7 @@ struct PatientLiveView: View {
         return ZStack {
             VStack {
                 HStack {
-                    statePill(connectivity: connectivity)
+                    statePill(for: cam, connectivity: connectivity)
                     // Beside the LIVE pill, only for cameras whose own AI is
                     // paused. Driven by `cam.aiPaused` (per-camera), which
                     // updates live via the cameras realtime channel — pause
@@ -485,6 +492,32 @@ struct PatientLiveView: View {
                                 : "Unmute \(cam.room) audio"
                         )
                     }
+                    // Dev-only data-collection trigger. Tells THIS camera
+                    // to record the next 15s and ship it to the laptop
+                    // receiver. Hidden entirely unless the flag is on.
+                    if AppConfig.enableClipCapture {
+                        Button {
+                            Task { await captureClip(for: cam.id) }
+                        } label: {
+                            Image(
+                                systemName: capturingCameraId == cam.id
+                                    ? "record.circle.fill"
+                                    : "record.circle"
+                            )
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(
+                                capturingCameraId == cam.id
+                                    ? Color(.systemRed)
+                                    : NemaraColor.terraInk
+                            )
+                            .padding(8)
+                            .background(NemaraColor.ink.opacity(0.55))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(capturingCameraId != nil)
+                        .accessibilityLabel("Capture 15-second clip from \(cam.room)")
+                    }
                     Button {
                         fullScreenCameraId = cam.id
                     } label: {
@@ -502,6 +535,17 @@ struct PatientLiveView: View {
 
                 if isThisCallTarget, let err = lkError {
                     Text(err)
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.terraInk)
+                        .padding(8)
+                        .background(NemaraColor.ink.opacity(0.65))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+
+                if let note = captureNote, note.cameraId == cam.id {
+                    Text(note.text)
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.terraInk)
                         .padding(8)
@@ -588,10 +632,7 @@ struct PatientLiveView: View {
     }
 
     @ViewBuilder
-    private func statePill(connectivity: LiveKitClient.CameraConnectivity) -> some View {
-        // Reads `LiveKitClient.connectivity(of:)` rather than poking
-        // at raw room state + track maps — keeps "what counts as live"
-        // out of view code.
+    private func statePill(for cam: Camera, connectivity: LiveKitClient.CameraConnectivity) -> some View {
         switch connectivity {
         case .live:
             HStack(spacing: 6) {
@@ -610,7 +651,9 @@ struct PatientLiveView: View {
         case .roomDown:
             mutedPill("CONNECTING")
         case .offline, .unpaired:
-            EmptyView()
+            // Backend marks the sensor online but its video track hasn't
+            // arrived yet — show "connecting" instead of a blank pill.
+            if cam.online { mutedPill("CONNECTING") } else { EmptyView() }
         }
     }
 
@@ -621,6 +664,12 @@ struct PatientLiveView: View {
     private func cameraStatusDot(for cam: Camera, paused: Bool) -> some View {
         let color: Color = {
             if paused { return NemaraColor.ink3 }
+            // Backend `online` flag is the source of truth (consistent with
+            // web + the Sensors list).
+            if cam.online { return NemaraColor.success }
+            // First-connect: a sensor still booting reads as "starting up"
+            // (amber), not "offline" (red).
+            if env.api.isPreparing(cam) { return NemaraColor.warning }
             switch env.liveKit.connectivity(of: cam) {
             case .live, .joining:        return NemaraColor.success
             case .offline:               return NemaraColor.danger
@@ -647,7 +696,7 @@ struct PatientLiveView: View {
             let elapsed = Int(clockTick.timeIntervalSince(startedAt))
             return String(format: "ON AIR · %02d:%02d", elapsed / 60, elapsed % 60)
         }
-        return "CAM \(String(format: "%02d", cam.displayId))"
+        return "SENSOR \(String(format: "%02d", cam.displayId))"
     }
 
     private func handleCallButtonTap() {
@@ -656,6 +705,29 @@ struct PatientLiveView: View {
         case .active: Task { await endCall() }
         case .connecting: break
         }
+    }
+
+    // MARK: - Data collection (dev-only)
+
+    /// Triggers the wall camera to record the next 15s locally and ship
+    /// the clip to the laptop receiver (see AppConfig.enableClipCapture).
+    /// The button is disabled only for the brief trigger request; the
+    /// note then lingers ~5s. No call has to be active — the backend
+    /// sends the record packet server-side regardless of Talk state.
+    private func captureClip(for cameraId: UUID) async {
+        guard capturingCameraId == nil else { return }
+        capturingCameraId = cameraId
+        captureNote = (cameraId, "Sending…")
+        do {
+            try await env.api.recordClip(forPatient: patientId, cameraId: cameraId)
+            captureNote = (cameraId, "Recording 15s — check the receiver")
+        } catch {
+            captureNote = (cameraId, "Capture failed: \(error.localizedDescription)")
+        }
+        capturingCameraId = nil
+        // Auto-clear the toast unless a newer capture replaced it.
+        try? await Task.sleep(nanoseconds: 5_000_000_000)
+        if captureNote?.cameraId == cameraId { captureNote = nil }
     }
 
     // MARK: - Empty / paused / cameras-list
@@ -682,7 +754,7 @@ struct PatientLiveView: View {
                         .font(NemaraFont.title3)
                         .foregroundStyle(NemaraColor.ink)
                         .kerning(-0.3)
-                    Text("Cameras are off. Turn monitoring back on in Settings.")
+                    Text("Sensors are off. Turn monitoring back on in Settings.")
                         .font(NemaraFont.bodySmall)
                         .foregroundStyle(NemaraColor.ink2)
                         .multilineTextAlignment(.center)
@@ -708,13 +780,63 @@ struct PatientLiveView: View {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(NemaraColor.ink3)
-                Text("No cameras online")
+                Text("No sensors online")
                     .font(NemaraFont.title3)
                     .foregroundStyle(NemaraColor.ink)
-                Text("Pair a wall phone from Patient Settings to start a call.")
+                Text("Pair a Memoria Sensor from the **Sensors tab** to begin the live feed.")
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                     .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 28)
+            }
+            .padding(.vertical, 36)
+        }
+        .aspectRatio(16/9, contentMode: .fit)
+    }
+
+    /// Show the "preparing to start" tile instead of the empty card when
+    /// at least one sensor is on its first connect (booting up) and the
+    /// patient isn't paused. Reassures the caregiver that the blank feed
+    /// is expected and temporary, not a failure.
+    private var showPreparingCard: Bool {
+        guard !(patient?.camerasPaused ?? false) else { return false }
+        return allCameras.contains { env.api.isPreparing($0) }
+    }
+
+    /// First-connect transitional tile, in the same 16:9 slot as
+    /// `emptyCard`. Replaced by the live carousel the moment the sensor's
+    /// video track arrives.
+    private var preparingCard: some View {
+        let rooms = allCameras.filter { env.api.isPreparing($0) }.map(\.room)
+        let detail = rooms.count == 1
+            ? "\(rooms[0]) is connecting. The live feed will appear here in a moment."
+            : "Your sensor is connecting. The live feed will appear here in a moment."
+        return ZStack {
+            RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
+                .fill(NemaraColor.cardAlt)
+                .overlay(
+                    RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
+                        .strokeBorder(NemaraColor.line, lineWidth: 1)
+                )
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(NemaraColor.action)
+                VStack(spacing: 6) {
+                    Text("Preparing to start")
+                        .font(NemaraFont.title3)
+                        .foregroundStyle(NemaraColor.ink)
+                        .kerning(-0.3)
+                    Text(detail)
+                        .font(NemaraFont.bodySmall)
+                        .foregroundStyle(NemaraColor.ink2)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 32)
+                }
             }
             .padding(.vertical, 36)
         }
@@ -730,8 +852,8 @@ struct PatientLiveView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(paused ? NemaraColor.ink3 : NemaraColor.action)
                     NemaraEyebrow(paused
-                                  ? "CAMERAS · PAUSED"
-                                  : "CAMERAS · \(onlineCameras.count) ONLINE")
+                                  ? "SENSORS · PAUSED"
+                                  : "SENSORS · \(onlineCameras.count) ONLINE")
                     Spacer()
                 }
                 VStack(spacing: 8) {
@@ -748,7 +870,7 @@ struct PatientLiveView: View {
                                 .frame(width: 26, height: 26)
                                 Text(cam.room).font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink)
                                 Spacer()
-                                Text(String(format: "Cam %02d", cam.displayId))
+                                Text(String(format: "Sensor %02d", cam.displayId))
                                     .font(NemaraFont.monoSmall)
                                     .foregroundStyle(NemaraColor.ink3)
                                 cameraStatusDot(for: cam, paused: paused)
@@ -776,7 +898,7 @@ struct PatientLiveView: View {
     private var disconnectAllButton: some View {
         let paused = patient?.camerasPaused ?? false
         return NemaraButton(
-            paused ? "Reconnect all cameras" : "Disconnect all cameras",
+            paused ? "Reconnect all sensors" : "Disconnect all sensors",
             variant: paused ? .primary : .secondary,
             size: .md,
             block: true,
@@ -841,31 +963,32 @@ struct PatientLiveView: View {
     private var allCameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
     }
-    /// Cameras visible in the carousel right now.
+    /// Sensors shown in the carousel right now.
     ///
-    /// SDK-direct rule: a tile is in the carousel iff
-    ///   1. The camera is eligible (`isLiveStreaming` — paired, not
-    ///      user-hidden, intent=connected).
-    ///   2. The LiveKit SDK has a subscribed video track for the
-    ///      camera's identity (`videoTracksByIdentity` contains it).
+    /// A tile is in the carousel iff it's eligible (`isLiveStreaming` —
+    /// paired, not user-hidden, intent=connected) AND either:
+    ///   1. the backend marks it `online` (the single source of truth,
+    ///      consistent with web's grid + the Sensors list — flips fast via
+    ///      Realtime so the tile appears as soon as the sensor connects), OR
+    ///   2. the LiveKit SDK already has a subscribed video track for it
+    ///      (so we never hide a feed that's actually streaming if `online`
+    ///      is momentarily behind).
     ///
-    /// Rule 2 is the bug fix from the 2026-05-29 incident: the
-    /// backend's `cameras.online` column would lag the SDK by up to
-    /// ~10s (the REST reconcile interval) and, before the reconciler
-    /// refactor, could go stale for hours. Reading the SDK's track
-    /// map directly puts the tile state in lockstep with the actual
-    /// stream: as soon as `track_subscribed` fires the tile appears,
-    /// as soon as `track_unsubscribed` fires it disappears.
-    ///
-    /// Note the variable is still named `onlineCameras` for the 6
-    /// callsites; the semantic is now "cameras with a live video
-    /// track right now," which still fits colloquially.
+    /// The tile shows the live video once the track arrives, and a
+    /// "connecting" placeholder in the gap between `online` and the track.
+    /// (Previously this gated purely on the SDK track — the 2026-05-29
+    /// incident fix for a then-unreliable `online` column. The reconciler
+    /// refactor since made `online` trustworthy, and we now prefer it for
+    /// cross-platform consistency.)
     private var onlineCameras: [Camera] {
+        // "Disconnect all" flips `cameras_paused` optimistically — honor it
+        // instantly so the carousel clears on tap, rather than waiting for
+        // the backend's `online` flag to lag false a few seconds later.
+        guard !(patient?.camerasPaused ?? false) else { return [] }
         let tracks = env.liveKit.videoTracksByIdentity
         return allCameras.filter { cam in
-            guard cam.isLiveStreaming else { return false }
-            guard let identity = cam.livekitIdentity else { return false }
-            return tracks[identity] != nil
+            guard cam.isLiveStreaming, let identity = cam.livekitIdentity else { return false }
+            return cam.online || tracks[identity] != nil
         }
     }
 }

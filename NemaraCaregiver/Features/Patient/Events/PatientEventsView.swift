@@ -41,20 +41,24 @@ struct PatientEventsView: View {
                     reviewErrorBanner(err)
                 }
                 filterChips
-                ForEach(visible) { ev in
-                    Button {
-                        if !ev.opened {
-                            Task {
-                                _ = try? await env.api.updateEvent(
-                                    ev.id, UpdateEventRequest(opened: true),
-                                )
+                if visible.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(visible) { ev in
+                        Button {
+                            if !ev.opened {
+                                Task {
+                                    _ = try? await env.api.updateEvent(
+                                        ev.id, UpdateEventRequest(opened: true),
+                                    )
+                                }
                             }
+                            openedEvent = ev
+                        } label: {
+                            EventCard(event: ev)
                         }
-                        openedEvent = ev
-                    } label: {
-                        EventCard(event: ev)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 14)
@@ -70,6 +74,58 @@ struct PatientEventsView: View {
                     onReviewSubmitted: { openedEvent = nil },
                 )
             }
+        }
+        // Reliability net for the Events feed. Realtime is the instant
+        // path, but if the socket is stale (token refresh, a dropped
+        // connection) or the app was backgrounded, the INSERT can be
+        // missed — Realtime has no replay. Refetch on appear and gently
+        // poll while the Events tab is on screen so a new event is never
+        // stuck invisible until a relaunch. (The poll is quiet — no
+        // spinner — and stops when you leave the tab.)
+        .task(id: patientId) {
+            while !Task.isCancelled {
+                try? await env.api.loadEventsFirstPage(forPatient: patientId)
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+            }
+        }
+    }
+
+    /// Big, centered "nothing here" state shown when the active filter
+    /// has no events. Copy adapts to the filter so "all caught up" reads
+    /// differently from "nothing has happened yet".
+    private var emptyState: some View {
+        let copy = emptyCopy
+        return VStack(spacing: 10) {
+            Image(systemName: copy.icon)
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(NemaraColor.ink3)
+            Text(copy.title)
+                .font(NemaraFont.title3)
+                .foregroundStyle(NemaraColor.ink)
+                .kerning(-0.3)
+            Text(copy.subtitle)
+                .font(NemaraFont.bodySmall)
+                .foregroundStyle(NemaraColor.ink2)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 28)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 56)
+    }
+
+    private var emptyCopy: (icon: String, title: String, subtitle: String) {
+        switch filter {
+        case .all:
+            return ("tray", "Nothing to see here yet",
+                    "When a detector notices something, events will show up here.")
+        case .unreviewed:
+            return ("checkmark.circle", "All caught up",
+                    "No events are waiting for your review.")
+        case .reviewed:
+            return ("tray", "Nothing reviewed yet",
+                    "Events you've reviewed will appear here.")
         }
     }
 

@@ -60,9 +60,14 @@ struct AddDetectorView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 footer
             }
             .background(NemaraColor.paper)
+            // The prompt is multi-line (Return inserts line breaks), so it
+            // has no Return-key "Done"; dismiss it by swiping the scroll
+            // view or tapping outside.
+            .dismissKeyboardOnTap()
         }
     }
 
@@ -366,6 +371,8 @@ struct AddDetectorView: View {
                 .strokeBorder(NemaraColor.ink, lineWidth: 1.5))
             .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
             .textInputAutocapitalization(.sentences)
+            .submitLabel(.done)
+            .onSubmit { Self.resignFirstResponder() }
     }
 
     private func typeCard(isScheduled: Bool, title: String, sub: String) -> some View {

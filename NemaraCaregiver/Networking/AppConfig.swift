@@ -93,4 +93,21 @@ enum AppConfig {
     static var isSupabaseConfigured: Bool {
         supabaseURL != nil && supabaseAnonKey != nil
     }
+
+    /// Dev-only feature flag for the data-collection "Capture 15s clip"
+    /// button on the Live camera tile. NOT a production feature — it
+    /// triggers the wall camera to record a short clip and ship it to a
+    /// laptop receiver for detector test data. Off by default so it never
+    /// appears in a normal build. Enable per-dev via
+    /// `LocalAppConfig.enableClipCapture = true` or the
+    /// `NEMARA_ENABLE_CLIP_CAPTURE` env var.
+    static let enableClipCapture: Bool = {
+        if let override = LocalAppConfig.enableClipCapture {
+            return override
+        }
+        if let raw = ProcessInfo.processInfo.environment["NEMARA_ENABLE_CLIP_CAPTURE"] {
+            return (raw as NSString).boolValue
+        }
+        return false
+    }()
 }

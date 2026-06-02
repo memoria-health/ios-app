@@ -36,7 +36,7 @@ struct AppSettingsView: View {
                 }
                 .padding(.horizontal, 16)
 
-                Text("NEMARA v0.1")
+                Text("MEMORIA v0.1")
                     .font(NemaraFont.eyebrow)
                     .tracking(0.5)
                     .foregroundStyle(NemaraColor.ink3)
@@ -73,7 +73,7 @@ struct AppSettingsView: View {
             Button("Delete", role: .destructive) { deleteAccount() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently deletes your account, your loved ones' profiles, cameras, and all data. This can't be undone.")
+            Text("This permanently deletes your account, your loved ones' profiles, sensors, and all data. This can't be undone.")
         }
         .alert("Couldn't delete account", isPresented: Binding(
             get: { deleteError != nil },
@@ -122,6 +122,7 @@ struct AppSettingsView: View {
                         .foregroundStyle(NemaraColor.ink3)
                 }
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
@@ -145,6 +146,7 @@ struct AppSettingsView: View {
                                 .foregroundStyle(NemaraColor.ink3)
                         }
                         .padding(12)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     if i < env.api.patients.count - 1 {
@@ -180,6 +182,7 @@ struct AppSettingsView: View {
                             .foregroundStyle(NemaraColor.ink3)
                     }
                     .padding(14)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 NemaraColor.line.frame(height: 1)
@@ -199,6 +202,7 @@ struct AppSettingsView: View {
                         }
                     }
                     .padding(14)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isDeleting)
@@ -229,6 +233,10 @@ struct AppSettingsView: View {
                 .foregroundStyle(NemaraColor.ink3)
         }
         .padding(14)
+        // Make the whole row hit-testable, not just the icon/text/arrow:
+        // the Spacer gap is transparent and `.buttonStyle(.plain)` only
+        // hits drawn content without this.
+        .contentShape(Rectangle())
     }
 }
 

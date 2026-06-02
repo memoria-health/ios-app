@@ -43,6 +43,7 @@ struct EventReviewView: View {
                 .padding(.top, 6)
                 .padding(.bottom, 80)
             }
+            .scrollDismissesKeyboard(.interactively)
 
             footer
         }
@@ -57,13 +58,14 @@ struct EventReviewView: View {
                     .foregroundStyle(NemaraColor.ink3)
             }
         }
+        .dismissKeyboardOnTap()
     }
 
     // MARK: - sections
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 6) {
-            NemaraEyebrow("YOUR REVIEW HELPS NEMARA LEARN", color: NemaraColor.terra)
+            NemaraEyebrow("YOUR REVIEW HELPS MEMORIA LEARN", color: NemaraColor.terra)
             Text(subjectQuestion)
                 .font(NemaraFont.title1)
                 .kerning(-0.7)

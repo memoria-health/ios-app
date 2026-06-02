@@ -54,6 +54,9 @@ struct CameraDetailView: View {
             VStack(spacing: 14) {
                 if let cam = camera {
                     headerCard(cam)
+                    if env.api.isPreparing(cam) {
+                        preparingCard(cam)
+                    }
                     // Pairing-code section only applies to wall-phone
                     // cameras. Sensor (Pi) cameras get their ingest
                     // token at provision time, so a 6-digit code would
@@ -65,7 +68,7 @@ struct CameraDetailView: View {
                     detectorsSection
                     deleteCameraButton(cam)
                 } else {
-                    Text("Camera not found")
+                    Text("Sensor not found")
                         .font(NemaraFont.bodySemibold)
                         .foregroundStyle(NemaraColor.ink3)
                         .padding(.top, 80)
@@ -75,11 +78,11 @@ struct CameraDetailView: View {
             .padding(.bottom, 120)
         }
         .background(NemaraColor.paper)
-        .navigationTitle(camera?.room ?? "Camera")
+        .navigationTitle(camera?.room ?? "Sensor")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: cameraId) { await loadAssignments() }
         .alert(
-            "Delete this camera?",
+            "Delete this sensor?",
             isPresented: $showingDeleteConfirm,
         ) {
             Button("Cancel", role: .cancel) {}
@@ -94,7 +97,7 @@ struct CameraDetailView: View {
             )
         }
         .alert(
-            "Disconnect this camera?",
+            "Disconnect this sensor?",
             isPresented: $showingDisconnectConfirm,
         ) {
             Button("Cancel", role: .cancel) {}
@@ -127,7 +130,7 @@ struct CameraDetailView: View {
         NemaraCard(padding: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 NemaraEyebrow("AWAITING PAIRING")
-                Text("No wall phone has claimed this camera yet.")
+                Text("No wall phone has claimed this sensor yet.")
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                 Text(
@@ -147,6 +150,33 @@ struct CameraDetailView: View {
                 ) {
                     showingPairingCode = true
                 }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// First-connect transitional notice. Shown while a freshly paired
+    /// sensor is still coming online for the very first time, so the
+    /// blank/offline detail screen reads as "starting up," not "broken."
+    /// Disappears the instant the sensor reports online (see
+    /// `NemaraAPIClient.isPreparing`).
+    private func preparingCard(_ cam: Camera) -> some View {
+        NemaraCard(padding: 14) {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(NemaraColor.action)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Preparing to start")
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text("\(cam.room) is connecting and will begin monitoring in a moment.")
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.ink2)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
             }
         }
         .padding(.horizontal, 16)
@@ -186,7 +216,7 @@ struct CameraDetailView: View {
     }
 
     private func detailLine(_ cam: Camera) -> String {
-        let id = "CAM \(String(format: "%02d", cam.displayId))"
+        let id = "SENSOR \(String(format: "%02d", cam.displayId))"
         let identity = cam.livekitIdentity ?? "no identity"
         return "\(id) · \(identity)"
     }
@@ -232,7 +262,7 @@ struct CameraDetailView: View {
                             icon: cam.disabled ? "eye" : "eye.slash",
                             title: togglingHide
                                 ? (cam.disabled ? "Showing…" : "Hiding…")
-                                : (cam.disabled ? "Show camera" : "Hide camera"),
+                                : (cam.disabled ? "Show sensor" : "Hide sensor"),
                             subtitle: cam.disabled
                                 ? "Show tile + resume AI calls."
                                 : "Hide tile + pause AI calls. LiveKit stays connected.",
@@ -321,7 +351,7 @@ struct CameraDetailView: View {
     private var detectorsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .lastTextBaseline, spacing: 8) {
-                NemaraEyebrow("DETECTORS ON THIS CAMERA")
+                NemaraEyebrow("DETECTORS ON THIS SENSOR")
                 Spacer()
                 if loadingAssignments {
                     ProgressView().controlSize(.small)
@@ -360,7 +390,7 @@ struct CameraDetailView: View {
             .padding(.horizontal, 16)
 
             Text(
-                "Toggling here only affects this camera. Other cameras "
+                "Toggling here only affects this sensor. Other sensors "
                 + "under the same patient are independent. The global "
                 + "master switch lives on the detector itself.",
             )
@@ -472,7 +502,7 @@ struct CameraDetailView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "trash")
                         .font(.system(size: 14, weight: .semibold))
-                    Text(deleting ? "Deleting…" : "Delete camera")
+                    Text(deleting ? "Deleting…" : "Delete sensor")
                         .font(NemaraFont.bodySmallStrong)
                     Spacer()
                 }

@@ -185,7 +185,7 @@ struct EventDetailView: View {
                     Image(systemName: "sparkles")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(NemaraColor.ink3)
-                    NemaraEyebrow("WHAT NEMARA SAW")
+                    NemaraEyebrow("WHAT MEMORIA SAW")
                 }
                 Text(event.narrative)
                     .font(NemaraFont.bodySmallStrong.weight(.regular))

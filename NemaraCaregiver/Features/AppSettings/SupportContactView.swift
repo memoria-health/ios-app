@@ -73,6 +73,8 @@ struct SupportContactView: View {
                 }
                 .padding(16)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .dismissKeyboardOnTap()
             .background(NemaraColor.paper)
             .navigationTitle("Contact support")
             .navigationBarTitleDisplayMode(.inline)

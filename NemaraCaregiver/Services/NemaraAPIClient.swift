@@ -40,6 +40,16 @@ final class NemaraAPIClient {
     /// spinners.
     var isLoading: Bool = false
 
+    /// Camera ids that have reported `online == true` at least once on
+    /// this install. Persisted (UserDefaults) so the "preparing to
+    /// start" notice only shows on a sensor's FIRST connect: an
+    /// established camera that's merely offline right now (has been
+    /// online before) must NOT regress to "preparing" after an app
+    /// relaunch. Updated wherever we observe `online == true` (REST
+    /// `loadCameras` + the cameras Realtime channel). See `isPreparing`.
+    private var camerasEverOnline: Set<UUID> = NemaraAPIClient.loadEverOnline()
+    private static let everOnlineDefaultsKey = "co.sunny.nemara.camerasEverOnline"
+
     // MARK: - Dependencies
 
     private let baseURL: URL
@@ -148,6 +158,65 @@ final class NemaraAPIClient {
         eventsByPatient = [:]
     }
 
+    // MARK: - Resync (Realtime catch-up)
+
+    /// Lightweight catch-up refetch of every patient's sub-collections.
+    /// Supabase Realtime has no replay: any row change that lands while
+    /// the app is backgrounded (the socket is severed on suspend) is
+    /// silently missed and never pushed on resume. This refills events
+    /// (+ cameras + detectors) so a new event created while the app was
+    /// asleep appears the instant the app returns to the foreground —
+    /// no pull-to-refresh, no navigating back and forth.
+    ///
+    /// Deliberately does NOT toggle `isLoading` (no spinner flash on
+    /// every foreground) and swallows per-collection errors (`try?`) so
+    /// one failed fetch can't abort the rest. No-op before the first
+    /// `bootstrap()` has populated the roster (cold start is handled by
+    /// bootstrap, not this).
+    func resync() async {
+        guard !patients.isEmpty else { return }
+        await withTaskGroup(of: Void.self) { group in
+            for p in patients {
+                group.addTask { try? await self.loadEventsFirstPage(forPatient: p.id) }
+                group.addTask { try? await self.loadCameras(forPatient: p.id) }
+                group.addTask { try? await self.loadDetectors(forPatient: p.id) }
+            }
+        }
+    }
+
+    // MARK: - First-connect "preparing" tracking
+
+    private static func loadEverOnline() -> Set<UUID> {
+        let raw = UserDefaults.standard.stringArray(forKey: everOnlineDefaultsKey) ?? []
+        return Set(raw.compactMap(UUID.init(uuidString:)))
+    }
+
+    /// Record that a camera has successfully come online at least once.
+    /// Idempotent + persisted; flips the camera out of the "preparing"
+    /// state permanently (across relaunches).
+    private func markEverOnline(_ id: UUID) {
+        guard !camerasEverOnline.contains(id) else { return }
+        camerasEverOnline.insert(id)
+        UserDefaults.standard.set(
+            camerasEverOnline.map(\.uuidString),
+            forKey: Self.everOnlineDefaultsKey,
+        )
+    }
+
+    /// True while a freshly-connected sensor is still coming up for the
+    /// FIRST time: paired, the caregiver wants it on (`desired_state ==
+    /// .connected`), not user-hidden, but it has never reported `online`
+    /// yet on this install. Drives the "Sensor is preparing to start…"
+    /// notice. An established camera that's merely offline right now
+    /// (has been online before) returns `false` → it reads as "offline".
+    func isPreparing(_ cam: Camera) -> Bool {
+        cam.paired
+            && cam.desiredState == .connected
+            && !cam.disabled
+            && !cam.online
+            && !camerasEverOnline.contains(cam.id)
+    }
+
     // MARK: - Identity (POST/GET/PATCH /v1/me)
 
     func provisionMe(displayName: String, phone: String? = nil) async throws -> Caregiver {
@@ -187,6 +256,29 @@ final class NemaraAPIClient {
         try await sendJSON(
             method: "POST", path: "/v1/support",
             body: SupportRequest(subject: subject, message: message),
+        )
+    }
+
+    // MARK: - Feedback (POST /v1/feedback)
+
+    /// Submit app feedback (1–5 rating + free-text + optional category)
+    /// from the Feedback screen. The backend stores the row and
+    /// best-effort emails the team. Nil fields are omitted; the backend
+    /// requires a rating or at least one non-blank text field.
+    func submitFeedback(
+        rating: Int?,
+        whatsWorking: String?,
+        whatsFrustrating: String?,
+        category: String?,
+    ) async throws -> FeedbackResponse {
+        try await sendJSON(
+            method: "POST", path: "/v1/feedback",
+            body: FeedbackRequest(
+                rating: rating,
+                whatsWorking: whatsWorking,
+                whatsFrustrating: whatsFrustrating,
+                category: category,
+            ),
         )
     }
 
@@ -443,6 +535,7 @@ final class NemaraAPIClient {
             method: "GET", path: "/v1/patients/\(pid.uuidString.lowercased())/cameras",
         )
         camerasByPatient[pid] = cams
+        for cam in cams where cam.online { markEverOnline(cam.id) }
     }
 
     /// Mint a 6-digit pairing code for a new wall phone on this
@@ -758,6 +851,23 @@ final class NemaraAPIClient {
         )
     }
 
+    /// Dev-only (data collection): tell one camera to record the next
+    /// `durationSeconds` seconds locally and upload the clip to the
+    /// laptop receiver. Backend route is mounted only when
+    /// `NEMARA_ENABLE_INTERNALS=true`; surfaced in the UI behind
+    /// `AppConfig.enableClipCapture`. Not a production feature.
+    func recordClip(
+        forPatient pid: UUID,
+        cameraId: UUID,
+        durationSeconds: Int = 15,
+    ) async throws {
+        try await sendJSONVoid(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/\(cameraId.uuidString.lowercased())/record-clip",
+            body: RecordClipRequest(durationSeconds: durationSeconds),
+        )
+    }
+
     // MARK: - HTTP plumbing
 
     private func makeRequest(
@@ -1038,6 +1148,9 @@ extension NemaraAPIClient {
     /// and (reconnectIfAbsent:false) no-ops when the publisher hasn't
     /// rejoined yet.
     private func notifyOnlineIfNeeded(_ cam: Camera) {
+        // A worker-confirmed online row means this sensor has started at
+        // least once — clear it out of the "preparing" state for good.
+        if cam.online { markEverOnline(cam.id) }
         guard cam.online || cam.desiredState == .connected,
               let identity = cam.livekitIdentity else { return }
         onCameraOnline?(identity)
@@ -1071,18 +1184,34 @@ extension NemaraAPIClient {
         }
     }
 
+    /// Decode an event from a Realtime INSERT/UPDATE payload. Unlike the
+    /// other handlers' silent `try?`, a decode failure here is logged in
+    /// DEBUG — a swallowed decode would make a real event simply never
+    /// appear, with no trace. (Events are byte-for-byte the REST shape,
+    /// so this should never fire; the log is the canary if it ever does.)
+    private func decodeEvent<A: HasRecord>(_ a: A, _ dec: JSONDecoder) -> DetectionEvent? {
+        do {
+            return try a.decodeRecord(as: DetectionEvent.self, decoder: dec)
+        } catch {
+            #if DEBUG
+            print("[Realtime] events decode failed: \(error)")
+            #endif
+            return nil
+        }
+    }
+
     private func handleEventChange(_ action: AnyAction) {
         let dec = NemaraJSON.decoder()
         switch action {
         case .insert(let a):
-            guard let e = try? a.decodeRecord(as: DetectionEvent.self, decoder: dec) else { return }
+            guard let e = decodeEvent(a, dec) else { return }
             var arr = eventsByPatient[e.patientId] ?? []
             if !arr.contains(where: { $0.id == e.id }) {
                 arr.insert(e, at: 0)  // newest first matches the GET-list sort
             }
             eventsByPatient[e.patientId] = arr
         case .update(let a):
-            guard let e = try? a.decodeRecord(as: DetectionEvent.self, decoder: dec) else { return }
+            guard let e = decodeEvent(a, dec) else { return }
             var arr = eventsByPatient[e.patientId] ?? []
             if let idx = arr.firstIndex(where: { $0.id == e.id }) {
                 arr[idx] = e
