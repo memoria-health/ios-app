@@ -50,6 +50,17 @@ final class NemaraAPIClient {
     private var camerasEverOnline: Set<UUID> = NemaraAPIClient.loadEverOnline()
     private static let everOnlineDefaultsKey = "co.sunny.nemara.camerasEverOnline"
 
+    /// Sensors the caregiver just asked to reconnect (`desired_state`
+    /// flipped disconnected→connected). While the deadline is in the
+    /// future and the sensor isn't `online` yet, the Live tile shows a
+    /// "Connecting…" buffer instead of vanishing — so a reconnect doesn't
+    /// read as "nothing happened" during the few seconds the sensor takes
+    /// to republish. Cleared the instant `online` flips true; time-bounded
+    /// so a sensor that never returns doesn't spin forever. See
+    /// `isConnecting` and `PatientLiveView.onlineCameras`.
+    private var reconnectingUntil: [UUID: Date] = [:]
+    private let reconnectWindow: TimeInterval = 30
+
     // MARK: - Dependencies
 
     private let baseURL: URL
@@ -215,6 +226,17 @@ final class NemaraAPIClient {
             && !cam.disabled
             && !cam.online
             && !camerasEverOnline.contains(cam.id)
+    }
+
+    /// True while a just-reconnected sensor is still coming up: the
+    /// caregiver flipped it back to connected, it isn't `online` yet, and
+    /// the reconnect window hasn't elapsed. Drives the Live tile's
+    /// "Connecting…" buffer (distinct from `isPreparing`, which is the
+    /// FIRST-ever connect). Bounded by `reconnectWindow` so a sensor that
+    /// never returns falls through to plain "offline".
+    func isConnecting(_ cam: Camera) -> Bool {
+        guard let until = reconnectingUntil[cam.id], until > Date() else { return false }
+        return cam.isLiveStreaming && !cam.online
     }
 
     // MARK: - Identity (POST/GET/PATCH /v1/me)
@@ -635,6 +657,12 @@ final class NemaraAPIClient {
         )
         if var arr = camerasByPatient[updated.patientId],
            let idx = arr.firstIndex(where: { $0.id == updated.id }) {
+            // Reconnect (intent flipped back to connected) → open the
+            // "Connecting…" buffer window so the Live tile shows progress
+            // until frames flow, rather than nothing.
+            if arr[idx].desiredState == .disconnected, updated.desiredState == .connected {
+                reconnectingUntil[updated.id] = Date().addingTimeInterval(reconnectWindow)
+            }
             arr[idx] = updated
             camerasByPatient[updated.patientId] = arr
         }
@@ -1112,6 +1140,12 @@ extension NemaraAPIClient {
             guard let cam = try? a.decodeRecord(as: Camera.self, decoder: dec) else { return }
             var arr = camerasByPatient[cam.patientId] ?? []
             if let idx = arr.firstIndex(where: { $0.id == cam.id }) {
+                // Backstop for reconnects triggered elsewhere (web / another
+                // device): the optimistic path in `updateCamera` won't have
+                // run, so detect the disconnected→connected flip here too.
+                if arr[idx].desiredState == .disconnected, cam.desiredState == .connected {
+                    reconnectingUntil[cam.id] = Date().addingTimeInterval(reconnectWindow)
+                }
                 arr[idx] = cam
             } else {
                 arr.append(cam)
@@ -1149,8 +1183,12 @@ extension NemaraAPIClient {
     /// rejoined yet.
     private func notifyOnlineIfNeeded(_ cam: Camera) {
         // A worker-confirmed online row means this sensor has started at
-        // least once — clear it out of the "preparing" state for good.
-        if cam.online { markEverOnline(cam.id) }
+        // least once — clear it out of the "preparing" state for good, and
+        // close any open "Connecting…" reconnect buffer: it's up now.
+        if cam.online {
+            markEverOnline(cam.id)
+            reconnectingUntil[cam.id] = nil
+        }
         guard cam.online || cam.desiredState == .connected,
               let identity = cam.livekitIdentity else { return }
         onCameraOnline?(identity)
