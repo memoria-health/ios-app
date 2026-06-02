@@ -37,4 +37,9 @@ enum LocalAppConfig {
     /// publishing your local uvicorn via ngrok:
     /// `URL(string: "https://<your-ngrok-subdomain>.ngrok-free.dev")`.
     static let backendURL: URL? = nil
+
+    /// Override for `AppConfig.enableClipCapture`. Dev-only data-collection
+    /// flag for the "Capture 15s clip" button on the Live tile — set to
+    /// `true` to show it in your Debug build. nil = use the default (off).
+    static let enableClipCapture: Bool? = nil
 }
