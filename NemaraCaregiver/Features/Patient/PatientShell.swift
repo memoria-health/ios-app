@@ -76,11 +76,6 @@ struct PatientShell: View {
             .tag(PatientTab.settings)
         }
         .background(NemaraColor.paper)
-        // Tap-outside-to-dismiss for the whole patient experience. The
-        // app-root copy on RootView doesn't reach here — PatientShell is
-        // a fullScreenCover (separate hosting context) — so the gesture
-        // has to be re-applied inside the cover.
-        .dismissKeyboardOnTap()
         // The single LiveKit teardown point. .onDisappear on the
         // outer TabView fires when the whole patient cover is
         // dismissed, NOT on inner sub-tab switches — so the room
@@ -105,6 +100,12 @@ struct PatientShell: View {
             header()
             content()
         }
+        // Tap-outside-to-dismiss is applied to each tab's CONTENT, never
+        // to the TabView itself: a simultaneousGesture attached directly
+        // to a TabView swallows its tab-bar taps on iOS 17/18 (you get
+        // stuck on the initial tab). Here it still covers every text
+        // field in the patient screens, but leaves the tab bar alone.
+        .dismissKeyboardOnTap()
         .toolbar(.hidden, for: .navigationBar)
         .background(NemaraColor.paper)
     }
