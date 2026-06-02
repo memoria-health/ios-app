@@ -1017,20 +1017,22 @@ struct PatientLiveView: View {
     /// refactor since made `online` trustworthy, and we now prefer it for
     /// cross-platform consistency.)
     private var onlineCameras: [Camera] {
-        // The carousel follows the cameras' ACTUAL live state — never the
-        // patient-level `cameras_paused` flag. A sensor that's publishing
-        // always appears (whether it came back from the sensor app, the
-        // web, or here); "disconnect all" simply leaves no live tracks.
+        // The carousel follows each camera's OWN desired_state + live state,
+        // never the patient-level `cameras_paused` bulk flag. A sensor that's
+        // publishing always appears — it set its own desired_state=connected
+        // (from the sensor app, web, or here) — so the bulk pause never hides
+        // a live camera. But "disconnect all" sets EVERY camera to
+        // disconnected, so the carousel clears immediately, even while a
+        // stale track is still tearing down (no lingering "connecting" tile).
         let tracks = env.liveKit.videoTracksByIdentity
         return allCameras.filter { cam in
-            guard let identity = cam.livekitIdentity, !cam.disabled else { return false }
-            // A live video track is ground truth — if frames are flowing,
-            // show the tile regardless of any flag or desired_state lag.
-            if tracks[identity] != nil { return true }
-            // No track yet: surface as soon as the caregiver intends it
-            // connected AND the backend confirms a publisher (`online`), so
-            // the tile appears without waiting for the first frame.
-            return cam.desiredState == .connected && cam.online
+            guard let identity = cam.livekitIdentity,
+                  !cam.disabled,
+                  cam.desiredState == .connected else { return false }
+            // Intended-connected: show on a live track (ground truth) OR as
+            // soon as the backend confirms a publisher (`online`), so the
+            // tile appears without waiting for the first frame.
+            return tracks[identity] != nil || cam.online
         }
     }
 }

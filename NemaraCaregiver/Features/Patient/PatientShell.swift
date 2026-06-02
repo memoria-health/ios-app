@@ -107,6 +107,13 @@ struct PatientShell: View {
         // field in the patient screens, but leaves the tab bar alone.
         .dismissKeyboardOnTap()
         .toolbar(.hidden, for: .navigationBar)
+        // Pin the bottom tab bar to paper in BOTH of its appearances. iOS
+        // otherwise swaps to an opaque system material (which reads white in
+        // light mode) on tabs whose content sits at the scroll edge — that's
+        // why Events/Settings went white while Live/Sensors/Detectors stayed
+        // paper. Forcing it visible + paper makes every tab consistent.
+        .toolbarBackground(NemaraColor.paper, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         .background(NemaraColor.paper)
     }
 }
