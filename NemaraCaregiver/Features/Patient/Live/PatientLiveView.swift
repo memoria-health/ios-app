@@ -69,7 +69,9 @@ struct PatientLiveView: View {
                 // the bulk-button state. (Disconnect-all simply leaves no live
                 // cameras → the empty card.)
                 if onlineCameras.isEmpty {
-                    if showPreparingCard { preparingCard } else { emptyCard }
+                    if showPreparingCard { preparingCard }
+                    else if allCameras.isEmpty { emptyCard }   // no sensors paired at all
+                    else { offlineCard }                       // paired, but none streaming
                 } else {
                     cameraCarousel
                 }
@@ -780,10 +782,45 @@ struct PatientLiveView: View {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(NemaraColor.ink3)
-                Text("No sensors online")
+                Text("No sensors paired")
                     .font(NemaraFont.title3)
                     .foregroundStyle(NemaraColor.ink)
                 Text("Pair a Memoria Sensor from the **Sensors tab** to begin the live feed.")
+                    .font(NemaraFont.bodySmall)
+                    .foregroundStyle(NemaraColor.ink2)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 28)
+            }
+            .padding(.vertical, 36)
+        }
+        .aspectRatio(16/9, contentMode: .fit)
+    }
+
+    /// Shown when sensors ARE paired but none is streaming right now —
+    /// distinct from `emptyCard` (no sensors paired at all). Copy adapts:
+    /// if the patient is paused, point at Reconnect all; otherwise point
+    /// at starting a sensor. Never gates the live feed — purely a hint.
+    private var offlineCard: some View {
+        let paused = patient?.camerasPaused ?? false
+        return ZStack {
+            RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
+                .fill(NemaraColor.cardAlt)
+                .overlay(
+                    RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
+                        .strokeBorder(NemaraColor.line, lineWidth: 1)
+                )
+            VStack(spacing: 10) {
+                Image(systemName: paused ? "pause.circle" : "moon.zzz")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(NemaraColor.ink3)
+                Text(paused ? "Monitoring paused" : "No sensors streaming")
+                    .font(NemaraFont.title3)
+                    .foregroundStyle(NemaraColor.ink)
+                Text(paused
+                     ? "Tap **Reconnect all sensors** below to bring your sensors back online."
+                     : "Your sensors are offline. Open **Memoria Sensor** on the camera phone and tap Start.")
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                     .multilineTextAlignment(.center)
@@ -801,8 +838,7 @@ struct PatientLiveView: View {
     /// patient isn't paused. Reassures the caregiver that the blank feed
     /// is expected and temporary, not a failure.
     private var showPreparingCard: Bool {
-        guard !(patient?.camerasPaused ?? false) else { return false }
-        return allCameras.contains { env.api.isPreparing($0) }
+        allCameras.contains { env.api.isPreparing($0) }
     }
 
     /// First-connect transitional tile, in the same 16:9 slot as
@@ -981,14 +1017,20 @@ struct PatientLiveView: View {
     /// refactor since made `online` trustworthy, and we now prefer it for
     /// cross-platform consistency.)
     private var onlineCameras: [Camera] {
-        // "Disconnect all" flips `cameras_paused` optimistically — honor it
-        // instantly so the carousel clears on tap, rather than waiting for
-        // the backend's `online` flag to lag false a few seconds later.
-        guard !(patient?.camerasPaused ?? false) else { return [] }
+        // The carousel follows the cameras' ACTUAL live state — never the
+        // patient-level `cameras_paused` flag. A sensor that's publishing
+        // always appears (whether it came back from the sensor app, the
+        // web, or here); "disconnect all" simply leaves no live tracks.
         let tracks = env.liveKit.videoTracksByIdentity
         return allCameras.filter { cam in
-            guard cam.isLiveStreaming, let identity = cam.livekitIdentity else { return false }
-            return cam.online || tracks[identity] != nil
+            guard let identity = cam.livekitIdentity, !cam.disabled else { return false }
+            // A live video track is ground truth — if frames are flowing,
+            // show the tile regardless of any flag or desired_state lag.
+            if tracks[identity] != nil { return true }
+            // No track yet: surface as soon as the caregiver intends it
+            // connected AND the backend confirms a publisher (`online`), so
+            // the tile appears without waiting for the first frame.
+            return cam.desiredState == .connected && cam.online
         }
     }
 }
