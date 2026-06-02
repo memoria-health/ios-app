@@ -502,6 +502,42 @@ extension LiveKitClient: RoomDelegate {
         }
     }
 
+    /// A remote participant published a track — fires whenever ANY camera
+    /// turns on (sensor Start, web, or iOS), no matter who triggered it or
+    /// how `desired_state`/`online`/Realtime are timed. With autoSubscribe
+    /// the SDK *usually* follows with `didSubscribeTrack`, but it can miss
+    /// that for a publisher who joins AFTER we connected — the intermittent
+    /// "fresh camera-on doesn't show on iOS" case. Force the subscribe here;
+    /// `ensureSubscribed` no-ops if we already have the track.
+    nonisolated func room(
+        _: Room,
+        participant: RemoteParticipant,
+        didPublishTrack publication: RemoteTrackPublication,
+    ) {
+        let identity = participant.identity?.stringValue ?? ""
+        guard !identity.isEmpty else { return }
+        #if DEBUG
+        print("[LiveKit] didPublishTrack identity=\(identity) kind=\(publication.kind) — ensuring subscribed")
+        #endif
+        Task { @MainActor [weak self] in
+            await self?.ensureSubscribed(identity: identity, reconnectIfAbsent: false)
+        }
+    }
+
+    /// A remote participant joined. It may already have published tracks
+    /// (publish/connect ordering races), so reconcile its subscriptions now
+    /// too — belt-and-suspenders for the same source-agnostic goal.
+    nonisolated func room(_: Room, participantDidConnect participant: RemoteParticipant) {
+        let identity = participant.identity?.stringValue ?? ""
+        guard !identity.isEmpty else { return }
+        #if DEBUG
+        print("[LiveKit] participantDidConnect identity=\(identity) — ensuring subscribed")
+        #endif
+        Task { @MainActor [weak self] in
+            await self?.ensureSubscribed(identity: identity, reconnectIfAbsent: false)
+        }
+    }
+
     nonisolated func room(
         _: Room,
         participant: RemoteParticipant,

@@ -54,9 +54,14 @@ struct PatientLiveView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                if patient?.camerasPaused == true {
-                    pausedCard
-                } else if onlineCameras.isEmpty {
+                // The Live grid follows the cameras' ACTUAL live state, never
+                // the patient-level pause flag. "Disconnect all" / "Reconnect
+                // all" are just bulk desired_state toggles — they must not own
+                // or gate what's shown. A camera that comes back online (from
+                // the sensor, the web, or here) always appears, regardless of
+                // the bulk-button state. (Disconnect-all simply leaves no live
+                // cameras → the empty card.)
+                if onlineCameras.isEmpty {
                     emptyCard
                 } else {
                     cameraCarousel
@@ -208,7 +213,11 @@ struct PatientLiveView: View {
     // MARK: - Lifecycle
 
     private func bootstrap(force: Bool = false) async {
-        guard patient?.camerasPaused != true else { return }
+        // Connect regardless of the patient-level pause flag. The LiveKit
+        // room is just a subscription — if every camera is disconnected we
+        // simply receive no tracks and show the empty card. Gating the
+        // connection on camerasPaused meant a camera that came back online
+        // while "paused" had nowhere to surface (we weren't even in the room).
         let expectedRoom = "patient_\(patientId.uuidString.lowercased())"
 
         // Sub-tab return path: room is already up for this patient,
@@ -442,6 +451,11 @@ struct PatientLiveView: View {
             VStack {
                 HStack {
                     statePill(connectivity: connectivity)
+                    // Beside the LIVE pill, only for cameras whose own AI is
+                    // paused. Driven by `cam.aiPaused` (per-camera), which
+                    // updates live via the cameras realtime channel — pause
+                    // from any node and it shows here.
+                    if cam.aiPaused { aiPausedPill }
                     Spacer()
                     // Per-tile audio mute toggle. Independent of Talk
                     // mode: tapping unmutes a tile so the caregiver can
@@ -550,6 +564,27 @@ struct PatientLiveView: View {
                 startPoint: .bottom, endPoint: .top
             )
         )
+    }
+
+    /// Per-camera "AI PAUSED" badge, shown beside the LIVE pill when the
+    /// camera's own `ai_paused` flag is set. Propagated to every surface via
+    /// the `cameras` realtime channel (same path as `desired_state`), so a
+    /// pause from any node reflects here within ~1s. The video keeps
+    /// streaming — this only signals analysis is off. Styled like the LIVE
+    /// pill but in a muted "off" tone rather than the bright terra.
+    private var aiPausedPill: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "pause.fill")
+                .font(.system(size: 8, weight: .bold))
+            Text("AI PAUSED")
+                .font(NemaraFont.mono(size: 9, weight: .bold))
+                .tracking(0.8)
+        }
+        .foregroundStyle(NemaraColor.terraInk)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(NemaraColor.ink.opacity(0.62))
+        .clipShape(Capsule(style: .continuous))
     }
 
     @ViewBuilder

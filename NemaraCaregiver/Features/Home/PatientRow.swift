@@ -10,11 +10,12 @@ struct PatientRow: View {
     @Environment(AppEnvironment.self) private var env
     let patient: Patient
 
-    /// Paused overrides everything else — caregiver-driven state takes
-    /// precedence over critical/calm/offline. So a critical patient
-    /// whose cameras have been paused renders as PAUSED on the roster,
-    /// not as critical, because there's nothing live to alarm about.
-    private var isPaused: Bool { patient.camerasPaused }
+    /// The patient-level pause flag (`cameras_paused`) no longer gates
+    /// detection or display — those follow each camera's own state — so the
+    /// roster no longer paints a misleading "Monitoring paused" treatment
+    /// for it. Pinned to `false` so the styling branches below collapse to
+    /// the normal state without restructuring the row.
+    private var isPaused: Bool { false }
 
     private var unopenedCount: Int {
         env.api.eventsByPatient[patient.id]?.filter { !$0.opened }.count ?? 0
