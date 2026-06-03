@@ -59,7 +59,7 @@ final class NemaraAPIClient {
     /// so a sensor that never returns doesn't spin forever. See
     /// `isConnecting` and `PatientLiveView.onlineCameras`.
     private var reconnectingUntil: [UUID: Date] = [:]
-    private let reconnectWindow: TimeInterval = 30
+    private let reconnectWindow: TimeInterval = 10
 
     // MARK: - Dependencies
 

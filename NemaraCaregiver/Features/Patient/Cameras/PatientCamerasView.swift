@@ -102,6 +102,12 @@ private struct CameraRow: View {
     /// brand-new sensor doesn't read as broken while it boots.
     var preparing: Bool = false
 
+    /// Caps "STARTING UP…" so a sensor that never comes online (app closed,
+    /// powered off) can't show it forever — after 6s the row falls through to
+    /// its normal ONLINE/OFFLINE/APP CLOSED status.
+    @State private var preparingTimedOut = false
+    private var showPreparing: Bool { preparing && !preparingTimedOut }
+
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
@@ -118,10 +124,10 @@ private struct CameraRow: View {
                     .foregroundStyle(NemaraColor.ink)
                 Text(statusLine)
                     .font(NemaraFont.monoSmall)
-                    .foregroundStyle(preparing ? NemaraColor.action : NemaraColor.ink3)
+                    .foregroundStyle(showPreparing ? NemaraColor.action : NemaraColor.ink3)
             }
             Spacer()
-            if preparing {
+            if showPreparing {
                 ProgressView()
                     .controlSize(.small)
                     .tint(NemaraColor.action)
@@ -133,6 +139,13 @@ private struct CameraRow: View {
         }
         .padding(12)
         .contentShape(Rectangle())
+        // 6s cap on the first-connect "STARTING UP…" treatment.
+        .task(id: preparing) {
+            preparingTimedOut = false
+            guard preparing else { return }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if !Task.isCancelled { preparingTimedOut = true }
+        }
     }
 
     /// Single connection signal: ONLINE iff the backend has recently
@@ -156,7 +169,7 @@ private struct CameraRow: View {
         // a sensor they disconnected reads OFFLINE immediately, even though
         // the reconciler takes a few seconds to flip `online` false.
         if camera.desiredState == .disconnected { return "\(id) · OFFLINE" }
-        if preparing { return "\(id) · STARTING UP…" }
+        if showPreparing { return "\(id) · STARTING UP…" }
         return "\(id) · \(camera.online ? "ONLINE" : "OFFLINE")"
     }
 

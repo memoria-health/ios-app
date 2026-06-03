@@ -40,7 +40,20 @@ struct CameraDetailView: View {
     @State private var showingDeleteConfirm = false
     @State private var showingPairingCode = false
 
+    /// Caps the "Preparing to start" notice so it can't hang forever when a
+    /// freshly-paired sensor never actually comes online (app closed, powered
+    /// off). Flipped by the timeout `.task` below; the card then disappears
+    /// and the normal offline status shows through.
+    @State private var preparingTimedOut = false
+
     @Environment(\.dismiss) private var dismiss
+
+    /// Whether THIS camera is in the bounded first-connect "preparing" state
+    /// right now (combines the API's `isPreparing` with our local timeout).
+    private var isPreparing: Bool {
+        guard let cam = camera, !preparingTimedOut else { return false }
+        return env.api.isPreparing(cam)
+    }
 
     private var camera: Camera? {
         env.api.camerasByPatient[patientId]?.first(where: { $0.id == cameraId })
@@ -54,7 +67,7 @@ struct CameraDetailView: View {
             VStack(spacing: 14) {
                 if let cam = camera {
                     headerCard(cam)
-                    if env.api.isPreparing(cam) {
+                    if isPreparing {
                         preparingCard(cam)
                     }
                     // Pairing-code section only applies to wall-phone
@@ -81,6 +94,17 @@ struct CameraDetailView: View {
         .navigationTitle(camera?.room ?? "Sensor")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: cameraId) { await loadAssignments() }
+        // Cap the "Preparing to start" notice at 6s. Keyed on the API's raw
+        // preparing signal: when it goes true the clock starts; if the sensor
+        // is still not online 6s later we flip `preparingTimedOut` so the card
+        // drops to the normal offline status instead of hanging forever. A
+        // sensor that DOES come online clears the API signal → resets here.
+        .task(id: camera.map { env.api.isPreparing($0) } ?? false) {
+            preparingTimedOut = false
+            guard let cam = camera, env.api.isPreparing(cam) else { return }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if !Task.isCancelled { preparingTimedOut = true }
+        }
         .alert(
             "Delete this sensor?",
             isPresented: $showingDeleteConfirm,

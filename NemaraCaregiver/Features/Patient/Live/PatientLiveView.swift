@@ -882,11 +882,11 @@ struct PatientLiveView: View {
         } else if nClosed > 0 {
             icon = "iphone.slash"
             title = "Memoria Sensor is closed"
-            detail = "All available Memoria Sensors are offline or not open. Check that the **Memoria Sensor** app is open on the camera phone, the phone is charged, or the Pi sensor is connected."
+            detail = "All available Memoria Sensors are offline, not open, or disconnected."
         } else {
             icon = "antenna.radiowaves.left.and.right.slash"
             title = "All sensors are offline"
-            detail = "All available Memoria Sensors are offline or not open. Check that each sensor is paired, its **Memoria Sensor** app is open, the phone is charged, or the Pi is connected."
+            detail = "All available Memoria Sensors are offline, not open, or disconnected."
         }
         return ZStack {
             RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
