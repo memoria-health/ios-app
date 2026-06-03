@@ -902,12 +902,15 @@ struct PatientLiveView: View {
         return NemaraCard(padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Image(systemName: paused ? "video.slash" : "wifi")
+                    Image(systemName: "wifi")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(paused ? NemaraColor.ink3 : NemaraColor.action)
-                    NemaraEyebrow(paused
-                                  ? "SENSORS · PAUSED"
-                                  : "SENSORS · \(onlineCameras.count) ONLINE")
+                        .foregroundStyle(NemaraColor.action)
+                    // Always reflect the real online count — never "PAUSED".
+                    // `cameras_paused` is only the bulk Disconnect/Reconnect-all
+                    // lever (it cascades per-camera desired_state); it doesn't
+                    // gate the feed, so a sensor can be live while it's true —
+                    // labeling the whole list "PAUSED" contradicts reality.
+                    NemaraEyebrow("SENSORS · \(onlineCameras.count) ONLINE")
                     Spacer()
                 }
                 VStack(spacing: 8) {
@@ -949,7 +952,6 @@ struct PatientLiveView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .opacity(paused ? 0.55 : 1)
             }
         }
     }
@@ -976,10 +978,39 @@ struct PatientLiveView: View {
             systemImage: showReconnect ? "video.fill" : "video.slash"
         ) {
             if showReconnect { reconnectAll() }
-            else { toggleMonitoring(pause: true) }
+            else { disconnectAll() }
         }
         .disabled(isTogglingMonitoring)
         .opacity(isTogglingMonitoring ? 0.6 : 1)
+    }
+
+    /// Symmetric to `reconnectAll`: turn every live sensor OFF. We set each
+    /// camera's `desired_state=disconnected` DIRECTLY rather than relying on
+    /// the `cameras_paused` cascade — because the backend only cascades when
+    /// the flag actually CHANGES, and `cameras_paused` can drift to already-
+    /// true while a sensor is live (e.g. the sensor restarted itself without
+    /// the patient un-pausing). In that state `toggleMonitoring(pause: true)`
+    /// was a no-op and nothing disconnected. We also set `cameras_paused=true`
+    /// so the Settings "Monitoring" toggle stays in sync.
+    private func disconnectAll() {
+        guard !isTogglingMonitoring, let id = patient?.id else { return }
+        if let idx = env.api.patients.firstIndex(where: { $0.id == id }) {
+            env.api.patients[idx].camerasPaused = true  // optimistic
+        }
+        isTogglingMonitoring = true
+        Task {
+            defer { isTogglingMonitoring = false }
+            _ = try? await env.api.updatePatient(
+                id, UpdatePatientRequest(camerasPaused: true),
+            )
+            for cam in allCameras where cam.desiredState == .connected && !cam.disabled {
+                _ = try? await env.api.updateCamera(
+                    cam.id, UpdateCameraRequest(desiredState: .disconnected),
+                )
+            }
+            try? await env.api.loadCameras(forPatient: patientId)
+            try? await Task.sleep(nanoseconds: 600_000_000)
+        }
     }
 
     /// Best-effort "bring everything back" for the Reconnect-all button.

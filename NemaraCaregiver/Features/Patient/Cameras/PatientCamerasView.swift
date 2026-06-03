@@ -167,10 +167,9 @@ private struct CameraRow: View {
             if camera.disabled {
                 NemaraChip("HIDDEN", tone: .warning)
             }
-            // (AI-pause status intentionally NOT shown in the sensor list —
-            // it's noise here and reads as a connection state. The Pause/
-            // Resume AI control + its indicator live on the camera detail
-            // screen.)
+            if camera.aiPaused {
+                NemaraChip("AI PAUSED", tone: .neutral)
+            }
         }
     }
 }
