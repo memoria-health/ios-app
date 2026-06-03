@@ -590,7 +590,22 @@ struct PatientLiveView: View {
                 LiveKitVideoView(track: track)
                     .background(NemaraColor.ink)
             } else {
-                NemaraCamFeedPlaceholder(hue: 30)
+                ZStack {
+                    NemaraCamFeedPlaceholder(hue: 30)
+                    // Buffering: the sensor is online (or just reconnected)
+                    // but its video track hasn't arrived yet — show progress
+                    // so the gap reads as "coming up", not "broken".
+                    if cam.online || env.api.isConnecting(cam) {
+                        VStack(spacing: 8) {
+                            ProgressView()
+                                .tint(NemaraColor.terraInk)
+                            Text("Connecting…")
+                                .font(NemaraFont.mono(size: 10, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
+                        }
+                    }
+                }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
@@ -676,14 +691,15 @@ struct PatientLiveView: View {
         case .roomDown:
             mutedPill("CONNECTING")
         case .offline, .unpaired:
-            // Backend marks the sensor online but its video track hasn't
-            // arrived yet — show "connecting" instead of a blank pill.
-            if cam.online {
-                mutedPill("CONNECTING")
-            } else if cam.isAppClosed {
-                // App shut on the phone — reconnect can't help; the pill
-                // tells the caregiver to reopen Memoria Sensor.
+            // App closed (confirmed dead) wins over the optimistic
+            // "Connecting…" reconnect buffer: a shut sensor reads "App
+            // closed", not a 30s spinner. Otherwise show "connecting" when
+            // online OR within the reconnect window (env.api.isConnecting);
+            // else a blank pill.
+            if cam.isAppClosed {
                 mutedPill("APP CLOSED")
+            } else if cam.online || env.api.isConnecting(cam) {
+                mutedPill("CONNECTING")
             } else {
                 EmptyView()
             }
@@ -1151,8 +1167,17 @@ struct PatientLiveView: View {
                   cam.desiredState == .connected else { return false }
             // Intended-connected: show on a live track (ground truth) OR as
             // soon as the backend confirms a publisher (`online`), so the
-            // tile appears without waiting for the first frame.
+            // tile appears without waiting for the first frame. Also keep a
+            // just-reconnected sensor in the carousel while it comes back up
+            // (`isConnecting` — a bounded window) so its tile can show a
+            // "Connecting…" buffer instead of vanishing. This only fires for
+            // desired_state==.connected, so a DISCONNECTED camera still drops
+            // out immediately (no lingering tile).
+            // ...but NOT if the app is confirmed closed — a dead sensor drops
+            // out of the carousel immediately instead of being parked in the
+            // "Connecting…" buffer for the 30s window.
             return tracks[identity] != nil || cam.online
+                || (env.api.isConnecting(cam) && !cam.isAppClosed)
         }
     }
 }
