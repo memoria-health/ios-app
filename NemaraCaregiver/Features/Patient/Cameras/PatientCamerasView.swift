@@ -145,6 +145,13 @@ private struct CameraRow: View {
     /// `paired` here.
     private var statusLine: String {
         let id = "SENSOR \(String(format: "%02d", camera.displayId))"
+        // APP CLOSED is the distinct 4th state: the Memoria Sensor app
+        // isn't running on the phone, so reconnect can't help — the
+        // caregiver must reopen it. It wins over the OFFLINE/DISCONNECTED
+        // wording (which now strictly means "reconnectable"), but not
+        // over an active stream (`online` can't be true with the app
+        // shut). iPhone-only — Pi sensors never reach this state.
+        if camera.isAppClosed { return "\(id) · APP CLOSED" }
         // Caregiver intent wins over the (lagging) backend `online` flag:
         // a sensor they disconnected reads OFFLINE immediately, even though
         // the reconciler takes a few seconds to flip `online` false.
@@ -160,15 +167,21 @@ private struct CameraRow: View {
     @ViewBuilder
     private var userToggleBadges: some View {
         HStack(spacing: 4) {
-            if camera.desiredState == .disconnected {
+            // App-closed shows its own chip (amber = "needs you to act")
+            // and suppresses the DISCONNECTED chip, since "disconnected"
+            // now strictly means the reconnectable case.
+            if camera.isAppClosed {
+                NemaraChip("APP CLOSED", tone: .warning)
+            } else if camera.desiredState == .disconnected {
                 NemaraChip("DISCONNECTED", tone: .terra)
             }
             if camera.disabled {
                 NemaraChip("HIDDEN", tone: .warning)
             }
-            if camera.aiPaused {
-                NemaraChip("AI PAUSED", tone: .neutral)
-            }
+            // (AI-pause status intentionally NOT shown in the sensor list —
+            // it's noise here and reads as a connection state. The Pause/
+            // Resume AI control + its indicator live on the camera detail
+            // screen.)
         }
     }
 }

@@ -15,10 +15,13 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            NavigationStack { RosterView() }
+            // dismissKeyboardOnTap goes on each tab's CONTENT, never on the
+            // TabView — attaching a tap gesture to a TabView swallows its
+            // tab-bar taps on iOS 17/18 (you get stuck on the initial tab).
+            NavigationStack { RosterView().dismissKeyboardOnTap() }
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(AppTab.home)
-            NavigationStack { AppSettingsView() }
+            NavigationStack { AppSettingsView().dismissKeyboardOnTap() }
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(AppTab.settings)
         }

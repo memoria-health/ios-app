@@ -76,6 +76,20 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     /// "Show pairing code" button on CameraDetailView.
     var paired: Bool
 
+    /// Whether the Memoria Sensor app is currently RUNNING on this
+    /// camera's iPhone. The phone polls the backend every 1s while the
+    /// app is open; the backend flips this false when those polls stop
+    /// (app closed / force-quit / phone off). Distinct from `online`
+    /// (publishing) and `desiredState` (intent): false here means the
+    /// caregiver must physically REOPEN the app — Reconnect can't help.
+    ///
+    /// Optional: nil from older backends / pre-migration Realtime rows,
+    /// which we treat as "present" (never falsely show "app closed").
+    /// Only meaningful for `.phone` sensors — Pi sensors have no app to
+    /// close and the backend never writes them, so this stays nil/true.
+    /// Use `isAppClosed`, which encodes that guard.
+    var appPresent: Bool?
+
     enum CodingKeys: String, CodingKey {
         case id
         case patientId = "patient_id"
@@ -90,6 +104,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case livekitIdentity = "livekit_identity"
         case createdAt = "created_at"
         case paired
+        case appPresent = "app_present"
         // Realtime-payload-only. The backend's REST shape exposes
         // `paired` directly; Supabase Realtime ships the raw DB row,
         // which has `api_key_hash` / `ingest_token_hash` but no
@@ -138,6 +153,9 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
             let ingestTokenHash = try c.decodeIfPresent(String.self, forKey: .ingestTokenHash)
             paired = (apiKeyHash != nil) || (ingestTokenHash != nil)
         }
+        // Absent on older backends / pre-migration rows → nil, treated
+        // as "present" by `isAppClosed` (never falsely shows app-closed).
+        appPresent = try c.decodeIfPresent(Bool.self, forKey: .appPresent)
     }
 
     /// Custom encoder needed because we added `apiKeyHash` to
@@ -160,6 +178,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         try c.encodeIfPresent(livekitIdentity, forKey: .livekitIdentity)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(paired, forKey: .paired)
+        try c.encodeIfPresent(appPresent, forKey: .appPresent)
     }
 
     /// Memberwise init kept available for fixtures + AppEnvironment
@@ -179,6 +198,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         livekitIdentity: String?,
         createdAt: Date,
         paired: Bool,
+        appPresent: Bool? = nil,
     ) {
         self.disabled = disabled
         self.aiPaused = aiPaused
@@ -193,6 +213,19 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         self.livekitIdentity = livekitIdentity
         self.createdAt = createdAt
         self.paired = paired
+        self.appPresent = appPresent
+    }
+
+    /// True when this iPhone sensor's Memoria Sensor app is CLOSED:
+    /// not online, and the backend's heartbeat says the app stopped
+    /// polling (`appPresent == false`). In this state the caregiver
+    /// cannot reconnect from here — the phone isn't running to receive
+    /// the intent — so the UI must say "open Memoria Sensor", NOT
+    /// "Disconnected (tap Reconnect)". Never true for Pi sensors
+    /// (`.phone` guard — they have no app to close) and never while the
+    /// camera is online. nil `appPresent` (old payloads) → not closed.
+    var isAppClosed: Bool {
+        sourceType == .phone && !online && appPresent == false
     }
 
     /// Eligibility predicate for the Live tab: "this camera SHOULD be

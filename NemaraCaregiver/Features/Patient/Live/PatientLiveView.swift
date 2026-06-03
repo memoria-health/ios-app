@@ -58,6 +58,12 @@ struct PatientLiveView: View {
     @State private var capturingCameraId: UUID? = nil
     @State private var captureNote: (cameraId: UUID, text: String)? = nil
 
+    /// Set true once a sensor has been stuck "Preparing to start" past the
+    /// timeout (see the `.task(id: showPreparingCard)` below) so the
+    /// spinner can't hang forever when nothing is actually going to come
+    /// online — we fall through to `offlineCard`'s actionable message.
+    @State private var preparingTimedOut = false
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -69,9 +75,14 @@ struct PatientLiveView: View {
                 // the bulk-button state. (Disconnect-all simply leaves no live
                 // cameras → the empty card.)
                 if onlineCameras.isEmpty {
-                    if showPreparingCard { preparingCard }
+                    // Show "Preparing to start" only while the connect is
+                    // still plausibly in progress. If sensors never come
+                    // online (app closed, unpaired, powered off), the
+                    // timeout flips us to `offlineCard` so the spinner can't
+                    // hang forever — see the `.task(id: showPreparingCard)`.
+                    if showPreparingCard && !preparingTimedOut { preparingCard }
                     else if allCameras.isEmpty { emptyCard }   // no sensors paired at all
-                    else { offlineCard }                       // paired, but none streaming
+                    else { offlineCard }                       // paired, but none streaming (or timed out)
                 } else {
                     cameraCarousel
                 }
@@ -89,6 +100,18 @@ struct PatientLiveView: View {
             CameraDetailView(cameraId: cameraId, patientId: patientId)
         }
         .task(id: patientId) { await bootstrap() }
+        // Timeout for the "Preparing to start" tile. Whenever we enter (or
+        // re-enter) the preparing state, restart an 8s timer; if we're still
+        // preparing when it fires, flip to the offline message instead of
+        // spinning forever. Re-keys on `showPreparingCard`, so a sensor that
+        // actually comes online (preparing → false) cancels the timer, and
+        // the flag resets the moment preparing clears.
+        .task(id: showPreparingCard) {
+            preparingTimedOut = false
+            guard showPreparingCard else { return }
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if !Task.isCancelled { preparingTimedOut = true }
+        }
         .onChange(of: patient?.camerasPaused) { oldValue, newValue in
             // Reconnect-all. `.task` keys on patientId, so it never
             // re-fires when the kill switch flips back on, and a camera
@@ -655,7 +678,15 @@ struct PatientLiveView: View {
         case .offline, .unpaired:
             // Backend marks the sensor online but its video track hasn't
             // arrived yet — show "connecting" instead of a blank pill.
-            if cam.online { mutedPill("CONNECTING") } else { EmptyView() }
+            if cam.online {
+                mutedPill("CONNECTING")
+            } else if cam.isAppClosed {
+                // App shut on the phone — reconnect can't help; the pill
+                // tells the caregiver to reopen Memoria Sensor.
+                mutedPill("APP CLOSED")
+            } else {
+                EmptyView()
+            }
         }
     }
 
@@ -665,6 +696,11 @@ struct PatientLiveView: View {
     @ViewBuilder
     private func cameraStatusDot(for cam: Camera, paused: Bool) -> some View {
         let color: Color = {
+            // App closed on the phone — amber "needs you to reopen it",
+            // distinct from the red "offline but reconnectable" below. Checked
+            // BEFORE `paused` so it still surfaces while monitoring is paused
+            // (Reconnect-all won't bring a closed app back).
+            if cam.isAppClosed { return NemaraColor.warning }
             if paused { return NemaraColor.ink3 }
             // Backend `online` flag is the source of truth (consistent with
             // web + the Sensors list).
@@ -804,6 +840,36 @@ struct PatientLiveView: View {
     /// at starting a sensor. Never gates the live feed — purely a hint.
     private var offlineCard: some View {
         let paused = patient?.camerasPaused ?? false
+        // How many eligible sensors have the app actually CLOSED (iPhone, not
+        // online, heartbeat stopped)? Those need the app reopened, not a
+        // Reconnect — so we pick the right copy AND, when paused, warn that
+        // Reconnect-all won't bring the closed ones back.
+        let nClosed = allCameras.filter { $0.isAppClosed && !$0.disabled }.count
+        let icon: String
+        let title: String
+        // LocalizedStringKey (NOT String) so `Text` renders the **bold**
+        // markdown — a plain String variable shows the asterisks literally.
+        let detail: LocalizedStringKey
+        if paused {
+            icon = "pause.circle"
+            title = "Monitoring paused"
+            if nClosed > 0 {
+                let closedNote = nClosed == 1
+                    ? "1 sensor has its app closed, so Reconnect won't bring it back — reopen Memoria Sensor on that phone."
+                    : "\(nClosed) sensors have their app closed, so Reconnect won't bring those back — reopen Memoria Sensor on those phones."
+                detail = "Tap **Reconnect all sensors** below to bring your sensors back online. \(closedNote)"
+            } else {
+                detail = "Tap **Reconnect all sensors** below to bring your sensors back online."
+            }
+        } else if nClosed > 0 {
+            icon = "iphone.slash"
+            title = "Memoria Sensor is closed"
+            detail = "All available Memoria Sensors are offline or not open. Check that the **Memoria Sensor** app is open on the camera phone, the phone is charged, or the Pi sensor is connected."
+        } else {
+            icon = "antenna.radiowaves.left.and.right.slash"
+            title = "All sensors are offline"
+            detail = "All available Memoria Sensors are offline or not open. Check that each sensor is paired, its **Memoria Sensor** app is open, the phone is charged, or the Pi is connected."
+        }
         return ZStack {
             RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
                 .fill(NemaraColor.cardAlt)
@@ -812,15 +878,13 @@ struct PatientLiveView: View {
                         .strokeBorder(NemaraColor.line, lineWidth: 1)
                 )
             VStack(spacing: 10) {
-                Image(systemName: paused ? "pause.circle" : "moon.zzz")
+                Image(systemName: icon)
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(NemaraColor.ink3)
-                Text(paused ? "Monitoring paused" : "No sensors streaming")
+                Text(title)
                     .font(NemaraFont.title3)
                     .foregroundStyle(NemaraColor.ink)
-                Text(paused
-                     ? "Tap **Reconnect all sensors** below to bring your sensors back online."
-                     : "Your sensors are offline. Open **Memoria Sensor** on the camera phone and tap Start.")
+                Text(detail)
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                     .multilineTextAlignment(.center)
@@ -845,10 +909,14 @@ struct PatientLiveView: View {
     /// `emptyCard`. Replaced by the live carousel the moment the sensor's
     /// video track arrives.
     private var preparingCard: some View {
-        let rooms = allCameras.filter { env.api.isPreparing($0) }.map(\.room)
-        let detail = rooms.count == 1
-            ? "\(rooms[0]) is connecting. The live feed will appear here in a moment."
-            : "Your sensor is connecting. The live feed will appear here in a moment."
+        // Generic copy — do NOT name a specific sensor here. This card can
+        // represent one or several sensors connecting, and naming one (e.g.
+        // its room) read as if the whole live feed was tied to that single
+        // camera, which confused users.
+        let preparingCount = allCameras.filter { env.api.isPreparing($0) }.count
+        let detail = preparingCount <= 1
+            ? "Your sensor is connecting. The live feed will appear here in a moment."
+            : "Your sensors are connecting. The live feed will appear here in a moment."
         return ZStack {
             RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
                 .fill(NemaraColor.cardAlt)
@@ -906,9 +974,21 @@ struct PatientLiveView: View {
                                 .frame(width: 26, height: 26)
                                 Text(cam.room).font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink)
                                 Spacer()
-                                Text(String(format: "Sensor %02d", cam.displayId))
-                                    .font(NemaraFont.monoSmall)
-                                    .foregroundStyle(NemaraColor.ink3)
+                                // Spell out the app-closed state right in the
+                                // list (not just a dot) so the caregiver knows
+                                // this one needs the app reopened, not a
+                                // reconnect. Shows even while paused — a closed
+                                // app won't come back on Reconnect-all, so the
+                                // caregiver needs to see it in that state too.
+                                if cam.isAppClosed {
+                                    Text("APP CLOSED")
+                                        .font(NemaraFont.monoSmall)
+                                        .foregroundStyle(NemaraColor.warning)
+                                } else {
+                                    Text(String(format: "Sensor %02d", cam.displayId))
+                                        .font(NemaraFont.monoSmall)
+                                        .foregroundStyle(NemaraColor.ink3)
+                                }
                                 cameraStatusDot(for: cam, paused: paused)
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 11, weight: .semibold))
@@ -932,18 +1012,58 @@ struct PatientLiveView: View {
     /// Settings "Monitoring" toggle; both read the same observable
     /// `camerasPaused` so they stay in sync automatically.
     private var disconnectAllButton: some View {
-        let paused = patient?.camerasPaused ?? false
+        // Offer "Reconnect all" whenever nothing is live — whether that's
+        // because monitoring is paused OR every sensor went offline / had
+        // its app closed. "Disconnect all" only makes sense when there's an
+        // actually-live sensor to turn off, so it never sits nonsensically
+        // under an all-offline / "Memoria Sensor is closed" card.
+        let showReconnect = onlineCameras.isEmpty
         return NemaraButton(
-            paused ? "Reconnect all sensors" : "Disconnect all sensors",
-            variant: paused ? .primary : .secondary,
+            showReconnect ? "Reconnect all sensors" : "Disconnect all sensors",
+            variant: showReconnect ? .primary : .secondary,
             size: .md,
             block: true,
-            systemImage: paused ? "video.fill" : "video.slash"
+            systemImage: showReconnect ? "video.fill" : "video.slash"
         ) {
-            toggleMonitoring(pause: !paused)
+            if showReconnect { reconnectAll() }
+            else { toggleMonitoring(pause: true) }
         }
         .disabled(isTogglingMonitoring)
         .opacity(isTogglingMonitoring ? 0.6 : 1)
+    }
+
+    /// Best-effort "bring everything back" for the Reconnect-all button.
+    /// Works whether or not monitoring was paused:
+    ///   1. Unpause at the patient level (cascades desired_state=connected).
+    ///   2. Re-assert connect on any still-disconnected sensor, so a sensor
+    ///      that dropped on its own (not via the bulk pause) also recovers.
+    ///   3. Force a clean LiveKit rejoin + refresh rows.
+    /// Sensors whose app is CLOSED can't be revived from here — they stay
+    /// offline until the app is reopened (the offline card says exactly
+    /// that) — but everything reconnectable comes back.
+    private func reconnectAll() {
+        guard !isTogglingMonitoring, let id = patient?.id else { return }
+        let wasPaused = patient?.camerasPaused ?? false
+        if wasPaused, let idx = env.api.patients.firstIndex(where: { $0.id == id }) {
+            env.api.patients[idx].camerasPaused = false  // optimistic
+        }
+        isTogglingMonitoring = true
+        Task {
+            defer { isTogglingMonitoring = false }
+            if wasPaused {
+                _ = try? await env.api.updatePatient(
+                    id, UpdatePatientRequest(camerasPaused: false),
+                )
+            }
+            for cam in allCameras where cam.desiredState == .disconnected && !cam.disabled {
+                _ = try? await env.api.updateCamera(
+                    cam.id, UpdateCameraRequest(desiredState: .connected),
+                )
+            }
+            await bootstrap(force: true)
+            try? await env.api.loadCameras(forPatient: patientId)
+            try? await Task.sleep(nanoseconds: 600_000_000)
+        }
     }
 
     /// Optimistic flip with rollback — mirrors PatientSettingsView's

@@ -22,6 +22,13 @@ struct EventDetailView: View {
     /// `nil` = haven't tried yet; `false` = backend said not-ready
     /// (409); `true` = we have a URL.
     @State private var clipResolutionState: ClipResolutionState = .pending
+    /// The single AVPlayer for the clip. Created ONCE when the URL
+    /// resolves and held in @State, so the frequent re-renders of this
+    /// view (the events list polls every 20s, paused or not) don't
+    /// rebuild the player and restart/kill playback. The old inline
+    /// `AVPlayer(url:)` in the body was recreated on every render, which
+    /// made the clip "close" mid-watch at ~20s.
+    @State private var player: AVPlayer?
 
     private enum ClipResolutionState: Equatable {
         case pending
@@ -70,6 +77,7 @@ struct EventDetailView: View {
                 }
                 do {
                     if let url = try await env.api.clipURL(forEvent: event.id) {
+                        if player == nil { player = AVPlayer(url: url) }
                         clipResolutionState = .loaded(url)
                         return
                     }
@@ -142,9 +150,15 @@ struct EventDetailView: View {
                 clipPlaceholder(label: "Clip processing…")
             case .failed(let msg):
                 clipPlaceholder(label: msg)
-            case .loaded(let url):
-                VideoPlayer(player: AVPlayer(url: url))
-                    .accessibilityLabel("Event clip from \(event.location)")
+            case .loaded:
+                // Reuse the @State player — never `AVPlayer(url:)` inline here,
+                // or a re-render rebuilds it and playback dies mid-clip.
+                if let player {
+                    VideoPlayer(player: player)
+                        .accessibilityLabel("Event clip from \(event.location)")
+                } else {
+                    clipPlaceholder(label: "Loading clip…")
+                }
             }
         }
         .aspectRatio(16/9, contentMode: .fit)
@@ -192,6 +206,10 @@ struct EventDetailView: View {
                     .foregroundStyle(NemaraColor.ink)
                     .lineSpacing(5)
             }
+            // Always fill the available width so the card matches the clip
+            // above it, regardless of how short/long the narrative is —
+            // NemaraCard otherwise shrinks to its content's intrinsic width.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

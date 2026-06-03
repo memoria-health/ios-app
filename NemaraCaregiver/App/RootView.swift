@@ -15,6 +15,10 @@ struct RootView: View {
                 NavigationStack {
                     WelcomeView()
                 }
+                // Auth screens (Welcome → Login / SignUp) have text fields;
+                // apply tap-to-dismiss here rather than at the app root, which
+                // would wrap MainTabView's TabView and break its tab bar on iOS 17/18.
+                .dismissKeyboardOnTap()
             }
         }
         .animation(.easeInOut(duration: 0.25), value: env.auth.currentCaregiver?.id)

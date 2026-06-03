@@ -84,7 +84,13 @@ struct PatientEventsView: View {
         // spinner — and stops when you leave the tab.)
         .task(id: patientId) {
             while !Task.isCancelled {
-                try? await env.api.loadEventsFirstPage(forPatient: patientId)
+                // Pause the refresh while a detail sheet is open: refetching
+                // replaces eventsByPatient, which re-renders the open sheet and
+                // (historically, with the inline player) killed clip playback
+                // mid-watch. Resume the moment the sheet closes.
+                if openedEvent == nil {
+                    try? await env.api.loadEventsFirstPage(forPatient: patientId)
+                }
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
             }
         }

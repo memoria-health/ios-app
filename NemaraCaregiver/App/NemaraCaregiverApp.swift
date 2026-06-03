@@ -60,7 +60,11 @@ struct NemaraCaregiverApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .dismissKeyboardOnTap()
+                // NOTE: dismissKeyboardOnTap is intentionally NOT applied here.
+                // Wrapping the whole tree (which contains MainTabView's TabView)
+                // in a tap gesture swallows the tab-bar taps on iOS 17/18 — it's
+                // applied per-screen instead (MainTabView tab content + the
+                // signed-out auth flow), where the text fields actually live.
                 .environment(environment)
                 .preferredColorScheme(.light)   // design is light-only
                 .tint(NemaraColor.terra)
