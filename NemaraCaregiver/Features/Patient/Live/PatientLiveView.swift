@@ -58,12 +58,6 @@ struct PatientLiveView: View {
     @State private var capturingCameraId: UUID? = nil
     @State private var captureNote: (cameraId: UUID, text: String)? = nil
 
-    /// Set true once a sensor has been stuck "Preparing to start" past the
-    /// timeout (see the `.task(id: showPreparingCard)` below) so the
-    /// spinner can't hang forever when nothing is actually going to come
-    /// online — we fall through to `offlineCard`'s actionable message.
-    @State private var preparingTimedOut = false
-
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -75,14 +69,15 @@ struct PatientLiveView: View {
                 // the bulk-button state. (Disconnect-all simply leaves no live
                 // cameras → the empty card.)
                 if onlineCameras.isEmpty {
-                    // Show "Preparing to start" only while the connect is
-                    // still plausibly in progress. If sensors never come
-                    // online (app closed, unpaired, powered off), the
-                    // timeout flips us to `offlineCard` so the spinner can't
-                    // hang forever — see the `.task(id: showPreparingCard)`.
-                    if showPreparingCard && !preparingTimedOut { preparingCard }
-                    else if allCameras.isEmpty { emptyCard }   // no sensors paired at all
-                    else { offlineCard }                       // paired, but none streaming (or timed out)
+                    // No passive "Preparing to start" here: a loading state
+                    // must be ACTION-triggered (a reconnect), never a default
+                    // on app-open / tab-switch. An actively-reconnecting sensor
+                    // is kept in `onlineCameras` (its `isConnecting` window) →
+                    // it shows in the carousel with a "Connecting…" tile, so
+                    // it never reaches this branch. Everything else that isn't
+                    // streaming is honestly offline.
+                    if allCameras.isEmpty { emptyCard }        // no sensors paired at all
+                    else { offlineCard }                       // paired, but none streaming
                 } else {
                     cameraCarousel
                 }
@@ -100,20 +95,6 @@ struct PatientLiveView: View {
             CameraDetailView(cameraId: cameraId, patientId: patientId)
         }
         .task(id: patientId) { await bootstrap() }
-        // Timeout for the "Preparing to start" tile. Whenever we enter (or
-        // re-enter) the preparing state, restart a 4s timer; if we're still
-        // preparing when it fires, flip to the offline message instead of
-        // spinning forever. 4s because a real first-connect lands well under
-        // that — if it hasn't, the sensors are almost certainly closed/offline,
-        // so show the actionable message fast. Re-keys on `showPreparingCard`,
-        // so a sensor that actually comes online (preparing → false) cancels
-        // the timer, and the flag resets the moment preparing clears.
-        .task(id: showPreparingCard) {
-            preparingTimedOut = false
-            guard showPreparingCard else { return }
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            if !Task.isCancelled { preparingTimedOut = true }
-        }
         .onChange(of: patient?.camerasPaused) { oldValue, newValue in
             // Reconnect-all. `.task` keys on patientId, so it never
             // re-fires when the kill switch flips back on, and a camera
@@ -723,9 +704,9 @@ struct PatientLiveView: View {
             // Backend `online` flag is the source of truth (consistent with
             // web + the Sensors list).
             if cam.online { return NemaraColor.success }
-            // First-connect: a sensor still booting reads as "starting up"
-            // (amber), not "offline" (red).
-            if env.api.isPreparing(cam) { return NemaraColor.warning }
+            // Actively reconnecting (a reconnect action opened the window) →
+            // amber, not "offline" red. Not a passive first-connect default.
+            if env.api.isConnecting(cam) { return NemaraColor.warning }
             switch env.liveKit.connectivity(of: cam) {
             case .live, .joining:        return NemaraColor.success
             case .offline:               return NemaraColor.danger
@@ -915,55 +896,6 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
     }
 
-    /// Show the "preparing to start" tile instead of the empty card when
-    /// at least one sensor is on its first connect (booting up) and the
-    /// patient isn't paused. Reassures the caregiver that the blank feed
-    /// is expected and temporary, not a failure.
-    private var showPreparingCard: Bool {
-        allCameras.contains { env.api.isPreparing($0) }
-    }
-
-    /// First-connect transitional tile, in the same 16:9 slot as
-    /// `emptyCard`. Replaced by the live carousel the moment the sensor's
-    /// video track arrives.
-    private var preparingCard: some View {
-        // Generic copy — do NOT name a specific sensor here. This card can
-        // represent one or several sensors connecting, and naming one (e.g.
-        // its room) read as if the whole live feed was tied to that single
-        // camera, which confused users.
-        let preparingCount = allCameras.filter { env.api.isPreparing($0) }.count
-        let detail = preparingCount <= 1
-            ? "Your sensor is connecting. The live feed will appear here in a moment."
-            : "Your sensors are connecting. The live feed will appear here in a moment."
-        return ZStack {
-            RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
-                .fill(NemaraColor.cardAlt)
-                .overlay(
-                    RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous)
-                        .strokeBorder(NemaraColor.line, lineWidth: 1)
-                )
-            VStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(NemaraColor.action)
-                VStack(spacing: 6) {
-                    Text("Preparing to start")
-                        .font(NemaraFont.title3)
-                        .foregroundStyle(NemaraColor.ink)
-                        .kerning(-0.3)
-                    Text(detail)
-                        .font(NemaraFont.bodySmall)
-                        .foregroundStyle(NemaraColor.ink2)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 32)
-                }
-            }
-            .padding(.vertical, 36)
-        }
-        .aspectRatio(16/9, contentMode: .fit)
-    }
 
     private var camerasCard: some View {
         let paused = patient?.camerasPaused ?? false

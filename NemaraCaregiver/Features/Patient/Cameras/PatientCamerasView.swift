@@ -73,7 +73,7 @@ struct PatientCamerasView: View {
                     ForEach(cameras.indices, id: \.self) { i in
                         let cam = cameras[i]
                         NavigationLink(value: cam.id) {
-                            CameraRow(camera: cam, preparing: env.api.isPreparing(cam))
+                            CameraRow(camera: cam)
                         }
                         .buttonStyle(.plain)
                         if i < cameras.count - 1 {
@@ -96,17 +96,6 @@ struct PatientCamerasView: View {
 /// for why we don't use it as the visibility filter on the Live tab).
 private struct CameraRow: View {
     let camera: Camera
-    /// First-connect transitional state: paired + intended-on but not
-    /// online yet, and never been online before. Computed by the caller
-    /// (`env.api.isPreparing`). Drives a "starting up" treatment so a
-    /// brand-new sensor doesn't read as broken while it boots.
-    var preparing: Bool = false
-
-    /// Caps "STARTING UP…" so a sensor that never comes online (app closed,
-    /// powered off) can't show it forever — after 6s the row falls through to
-    /// its normal ONLINE/OFFLINE/APP CLOSED status.
-    @State private var preparingTimedOut = false
-    private var showPreparing: Bool { preparing && !preparingTimedOut }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -124,14 +113,9 @@ private struct CameraRow: View {
                     .foregroundStyle(NemaraColor.ink)
                 Text(statusLine)
                     .font(NemaraFont.monoSmall)
-                    .foregroundStyle(showPreparing ? NemaraColor.action : NemaraColor.ink3)
+                    .foregroundStyle(NemaraColor.ink3)
             }
             Spacer()
-            if showPreparing {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(NemaraColor.action)
-            }
             userToggleBadges
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
@@ -139,13 +123,6 @@ private struct CameraRow: View {
         }
         .padding(12)
         .contentShape(Rectangle())
-        // 6s cap on the first-connect "STARTING UP…" treatment.
-        .task(id: preparing) {
-            preparingTimedOut = false
-            guard preparing else { return }
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
-            if !Task.isCancelled { preparingTimedOut = true }
-        }
     }
 
     /// Single connection signal: ONLINE iff the backend has recently
@@ -169,7 +146,6 @@ private struct CameraRow: View {
         // a sensor they disconnected reads OFFLINE immediately, even though
         // the reconciler takes a few seconds to flip `online` false.
         if camera.desiredState == .disconnected { return "\(id) · OFFLINE" }
-        if showPreparing { return "\(id) · STARTING UP…" }
         return "\(id) · \(camera.online ? "ONLINE" : "OFFLINE")"
     }
 
