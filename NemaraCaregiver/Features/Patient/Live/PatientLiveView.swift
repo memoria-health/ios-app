@@ -101,15 +101,17 @@ struct PatientLiveView: View {
         }
         .task(id: patientId) { await bootstrap() }
         // Timeout for the "Preparing to start" tile. Whenever we enter (or
-        // re-enter) the preparing state, restart an 8s timer; if we're still
+        // re-enter) the preparing state, restart a 4s timer; if we're still
         // preparing when it fires, flip to the offline message instead of
-        // spinning forever. Re-keys on `showPreparingCard`, so a sensor that
-        // actually comes online (preparing → false) cancels the timer, and
-        // the flag resets the moment preparing clears.
+        // spinning forever. 4s because a real first-connect lands well under
+        // that — if it hasn't, the sensors are almost certainly closed/offline,
+        // so show the actionable message fast. Re-keys on `showPreparingCard`,
+        // so a sensor that actually comes online (preparing → false) cancels
+        // the timer, and the flag resets the moment preparing clears.
         .task(id: showPreparingCard) {
             preparingTimedOut = false
             guard showPreparingCard else { return }
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
             if !Task.isCancelled { preparingTimedOut = true }
         }
         .onChange(of: patient?.camerasPaused) { oldValue, newValue in
