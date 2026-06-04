@@ -51,6 +51,15 @@ struct PatientLiveView: View {
     /// toggles (which made the label flash between Disconnect/Reconnect).
     @State private var isTogglingMonitoring = false
 
+    /// Desync reconciler state. `desyncSince` records when each camera entered
+    /// the "backend online + intended-connected, but no track on THIS device"
+    /// state; `lastResubscribe` is a per-identity cooldown so we re-issue the
+    /// surgical subscribe at most every few seconds; `isReconnectingAll`
+    /// suppresses the reconciler while the reconnect-all loop owns recovery.
+    @State private var desyncSince: [UUID: Date] = [:]
+    @State private var lastResubscribe: [String: Date] = [:]
+    @State private var isReconnectingAll = false
+
     /// Dev-only data-collection state (gated by `AppConfig.enableClipCapture`).
     /// `capturingCameraId` is the camera whose record-clip request is
     /// in flight (disables its button); `captureNote` is a short toast
@@ -69,13 +78,13 @@ struct PatientLiveView: View {
                 // the bulk-button state. (Disconnect-all simply leaves no live
                 // cameras → the empty card.)
                 if onlineCameras.isEmpty {
-                    // No passive "Preparing to start" here: a loading state
-                    // must be ACTION-triggered (a reconnect), never a default
-                    // on app-open / tab-switch. An actively-reconnecting sensor
-                    // is kept in `onlineCameras` (its `isConnecting` window) →
-                    // it shows in the carousel with a "Connecting…" tile, so
-                    // it never reaches this branch. Everything else that isn't
-                    // streaming is honestly offline.
+                    // A camera counts as "online" if THIS device has its track OR
+                    // the backend says it's live + intended-connected (see
+                    // `onlineCameras`). The latter keeps a camera in the carousel
+                    // through a brief track gap, and `reconcileDesync` force-
+                    // rejoins if that gap persists >2s — so we never sit here
+                    // (offline card) while video could actually be streamed.
+                    // Reaching this branch means every camera is honestly offline.
                     if allCameras.isEmpty { emptyCard }        // no sensors paired at all
                     else { offlineCard }                       // paired, but none streaming
                 } else {
@@ -110,15 +119,26 @@ struct PatientLiveView: View {
             //     (the most likely reason the old one-shot reconnect still
             //     showed an empty grid: track was back but isLiveStreaming
             //     stayed false).
-            //   • Force one clean LiveKit rejoin (pass 0) so we
-            //     re-subscribe to every republished track from scratch —
-            //     the Swift SDK can drop `track_subscribed` across a
-            //     publisher leave/rejoin.
-            // Bail the moment a camera is actually live, max ~15s.
+            //   • Force a clean LiveKit rejoin on the EVEN passes (0, 2, 4 →
+            //     ~0s, 5s, 10s) so we re-subscribe to every republished track
+            //     from scratch. The Swift SDK can drop `track_subscribed`
+            //     across a publisher leave/rejoin and won't re-fire it on its
+            //     own — so the ONLY reliable recovery is a fresh room.connect()
+            //     that re-runs autoSubscribe against the present participant
+            //     list (this is exactly what a manual background→foreground or
+            //     a second reconnect does). Our FIRST rejoin (pass 0) usually
+            //     fires before the sensor has finished republishing, so it
+            //     finds nothing; the LATER rejoins catch it once it's actually
+            //     back. The leave/rejoin is iOS-SDK-local — web + the sensor
+            //     keep streaming throughout, only this device was stuck.
+            // Bail the moment a camera is actually live, so when the first
+            // rejoin already worked the extra passes never run. Max ~15s.
             guard oldValue == true, newValue == false else { return }
             Task {
+                isReconnectingAll = true
+                defer { isReconnectingAll = false }
                 for attempt in 0..<6 {
-                    await bootstrap(force: attempt == 0)
+                    await bootstrap(force: attempt % 2 == 0)
                     try? await env.api.loadCameras(forPatient: patientId)
                     #if DEBUG
                     let snapshot = allCameras.map { cam -> String in
@@ -134,7 +154,10 @@ struct PatientLiveView: View {
             }
         }
         .onDisappear { Task { await tabAwayCleanup() } }
-        .onReceive(timer) { now in clockTick = now }
+        .onReceive(timer) { now in
+            clockTick = now
+            reconcileDesync(now: now)
+        }
         .onChange(of: selectedCameraId) { _, newValue in
             // Swipe transfers the call atomically — the backend
             // `/talk/start` broadcasts `is_active=true` to the new
@@ -175,7 +198,7 @@ struct PatientLiveView: View {
                         if let track {
                             LiveKitVideoView(track: track, identity: identity)
                         } else {
-                            NemaraCamFeedPlaceholder(hue: 30)
+                            NemaraCamFeedPlaceholder(hue: 30, loading: true)
                         }
                         VStack {
                             HStack {
@@ -279,6 +302,67 @@ struct PatientLiveView: View {
             await resolveSelectedCamera()
         } catch {
             lkError = error.localizedDescription
+        }
+    }
+
+    /// Desync reconciler — drives THIS device back toward the backend's "online"
+    /// truth. When the backend says a camera is live (`online` +
+    /// intended-connected) but iOS has NO video track for it (the SDK missed the
+    /// subscribe — web has the feed, we don't), that's a divergence. Once the
+    /// mismatch persists ≥2s we SURGICALLY re-subscribe just that one camera via
+    /// `ensureSubscribed`, which re-issues the subscribe RPC for that
+    /// participant's publications without touching the room or any other tile.
+    ///
+    /// Deliberately NOT a full room rejoin: `bootstrap(force:)` tears the whole
+    /// room down (drops every tile) and, crucially, can't tell a fixable
+    /// subscribe-miss from a STALE backend `online` flag (sensor really dropped,
+    /// presence sweeper hasn't caught up). For the stale case a rejoin never
+    /// produces a track, so it loops every cooldown — nuking the room forever.
+    /// `reconnectIfAbsent: false` makes the absent case a no-op instead: the
+    /// placeholder honestly stays until the sensor republishes, and the room +
+    /// working tiles are never disturbed. Runs on the 1s clock tick; the 2s gate
+    /// ignores the normal sub-second "online flips just before the track lands"
+    /// transient.
+    private func reconcileDesync(now: Date) {
+        // Only meaningful while we're actually in the room and not already
+        // mid-(re)connect — bootstrap / the reconnect-all loop own recovery then.
+        guard env.liveKit.state == .connected,
+              !isTogglingMonitoring,
+              !isReconnectingAll
+        else {
+            if !desyncSince.isEmpty { desyncSince = [:] }
+            return
+        }
+        let tracks = env.liveKit.videoTracksByIdentity
+        for cam in allCameras {
+            guard let identity = cam.livekitIdentity, !cam.disabled else {
+                if desyncSince[cam.id] != nil { desyncSince[cam.id] = nil }
+                continue
+            }
+            let desynced = cam.online
+                && cam.desiredState == .connected
+                && tracks[identity] == nil
+            guard desynced else {
+                if desyncSince[cam.id] != nil { desyncSince[cam.id] = nil }
+                continue
+            }
+            // First moment we noticed this camera diverge.
+            if desyncSince[cam.id] == nil { desyncSince[cam.id] = now }
+            guard let since = desyncSince[cam.id],
+                  now.timeIntervalSince(since) >= 2 else { continue }
+            // Per-camera cooldown — the re-subscribe is cheap + idempotent, but
+            // no need to re-issue it every single tick while we wait for the
+            // track (or for the sensor to actually come back).
+            if let last = lastResubscribe[identity],
+               now.timeIntervalSince(last) < 6 { continue }
+            lastResubscribe[identity] = now
+            NSLog("[desync] %@ online but no track >=2s — surgical re-subscribe", identity)
+            Task {
+                await env.liveKit.ensureSubscribed(
+                    identity: identity,
+                    reconnectIfAbsent: false,
+                )
+            }
         }
     }
 
@@ -569,33 +653,32 @@ struct PatientLiveView: View {
         }
         .aspectRatio(16/9, contentMode: .fit)
         .background {
-            if let track = videoTrack {
-                LiveKitVideoView(track: track, identity: identity)
-                    .background(NemaraColor.ink)
-            } else {
-                ZStack {
-                    NemaraCamFeedPlaceholder(hue: 30)
-                    // Case 2: backend says it's streaming (`online`) but the
-                    // track hasn't arrived on THIS device yet → "Connecting…".
-                    // Driven by `online` (backend-observed reality), NOT intent:
-                    // so it clears the moment the backend stops seeing frames and
-                    // can't stick on a stale `desired_state` the way the old
-                    // intent bridge did. A persistent spinner here therefore
-                    // means a genuine SDK desync (backend has the stream, iOS
-                    // missed the track) — the case the force-resubscribe
-                    // escalation is meant to recover. A no-track tile is only in
-                    // the carousel via `online`, so this covers every such tile.
-                    if cam.online {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                                .tint(NemaraColor.terraInk)
-                            Text("Connecting…")
-                                .font(NemaraFont.mono(size: 10, weight: .bold))
-                                .tracking(0.6)
-                                .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
-                        }
-                    }
+            ZStack {
+                if let track = videoTrack {
+                    LiveKitVideoView(track: track, identity: identity)
+                        .background(NemaraColor.ink)
+                } else {
+                    // No live track yet → loading (we're expected-online, just
+                    // waiting on the subscribe). Pure-SwiftUI spinner so it
+                    // doesn't fight the nil→track UIView swap; see
+                    // NemaraCamFeedPlaceholder.
+                    NemaraCamFeedPlaceholder(hue: 30, loading: true)
                 }
+                // Bottom scrim drawn INTO the feed — NOT into the padded content.
+                // Because it lives in the background layer it bleeds all the way
+                // to the tile's clipped bottom edge, so it reads as a natural
+                // video bottom-fade instead of a dark box floating inside the
+                // view. The Spacer pins it to the bottom; it sits under the label
+                // (which is in the foreground) and seats the white text.
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    LinearGradient(
+                        colors: [NemaraColor.ink.opacity(0.6), .clear],
+                        startPoint: .bottom, endPoint: .top
+                    )
+                    .frame(height: 92)
+                }
+                .allowsHitTesting(false)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
@@ -622,6 +705,10 @@ struct PatientLiveView: View {
                     .tracking(0.5)
                     .foregroundStyle(NemaraColor.terraInk.opacity(0.78))
             }
+            // Light shadow for extra legibility; the real backing is the bottom
+            // scrim drawn INTO the feed (flush to the tile's bottom edge) in
+            // `cameraTile`, so the text never needs its own box.
+            .shadow(color: .black.opacity(0.45), radius: 2, y: 1)
             Spacer()
             // Waveform is only meaningful when audio is flowing —
             // show it for the active call target only.
@@ -632,12 +719,6 @@ struct PatientLiveView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: [NemaraColor.ink.opacity(0.75), .clear],
-                startPoint: .bottom, endPoint: .top
-            )
-        )
     }
 
     /// Per-camera "AI PAUSED" badge, shown beside the LIVE pill when the
@@ -676,20 +757,14 @@ struct PatientLiveView: View {
             .padding(.vertical, 4)
             .background(callState == .active ? Color(.systemRed) : NemaraColor.terra)
             .clipShape(Capsule(style: .continuous))
-        case .joining:
-            mutedPill("WAITING")
-        case .roomDown:
-            mutedPill("CONNECTING")
+        case .joining, .roomDown:
+            // "WAITING" / "CONNECTING" pills removed — no loading indication.
+            EmptyView()
         case .offline, .unpaired:
-            // App closed (confirmed dead) wins over the optimistic
-            // "Connecting…" reconnect buffer: a shut sensor reads "App
-            // closed", not a 30s spinner. Otherwise show "connecting" when
-            // online OR within the reconnect window (env.api.isConnecting);
-            // else a blank pill.
+            // App-closed still surfaces (actionable: reopen the app on the
+            // phone). Otherwise no pill — the "Connecting…" pill was removed too.
             if cam.isAppClosed {
                 mutedPill("APP CLOSED")
-            } else if cam.online || env.api.isConnecting(cam) {
-                mutedPill("CONNECTING")
             } else {
                 EmptyView()
             }
@@ -1003,8 +1078,29 @@ struct PatientLiveView: View {
     /// so the Settings "Monitoring" toggle stays in sync.
     private func disconnectAll() {
         guard !isTogglingMonitoring, let id = patient?.id else { return }
+        // Capture WHICH cameras to disconnect BEFORE we optimistically flip their
+        // local intent below. The PATCH loop is gated on
+        // `desired_state == .connected`; if we let the optimistic flip run first,
+        // the loop would find ZERO connected cameras and never actually tell the
+        // backend to disconnect — so nothing would disconnect and `loadCameras`
+        // would bring them all back. (This was the "disconnect-all does nothing"
+        // bug.)
+        let toDisconnect = allCameras.filter {
+            $0.desiredState == .connected && !$0.disabled
+        }
         if let idx = env.api.patients.firstIndex(where: { $0.id == id }) {
             env.api.patients[idx].camerasPaused = true  // optimistic
+        }
+        // Optimistic: flip each connected camera's INTENT locally so the carousel
+        // drops it immediately (onlineCameras requires desired_state == .connected
+        // for a no-track tile) and falls back to the offline card — without
+        // waiting for the PATCH round-trip or the lagging `online` flag.
+        if var cams = env.api.camerasByPatient[patientId] {
+            for i in cams.indices
+            where cams[i].desiredState == .connected && !cams[i].disabled {
+                cams[i].desiredState = .disconnected
+            }
+            env.api.camerasByPatient[patientId] = cams
         }
         isTogglingMonitoring = true
         Task {
@@ -1012,7 +1108,7 @@ struct PatientLiveView: View {
             _ = try? await env.api.updatePatient(
                 id, UpdatePatientRequest(camerasPaused: true),
             )
-            for cam in allCameras where cam.desiredState == .connected && !cam.disabled {
+            for cam in toDisconnect {
                 _ = try? await env.api.updateCamera(
                     cam.id, UpdateCameraRequest(desiredState: .disconnected),
                 )
@@ -1133,11 +1229,21 @@ struct PatientLiveView: View {
             guard let identity = cam.livekitIdentity, !cam.disabled else {
                 return false
             }
-            // NOTE: the `desired_state == .connected` "Connecting…" bridge is
-            // REMOVED FOR NOW — debugging whether the inferred connecting state
-            // is the source of the stuck-feed / stuck-on-connecting issues. A
-            // camera shows only on a real track or backend `online`.
-            return tracks[identity] != nil || cam.online
+            // A camera is in the live carousel if EITHER:
+            //   • it has an actual video track — the feed is genuinely here on
+            //     this device, so ALWAYS show it regardless of intent (this is
+            //     what keeps a streaming camera visible even if its
+            //     `desired_state` hasn't caught up), OR
+            //   • central state says it's streaming (`online`) AND the intent is
+            //     still connected (`desired_state == .connected`).
+            //
+            // The intent check on the `online` branch is what makes a
+            // just-disconnected camera drop out IMMEDIATELY: after disconnect-all
+            // the track tears down but `online` lags stale-true for seconds, so
+            // without it the tile would linger as a placeholder instead of
+            // falling back to the offline card.
+            return tracks[identity] != nil
+                || (cam.online && cam.desiredState == .connected)
         }
     }
 }

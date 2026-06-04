@@ -1,6 +1,7 @@
 import Foundation
 import LiveKit
 import SwiftUI
+import UIKit
 
 /// SwiftUI bridge for LiveKit's UIKit `VideoView`, plus a small render watchdog.
 ///
@@ -89,6 +90,9 @@ struct LiveKitVideoView: UIViewRepresentable {
         private var lastRepair: Date?
         /// Set after a repair so we can log when frames actually return.
         private var awaitingRenderAfterRepair = false
+        /// App-foreground observer — drives the unconditional rebuild that is the
+        /// reliable fix for the "black after a quick background" bug.
+        private var foregroundObserver: NSObjectProtocol?
 
         /// Require the tile to be black this long, continuously, before
         /// re-attaching. 2s is comfortably above the normal blips around
@@ -117,11 +121,28 @@ struct LiveKitVideoView: UIViewRepresentable {
             }
             RunLoop.main.add(t, forMode: .common)
             timer = t
+
+            // Rebuild the renderer on EVERY foreground. iOS can reclaim the Metal
+            // surface on background while the SDK still reports isRendering=true
+            // (a black tile the watchdog's detector can't see), so instead of
+            // trying to DETECT the dead state we just re-attach on the known
+            // trigger — the app returning to the foreground.
+            foregroundObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main,
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.rebuildOnForeground() }
+            }
         }
 
         func stop() {
             timer?.invalidate()
             timer = nil
+            if let foregroundObserver {
+                NotificationCenter.default.removeObserver(foregroundObserver)
+            }
+            foregroundObserver = nil
             view = nil
         }
 
@@ -177,6 +198,28 @@ struct LiveKitVideoView: UIViewRepresentable {
             lastRepair = Date()
             blackSince = nil
             awaitingRenderAfterRepair = true
+        }
+
+        /// Unconditionally re-attach the renderer when the app returns to the
+        /// foreground — the known trigger for the "black but isRendering=true"
+        /// state that the watchdog's detector can't catch. We don't try to DETECT
+        /// the black (unreliable); we just rebuild. Costs a brief black→video
+        /// flicker on each foreground (acceptable vs. a stuck black tile). A short
+        /// delay lets the Metal context settle before we re-attach.
+        private func rebuildOnForeground() {
+            guard hasTrack else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let view = self.view, let track = view.track
+                    else { return }
+                    NSLog("[watchdog] %@ FOREGROUND rebuild — re-attaching renderer", self.logID)
+                    view.track = nil
+                    view.track = track
+                    self.lastRepair = Date()
+                    self.blackSince = nil
+                    self.awaitingRenderAfterRepair = true
+                }
+            }
         }
     }
 }

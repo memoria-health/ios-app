@@ -6,13 +6,23 @@ import SwiftUI
 /// LiveKit (or HLS) player when real feeds land.
 ///
 /// `hue` shifts the lighting per room so different rooms feel distinct.
+///
+/// `loading` overlays a scrim + spinner for the window where the camera is
+/// expected-online but the track hasn't landed yet. The spinner is deliberately
+/// PURE SwiftUI (see `NemaraLoadingSpinner`), NOT `ProgressView` — a UIKit
+/// `UIActivityIndicatorView` animating next to the LiveKit `VideoView` in the
+/// tile background risked the nil→track swap happening mid-animation and leaving
+/// the new video UIView unpainted. A SwiftUI shape animating a scoped
+/// `rotationEffect` keeps the animation contained and adds no sibling UIView.
 struct NemaraCamFeedPlaceholder: View {
     let hue: Double
     let lit: Bool
+    let loading: Bool
 
-    init(hue: Double = 30, lit: Bool = true) {
+    init(hue: Double = 30, lit: Bool = true, loading: Bool = false) {
         self.hue = hue
         self.lit = lit
+        self.loading = loading
     }
 
     var body: some View {
@@ -39,7 +49,44 @@ struct NemaraCamFeedPlaceholder: View {
                     endRadius: 220
                 )
             }
+            if loading {
+                // Darken the mock room so the spinner reads as "loading" rather
+                // than pretending the silhouettes are the live feed.
+                Color.black.opacity(0.3)
+                NemaraLoadingSpinner()
+            }
         }
+    }
+}
+
+/// Pure-SwiftUI loading spinner — a trimmed circle rotating forever. Used
+/// instead of `ProgressView` on purpose: `ProgressView(.circular)` is a UIKit
+/// `UIActivityIndicatorView`, and an always-animating UIKit view sitting beside
+/// the LiveKit `VideoView` in the tile background risks the nil→track swap
+/// committing mid-animation (new video UIView never paints). This keeps the
+/// animation scoped to a `rotationEffect(value:)` so it can't wrap that swap.
+private struct NemaraLoadingSpinner: View {
+    @State private var spinning = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Circle()
+                .trim(from: 0, to: 0.72)
+                .stroke(
+                    Color.white.opacity(0.92),
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round),
+                )
+                .frame(width: 26, height: 26)
+                .rotationEffect(.degrees(spinning ? 360 : 0))
+                .animation(
+                    .linear(duration: 0.9).repeatForever(autoreverses: false),
+                    value: spinning,
+                )
+            Text("Loading")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+        }
+        .onAppear { spinning = true }
     }
 }
 
