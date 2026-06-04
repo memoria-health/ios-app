@@ -12,19 +12,27 @@ import UserNotifications
 ///   1. Forward the APNs device token to whoever last set
 ///      `didReceiveAPNsToken` (set from `NemaraCaregiverApp.init` to a
 ///      closure that POSTs `/v1/me/devices`).
-///   2. Forward a notification tap to `didTapEventPush(eventId)` so
-///      the SwiftUI navigation stack can deep-link into the event.
+///   2. Buffer a notification tap (`event_id` + `patient_id` from the
+///      payload root) so the SwiftUI navigation stack can deep-link into
+///      the event — see `DeepLinkRouter.drainPendingTap()`.
 ///
-/// Both hooks are `nil`-safe — the app survives a push that lands
-/// before the SwiftUI tree has installed handlers.
+/// Both hooks are `nil`-safe and the tap is *buffered* (not just a live
+/// closure) — the app survives a push that lands before the SwiftUI tree
+/// has installed handlers, including a cold launch from a terminated app.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     /// Called from `application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`
     /// with the hex-encoded token string ready to ship to the backend.
     static var didReceiveAPNsToken: ((String) -> Void)?
 
-    /// Called when the caregiver taps a notification banner / lock-screen
-    /// alert. Carries the `event_id` from the APNs payload's root.
-    static var didTapEventPush: ((UUID) -> Void)?
+    /// Cold-launch-safe buffer for a notification tap. `didReceive`
+    /// writes here unconditionally; the SwiftUI layer drains it (warm:
+    /// via `onEventTap`; cold: when the signed-in surface mounts). Both
+    /// ids are payload-root strings (src/services/push.py:build_event_payload).
+    @MainActor static var pendingEventTap: (eventId: UUID, patientId: UUID)?
+
+    /// Optional nudge so a running app drains `pendingEventTap`
+    /// immediately instead of waiting for the next lifecycle tick.
+    static var onEventTap: (() -> Void)?
 
     func application(
         _ application: UIApplication,
@@ -68,25 +76,27 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         completionHandler([.banner, .sound, .list])
     }
 
-    /// Tap handler. Pulls `event_id` from the userInfo dict (set by
-    /// `src/services/push.py:build_event_payload`) and routes it
-    /// upstream.
+    /// Tap handler. Pulls `event_id` + `patient_id` from the userInfo
+    /// dict (set by `src/services/push.py:build_event_payload`), buffers
+    /// them, and nudges the SwiftUI layer to drain. Buffering (not a bare
+    /// closure call) is what makes a cold-launch tap survive: the buffer
+    /// outlives the window before `onEventTap` is installed.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping @Sendable () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        let eventId: UUID? = {
-            guard
-                let raw = userInfo["event_id"] as? String,
-                let parsed = UUID(uuidString: raw)
-            else { return nil }
-            return parsed
-        }()
-        if let eventId {
+        func uuid(_ key: String) -> UUID? {
+            guard let raw = userInfo[key] as? String else { return nil }
+            return UUID(uuidString: raw)
+        }
+        let eventId = uuid("event_id")
+        let patientId = uuid("patient_id")
+        if let eventId, let patientId {
             Task { @MainActor in
-                Self.didTapEventPush?(eventId)
+                Self.pendingEventTap = (eventId: eventId, patientId: patientId)
+                Self.onEventTap?()
             }
         }
         completionHandler()

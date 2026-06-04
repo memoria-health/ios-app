@@ -2,9 +2,8 @@ import SwiftUI
 
 /// Per-camera detail screen. Three control surfaces:
 ///
-///   1. **Hide / Show** — flips `cameras.disabled`. Instant; LiveKit
-///      stays connected. Web dashboard's tile menu calls this
-///      "Hide camera".
+///   1. **Pause AI / Resume AI** — flips `cameras.ai_paused`. Instant;
+///      video keeps streaming, only the LLM tick is skipped.
 ///   2. **Disconnect / Reconnect** — flips `cameras.desired_state`.
 ///      Wall phone polls every 1s and reconciles by leaving / rejoining
 ///      LiveKit. ~1-2s latency on reconnect. Confirmed via alert before
@@ -13,10 +12,15 @@ import SwiftUI
 ///      table. Each toggle calls
 ///      `PUT /v1/cameras/{id}/detectors` with the full new set.
 ///
-/// Detector toggles use optimistic UI with rollback on error. Hide /
-/// Disconnect flips also drop their `busy` flags in `defer` (not just
-/// in `catch`) so a successful round-trip doesn't permanently disable
-/// the buttons (we got bit by exactly this pattern in the web grid).
+/// (The old "Hide / Show" control — `cameras.disabled` — was removed from
+/// the UI to keep the caregiver's options simple: Disconnect or Pause AI.
+/// The `disabled` field still exists and is honored where read, it's just
+/// no longer user-settable.)
+///
+/// Detector toggles use optimistic UI with rollback on error. The
+/// Disconnect flip also drops its `busy` flag in `defer` (not just in
+/// `catch`) so a successful round-trip doesn't permanently disable the
+/// button (we got bit by exactly this pattern in the web grid).
 struct CameraDetailView: View {
     let cameraId: UUID
     let patientId: UUID
@@ -30,7 +34,6 @@ struct CameraDetailView: View {
     /// per-row disabled state; UUID matches the detector being saved.
     @State private var togglingDetectorId: UUID?
 
-    @State private var togglingHide = false
     @State private var togglingAiPause = false
     @State private var togglingDisconnect = false
     @State private var deleting = false
@@ -221,27 +224,8 @@ struct CameraDetailView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .disabled(togglingHide || togglingAiPause || togglingDisconnect)
+                    .disabled(togglingAiPause || togglingDisconnect)
 
-                    NemaraColor.line.frame(height: 1)
-
-                    // Hide / Show — instant, no confirm.
-                    Button {
-                        Task { await toggleHide() }
-                    } label: {
-                        controlRow(
-                            icon: cam.disabled ? "eye" : "eye.slash",
-                            title: togglingHide
-                                ? (cam.disabled ? "Showing…" : "Hiding…")
-                                : (cam.disabled ? "Show sensor" : "Hide sensor"),
-                            subtitle: cam.disabled
-                                ? "Show tile + resume AI calls."
-                                : "Hide tile + pause AI calls. LiveKit stays connected.",
-                            destructive: false,
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(togglingHide || togglingAiPause || togglingDisconnect)
 
                     NemaraColor.line.frame(height: 1)
 
@@ -272,7 +256,7 @@ struct CameraDetailView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .disabled(togglingHide || togglingAiPause || togglingDisconnect)
+                    .disabled(togglingAiPause || togglingDisconnect)
                 }
             }
             .padding(.horizontal, 16)
@@ -413,20 +397,6 @@ struct CameraDetailView: View {
         } catch {
             assignedDetectorIds = prev
             assignmentsError = "Couldn't update: " + error.localizedDescription
-        }
-    }
-
-    private func toggleHide() async {
-        guard let cam = camera else { return }
-        togglingHide = true
-        actionError = nil
-        defer { togglingHide = false }
-        do {
-            _ = try await env.api.updateCamera(
-                cameraId, UpdateCameraRequest(disabled: !cam.disabled),
-            )
-        } catch {
-            actionError = "Couldn't update: " + error.localizedDescription
         }
     }
 

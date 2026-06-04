@@ -8,7 +8,6 @@ struct AppSettingsView: View {
     @State private var showingContactSupport = false
     @State private var showingPrivacy = false
     @State private var showingNewPatient = false
-    @State private var openPatientId: UUID?
     // Account-deletion flow state.
     @State private var showDeleteConfirm = false
     @State private var isDeleting = false
@@ -58,13 +57,6 @@ struct AppSettingsView: View {
         }
         .sheet(isPresented: $showingNewPatient) {
             NewPatientView()
-                .environment(env)
-        }
-        .fullScreenCover(item: Binding(
-            get: { openPatientId.map(SettingsPatientNav.init) },
-            set: { openPatientId = $0?.id }
-        )) { wrap in
-            PatientShell(patientId: wrap.id)
                 .environment(env)
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -133,7 +125,7 @@ struct AppSettingsView: View {
             VStack(spacing: 0) {
                 ForEach(env.api.patients.indices, id: \.self) { i in
                     let p = env.api.patients[i]
-                    Button { openPatientId = p.id } label: {
+                    Button { env.deepLink.openPatient(p.id) } label: {
                         HStack(spacing: 12) {
                             NemaraAvatar(letter: p.avatarLetter, size: 40)
                             VStack(alignment: .leading, spacing: 2) {
@@ -238,13 +230,6 @@ struct AppSettingsView: View {
         // hits drawn content without this.
         .contentShape(Rectangle())
     }
-}
-
-/// `fullScreenCover(item:)` requires `Identifiable`. UUID itself can't
-/// safely conform (potential stdlib conflict), so we wrap. Mirrors the
-/// private wrapper in RosterView.
-private struct SettingsPatientNav: Identifiable, Hashable {
-    let id: UUID
 }
 
 #if DEBUG

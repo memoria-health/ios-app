@@ -769,6 +769,17 @@ final class NemaraAPIClient {
         )
     }
 
+    /// Fetch one event by id (`GET /v1/events/{id}`, caregiver-scoped →
+    /// 404 for a foreign/stale id). Used by the notification deep-link
+    /// when the target isn't in the loaded first page (cold launch, or an
+    /// old event tapped from Notification Center history).
+    func fetchEvent(_ id: UUID) async throws -> DetectionEvent {
+        try await sendNoBody(
+            method: "GET",
+            path: "/v1/events/\(id.uuidString.lowercased())",
+        )
+    }
+
     /// Fetch a short-lived signed URL for the event's archived clip.
     /// Returns `nil` when the clip isn't ready yet (backend responds
     /// with 409 `clip_not_ready` — caregiver app shows the

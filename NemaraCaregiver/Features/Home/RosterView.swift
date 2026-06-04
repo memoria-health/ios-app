@@ -8,7 +8,6 @@ struct RosterView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var showingNewPatient = false
     @State private var showingEditProfile = false
-    @State private var openPatientId: UUID?
 
     var body: some View {
         Group {
@@ -36,7 +35,7 @@ struct RosterView: View {
 
                         VStack(spacing: 10) {
                             ForEach(env.api.patients) { p in
-                                Button { openPatientId = p.id } label: {
+                                Button { env.deepLink.openPatient(p.id) } label: {
                                     PatientRow(patient: p)
                                 }
                                 .buttonStyle(.plain)
@@ -62,13 +61,6 @@ struct RosterView: View {
                 }
             }
         }
-        .fullScreenCover(item: Binding(
-            get: { openPatientId.map(IdentifiableUUID.init) },
-            set: { openPatientId = $0?.id }
-        )) { wrap in
-            PatientShell(patientId: wrap.id)
-                .environment(env)
-        }
         .sheet(isPresented: $showingNewPatient) {
             NewPatientView()
         }
@@ -91,14 +83,6 @@ struct RosterView: View {
         default:      return "Good evening"
         }
     }
-}
-
-/// Tiny wrapper to make `UUID` work with `.fullScreenCover(item:)`,
-/// which requires `Identifiable`. Adding `Identifiable` to `UUID`
-/// directly would conflict with potential standard-library
-/// conformance, so we wrap.
-private struct IdentifiableUUID: Identifiable, Hashable {
-    let id: UUID
 }
 
 #if DEBUG

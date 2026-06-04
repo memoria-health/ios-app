@@ -58,10 +58,20 @@ struct EventCard: View {
                     .font(NemaraFont.mono(size: 11, weight: .semibold))
                     .foregroundStyle(NemaraColor.ink2)
                 Text("·").foregroundStyle(NemaraColor.ink.opacity(0.18))
-                Text(event.ago.uppercased())
-                    .font(NemaraFont.mono(size: 10, weight: .semibold))
-                    .tracking(0.4)
-                    .foregroundStyle(NemaraColor.ink3)
+                // `event.ago` reads the wall clock, which is NOT a SwiftUI
+                // dependency — without a ticking source the label freezes at
+                // whatever it said on first render. TimelineView re-renders
+                // ONLY this Text every 60s. Scoped deliberately: it never
+                // touches `eventsByPatient`, so it can't re-trigger the
+                // refetch that killed clip playback mid-watch (that bug was a
+                // data reassignment re-rendering the open detail sheet; this
+                // is a leaf label in the list rows, a separate subtree).
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    Text(event.ago.uppercased())
+                        .font(NemaraFont.mono(size: 10, weight: .semibold))
+                        .tracking(0.4)
+                        .foregroundStyle(NemaraColor.ink3)
+                }
                 Spacer()
                 if event.reviewed {
                     HStack(spacing: 4) {

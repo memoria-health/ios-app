@@ -86,6 +86,16 @@ struct PatientShell: View {
         .onDisappear {
             Task { await env.liveKit.disconnect() }
         }
+        // APNs deep link: when the router targets THIS patient with an
+        // event to open, jump to the Events tab. `initial: true` handles
+        // the cold-launch case where `focusEventId` is already set when
+        // the shell first appears. PatientEventsView clears it after it
+        // presents the sheet — we only steer the tab here.
+        .onChange(of: env.deepLink.focusEventId, initial: true) { _, _ in
+            if env.deepLink.openPatientId == patientId, env.deepLink.focusEventId != nil {
+                tab = .events
+            }
+        }
     }
 
     /// A tab body: pinned `PHeader` at the top + scrollable content

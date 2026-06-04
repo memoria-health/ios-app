@@ -100,9 +100,13 @@ struct EventDetailView: View {
                     .foregroundStyle(NemaraColor.ink3)
             }
             ToolbarItem(placement: .topBarLeading) {
+                // Plain toolbar button (the layout the system hit-tests
+                // correctly). A bigger, bolder glyph is the safe way to make it
+                // easier to tap — wrapping it in an oversized frame +
+                // contentShape fights the toolbar's own layout and broke the tap.
                 Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(NemaraColor.ink)
                 }
             }

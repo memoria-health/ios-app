@@ -94,6 +94,36 @@ struct PatientEventsView: View {
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
             }
         }
+        // APNs deep link terminal step: open the focused event's sheet.
+        // `initial: true` fires when the Events tab first appears (cold
+        // launch, value already set) and again if it arrives while mounted.
+        // Setting `openedEvent` auto-pauses the poll above (its
+        // `openedEvent == nil` guard), so this can't re-trigger the
+        // refetch that historically killed clip playback.
+        .onChange(of: env.deepLink.focusEventId, initial: true) { _, _ in
+            guard env.deepLink.focusEventId != nil else { return }
+            Task { await openFocusedEvent() }
+        }
+    }
+
+    /// Resolve and present the deep-linked event, then consume the latch
+    /// exactly once. Cache-first (Realtime INSERT / first page); on a miss
+    /// (cold launch, or older than the loaded page) fall back to an
+    /// authoritative, caregiver-scoped `GET /v1/events/{id}`. On any
+    /// failure we simply leave the caregiver on the Events tab — never a
+    /// dead tap, never a stuck latch.
+    @MainActor
+    private func openFocusedEvent() async {
+        guard let eid = env.deepLink.focusEventId else { return }
+        if let ev = events.first(where: { $0.id == eid }) {
+            openedEvent = ev
+            env.deepLink.focusEventId = nil
+            return
+        }
+        if let ev = try? await env.api.fetchEvent(eid), ev.patientId == patientId {
+            openedEvent = ev
+        }
+        env.deepLink.focusEventId = nil
     }
 
     /// Big, centered "nothing here" state shown when the active filter

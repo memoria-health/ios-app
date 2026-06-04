@@ -17,11 +17,15 @@ final class AppEnvironment {
     let auth: SupabaseAuthService
     let api: NemaraAPIClient
     let liveKit: LiveKitClient
+    /// Single source of truth for patient-shell presentation + APNs
+    /// event deep-linking. See `DeepLinkRouter`.
+    let deepLink: DeepLinkRouter
 
     init(auth: SupabaseAuthService, api: NemaraAPIClient, liveKit: LiveKitClient) {
         self.auth = auth
         self.api = api
         self.liveKit = liveKit
+        self.deepLink = DeepLinkRouter()
     }
 
     /// Build the live environment used by `@main`. Wires the auth

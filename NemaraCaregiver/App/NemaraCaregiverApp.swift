@@ -41,15 +41,11 @@ struct NemaraCaregiverApp: App {
                 }
             }
         }
-        AppDelegate.didTapEventPush = { eventId in
-            // Surface the tap on a NotificationCenter channel so any
-            // SwiftUI view can subscribe and navigate. RootView reads
-            // this and drives the nav stack.
-            NotificationCenter.default.post(
-                name: .nemaraEventPushTapped,
-                object: nil,
-                userInfo: ["event_id": eventId],
-            )
+        AppDelegate.onEventTap = { [weak deepLink = env.deepLink] in
+            // Warm nudge: drain the buffered tap into the durable router
+            // state, which MainTabView observes to present the patient +
+            // event. Cold launches drain on mount instead (see MainTabView).
+            Task { @MainActor in deepLink?.drainPendingTap() }
         }
 
         #if DEBUG
@@ -156,11 +152,4 @@ struct NemaraCaregiverApp: App {
         return .production
         #endif
     }
-}
-
-extension Notification.Name {
-    /// Posted when the caregiver taps an APNs banner / lock-screen
-    /// alert. `userInfo["event_id"]` is the UUID of the detector
-    /// event to deep-link into.
-    static let nemaraEventPushTapped = Notification.Name("co.sunny.nemara.eventPushTapped")
 }

@@ -173,7 +173,7 @@ struct PatientLiveView: View {
                     // the video, matching every iOS video player.
                     ZStack {
                         if let track {
-                            LiveKitVideoView(track: track)
+                            LiveKitVideoView(track: track, identity: identity)
                         } else {
                             NemaraCamFeedPlaceholder(hue: 30)
                         }
@@ -570,15 +570,22 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
         .background {
             if let track = videoTrack {
-                LiveKitVideoView(track: track)
+                LiveKitVideoView(track: track, identity: identity)
                     .background(NemaraColor.ink)
             } else {
                 ZStack {
                     NemaraCamFeedPlaceholder(hue: 30)
-                    // Buffering: the sensor is online (or just reconnected)
-                    // but its video track hasn't arrived yet — show progress
-                    // so the gap reads as "coming up", not "broken".
-                    if cam.online || env.api.isConnecting(cam) {
+                    // Case 2: backend says it's streaming (`online`) but the
+                    // track hasn't arrived on THIS device yet → "Connecting…".
+                    // Driven by `online` (backend-observed reality), NOT intent:
+                    // so it clears the moment the backend stops seeing frames and
+                    // can't stick on a stale `desired_state` the way the old
+                    // intent bridge did. A persistent spinner here therefore
+                    // means a genuine SDK desync (backend has the stream, iOS
+                    // missed the track) — the case the force-resubscribe
+                    // escalation is meant to recover. A no-track tile is only in
+                    // the carousel via `online`, so this covers every such tile.
+                    if cam.online {
                         VStack(spacing: 8) {
                             ProgressView()
                                 .tint(NemaraColor.terraInk)
@@ -689,31 +696,34 @@ struct PatientLiveView: View {
         }
     }
 
-    /// Tiny circular status indicator next to each camera row in the
-    /// cameras card. Reads `LiveKitClient.connectivity(of:)` so the
-    /// dot's truth tracks the same source as the tile's state pill.
-    @ViewBuilder
-    private func cameraStatusDot(for cam: Camera, paused: Bool) -> some View {
+    /// Tiny circular status indicator next to each sensor row.
+    ///
+    /// Color is a PURE function of the shared, Realtime-synced camera fields —
+    /// `online`, `app_present` (via `isAppClosed`), and `desired_state`. It does
+    /// NOT read this device's LiveKit connection (`connectivity`/`isConnecting`)
+    /// or the bulk `cameras_paused` lever, because those are LOCAL or non-shared:
+    /// the web dashboard, this phone, and another phone must all show the SAME
+    /// dot for the same sensor, so it can only depend on central state. (Using
+    /// this phone's room state is exactly what made the dot lie after a
+    /// background — room down here, but centrally still online.)
+    ///
+    /// AI-pause and monitoring-pause never change the color: the feed keeps
+    /// streaming when AI is paused, so an online sensor is green either way —
+    /// which is why resuming AI never has to "turn it back green," it never left.
+    private func cameraStatusDot(for cam: Camera) -> some View {
         let color: Color = {
-            // App closed on the phone — amber "needs you to reopen it",
-            // distinct from the red "offline but reconnectable" below. Checked
-            // BEFORE `paused` so it still surfaces while monitoring is paused
-            // (Reconnect-all won't bring a closed app back).
-            if cam.isAppClosed { return NemaraColor.warning }
-            if paused { return NemaraColor.ink3 }
-            // Backend `online` flag is the source of truth (consistent with
-            // web + the Sensors list).
+            // 1) Streaming (backend observes frames) → green. Wins over
+            //    everything; ai_paused / cameras_paused don't stop the feed.
             if cam.online { return NemaraColor.success }
-            // Actively reconnecting (a reconnect action opened the window) →
-            // amber, not "offline" red. Not a passive first-connect default.
-            if env.api.isConnecting(cam) { return NemaraColor.warning }
-            switch env.liveKit.connectivity(of: cam) {
-            case .live, .joining:        return NemaraColor.success
-            case .offline:               return NemaraColor.danger
-            case .roomDown, .unpaired:   return NemaraColor.ink3
-            }
+            // 2) iPhone sensor app closed → dark. The one "not reconnectable"
+            //    state: a remote Reconnect can't help, the app must be reopened.
+            if cam.isAppClosed { return NemaraColor.ink3 }
+            // 3) Intent is connected but not online yet → amber "connecting".
+            if cam.desiredState == .connected { return NemaraColor.warning }
+            // 4) Deliberately disconnected (reconnectable) → rust.
+            return NemaraColor.danger
         }()
-        Circle().fill(color).frame(width: 7, height: 7)
+        return Circle().fill(color).frame(width: 7, height: 7)
     }
 
     private func mutedPill(_ text: String) -> some View {
@@ -898,8 +908,7 @@ struct PatientLiveView: View {
 
 
     private var camerasCard: some View {
-        let paused = patient?.camerasPaused ?? false
-        return NemaraCard(padding: 14) {
+        NemaraCard(padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     Image(systemName: "wifi")
@@ -942,7 +951,7 @@ struct PatientLiveView: View {
                                         .font(NemaraFont.monoSmall)
                                         .foregroundStyle(NemaraColor.ink3)
                                 }
-                                cameraStatusDot(for: cam, paused: paused)
+                                cameraStatusDot(for: cam)
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(NemaraColor.ink3)
@@ -1100,49 +1109,35 @@ struct PatientLiveView: View {
     private var allCameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
     }
-    /// Sensors shown in the carousel right now.
+    /// Sensors shown in the carousel right now. A camera appears iff it has a
+    /// LiveKit identity and isn't user-hidden (`disabled`), AND any of:
+    ///   • we hold a live video track for it — the actual feed on THIS device
+    ///     (ground truth). This ALWAYS shows; never hidden by intent/online lag.
+    ///   • central state says it's streaming (`online` — the exact signal the
+    ///     web grid uses), so the tile appears the instant the backend sees a
+    ///     publisher, in parity with web.
+    ///   • central INTENT says it should be on (`desired_state == connected`)
+    ///     but the stream hasn't landed yet — the "Connecting…" bridge.
     ///
-    /// A tile is in the carousel iff it's eligible (`isLiveStreaming` —
-    /// paired, not user-hidden, intent=connected) AND either:
-    ///   1. the backend marks it `online` (the single source of truth,
-    ///      consistent with web's grid + the Sensors list — flips fast via
-    ///      Realtime so the tile appears as soon as the sensor connects), OR
-    ///   2. the LiveKit SDK already has a subscribed video track for it
-    ///      (so we never hide a feed that's actually streaming if `online`
-    ///      is momentarily behind).
-    ///
-    /// The tile shows the live video once the track arrives, and a
-    /// "connecting" placeholder in the gap between `online` and the track.
-    /// (Previously this gated purely on the SDK track — the 2026-05-29
-    /// incident fix for a then-unreliable `online` column. The reconciler
-    /// refactor since made `online` trustworthy, and we now prefer it for
-    /// cross-platform consistency.)
+    /// `desired_state` is used ONLY additively here — NEVER as a gate that could
+    /// hide a present track (that was the bug we removed). It just ADDS a
+    /// "Connecting…" tile while the stream is en route. The bridge is the SHARED,
+    /// central `desired_state` (set by whoever reconnected — Care, web, or the
+    /// sensor), so it's source-agnostic and never expires — unlike the old
+    /// phone-local, this-device-only `isConnecting` timer it replaces. No
+    /// `cameras_paused` (bulk) gate. A confirmed-closed iPhone app is excluded so
+    /// it can't spin "Connecting…" forever (it can't recover without reopening).
     private var onlineCameras: [Camera] {
-        // The carousel follows each camera's OWN desired_state + live state,
-        // never the patient-level `cameras_paused` bulk flag. A sensor that's
-        // publishing always appears — it set its own desired_state=connected
-        // (from the sensor app, web, or here) — so the bulk pause never hides
-        // a live camera. But "disconnect all" sets EVERY camera to
-        // disconnected, so the carousel clears immediately, even while a
-        // stale track is still tearing down (no lingering "connecting" tile).
         let tracks = env.liveKit.videoTracksByIdentity
         return allCameras.filter { cam in
-            guard let identity = cam.livekitIdentity,
-                  !cam.disabled,
-                  cam.desiredState == .connected else { return false }
-            // Intended-connected: show on a live track (ground truth) OR as
-            // soon as the backend confirms a publisher (`online`), so the
-            // tile appears without waiting for the first frame. Also keep a
-            // just-reconnected sensor in the carousel while it comes back up
-            // (`isConnecting` — a bounded window) so its tile can show a
-            // "Connecting…" buffer instead of vanishing. This only fires for
-            // desired_state==.connected, so a DISCONNECTED camera still drops
-            // out immediately (no lingering tile).
-            // ...but NOT if the app is confirmed closed — a dead sensor drops
-            // out of the carousel immediately instead of being parked in the
-            // "Connecting…" buffer for the 30s window.
+            guard let identity = cam.livekitIdentity, !cam.disabled else {
+                return false
+            }
+            // NOTE: the `desired_state == .connected` "Connecting…" bridge is
+            // REMOVED FOR NOW — debugging whether the inferred connecting state
+            // is the source of the stuck-feed / stuck-on-connecting issues. A
+            // camera shows only on a real track or backend `online`.
             return tracks[identity] != nil || cam.online
-                || (env.api.isConnecting(cam) && !cam.isAppClosed)
         }
     }
 }
