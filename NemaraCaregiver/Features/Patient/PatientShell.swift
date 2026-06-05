@@ -12,6 +12,9 @@ struct PatientShell: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
     @State private var tab: PatientTab = .live
+    /// Feedback form, reachable from every sub-tab's header via the "Feedback"
+    /// pill. Presented once here (not per-tab) so there's a single sheet.
+    @State private var showFeedback = false
 
     /// Five tabs mirror the web dashboard's IA (Live grid +
     /// per-camera + per-detector + events + patient-level settings).
@@ -29,7 +32,9 @@ struct PatientShell: View {
                 patientTab {
                     PatientLiveView(patientId: patientId)
                 } header: {
-                    if let patient { PHeader(patient: patient) { dismiss() } }
+                    if let patient {
+                        PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
+                    }
                 }
             }
             .tabItem { Label("Live", systemImage: "video.fill") }
@@ -39,7 +44,9 @@ struct PatientShell: View {
                 patientTab {
                     PatientEventsView(patientId: patientId)
                 } header: {
-                    if let patient { PHeader(patient: patient) { dismiss() } }
+                    if let patient {
+                        PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
+                    }
                 }
             }
             .tabItem { Label("Events", systemImage: "waveform.path") }
@@ -49,7 +56,9 @@ struct PatientShell: View {
                 patientTab {
                     PatientCamerasView(patientId: patientId)
                 } header: {
-                    if let patient { PHeader(patient: patient) { dismiss() } }
+                    if let patient {
+                        PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
+                    }
                 }
             }
             .tabItem { Label("Sensors", systemImage: "camera.fill") }
@@ -59,7 +68,9 @@ struct PatientShell: View {
                 patientTab {
                     PatientDetectorsView(patientId: patientId)
                 } header: {
-                    if let patient { PHeader(patient: patient) { dismiss() } }
+                    if let patient {
+                        PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
+                    }
                 }
             }
             .tabItem { Label("Detectors", systemImage: "sensor.tag.radiowaves.forward.fill") }
@@ -69,7 +80,9 @@ struct PatientShell: View {
                 patientTab {
                     PatientSettingsView(patientId: patientId)
                 } header: {
-                    if let patient { PHeader(patient: patient, showsIdentity: false) { dismiss() } }
+                    if let patient {
+                        PHeader(patient: patient, showsIdentity: false, onFeedback: { showFeedback = true }) { dismiss() }
+                    }
                 }
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }
@@ -85,6 +98,13 @@ struct PatientShell: View {
         // already-connected short-circuit.
         .onDisappear {
             Task { await env.liveKit.disconnect() }
+        }
+        // Feedback form — one presentation point for every sub-tab's header
+        // pill. NavigationStack gives it the title bar + its own back chevron
+        // (which dismisses the sheet).
+        .sheet(isPresented: $showFeedback) {
+            NavigationStack { FeedbackView() }
+                .environment(env)
         }
         // APNs deep link: when the router targets THIS patient with an
         // event to open, jump to the Events tab. `initial: true` handles

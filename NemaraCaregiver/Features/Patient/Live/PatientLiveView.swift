@@ -119,9 +119,10 @@ struct PatientLiveView: View {
             //     (the most likely reason the old one-shot reconnect still
             //     showed an empty grid: track was back but isLiveStreaming
             //     stayed false).
-            //   • Force a clean LiveKit rejoin on the EVEN passes (0, 2, 4 →
-            //     ~0s, 5s, 10s) so we re-subscribe to every republished track
-            //     from scratch. The Swift SDK can drop `track_subscribed`
+            //   • Force a clean LiveKit rejoin on the EVEN passes (0, 2, 4, 6,
+            //     8 → ~0s, 5s, 10s, 15s, 20s) so we re-subscribe to every
+            //     republished track from scratch. The Swift SDK can drop
+            //     `track_subscribed`
             //     across a publisher leave/rejoin and won't re-fire it on its
             //     own — so the ONLY reliable recovery is a fresh room.connect()
             //     that re-runs autoSubscribe against the present participant
@@ -132,12 +133,14 @@ struct PatientLiveView: View {
             //     back. The leave/rejoin is iOS-SDK-local — web + the sensor
             //     keep streaming throughout, only this device was stuck.
             // Bail the moment a camera is actually live, so when the first
-            // rejoin already worked the extra passes never run. Max ~15s.
+            // rejoin already worked the extra passes never run. Max ~25s — a
+            // slow sensor republish was occasionally landing just after the old
+            // ~15s cap, leaving the tile stuck on the loading spinner.
             guard oldValue == true, newValue == false else { return }
             Task {
                 isReconnectingAll = true
                 defer { isReconnectingAll = false }
-                for attempt in 0..<6 {
+                for attempt in 0..<10 {
                     await bootstrap(force: attempt % 2 == 0)
                     try? await env.api.loadCameras(forPatient: patientId)
                     #if DEBUG

@@ -7,21 +7,16 @@ struct FeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppEnvironment.self) private var env
     @State private var rating: Int = 0
-    @State private var whatsWorking: String = ""
-    @State private var whatsFrustrating: String = ""
-    @State private var category: String?
+    @State private var whatsLoved: String = ""
+    @State private var whatsNotWorking: String = ""
     @State private var isSubmitting = false
     @State private var submitted = false
     @State private var submitError: String?
 
-    // Macro themes, not per-tab/feature buckets — feature-specific items
-    // read like bug reports. These capture how Memoria is landing overall.
-    private let categories = ["Ease of use", "Accuracy & reliability", "Peace of mind", "Feature request", "Pricing", "Something else"]
-
+    // The primary field — "what's not working / could be improved" — is the
+    // only required one; the rest (what you like, the rating) are optional.
     private var canSubmit: Bool {
-        rating > 0
-            || !whatsWorking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !whatsFrustrating.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !whatsNotWorking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @MainActor
@@ -37,9 +32,9 @@ struct FeedbackView: View {
         do {
             _ = try await env.api.submitFeedback(
                 rating: rating == 0 ? nil : rating,
-                whatsWorking: nonBlank(whatsWorking),
-                whatsFrustrating: nonBlank(whatsFrustrating),
-                category: category,
+                whatsWorking: nonBlank(whatsLoved),
+                whatsFrustrating: nonBlank(whatsNotWorking),
+                category: nil,
             )
             submitted = true
         } catch {
@@ -68,6 +63,11 @@ struct FeedbackView: View {
         .navigationTitle("Feedback")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        // Pin the nav bar to paper. Otherwise iOS swaps to an opaque system
+        // material (reads white in light mode) once content scrolls under the
+        // bar — the same fix PatientShell applies to its tab bars.
+        .toolbarBackground(NemaraColor.paper, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button { dismiss() } label: {
@@ -93,7 +93,7 @@ struct FeedbackView: View {
                     }
                     Spacer()
                 }
-                Text("Memoria is early, and your patient's story shapes what we build next. Tell us what landed, what didn't, what you wish it did.")
+                Text("Tell us how we can improve. We respond to all inquiries within 2 business days. Feel free to also text us at 716 602 1101.")
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(5)
@@ -106,10 +106,9 @@ struct FeedbackView: View {
             NemaraEyebrow("FEEDBACK")
             NemaraCard(padding: 14) {
                 VStack(alignment: .leading, spacing: 16) {
-                    satisfactionScale
-                    workingField
-                    frustratingField
-                    categorySection
+                    notWorkingField
+                    likeField
+                    ratingScale
                     if submitted {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.circle.fill")
@@ -143,9 +142,14 @@ struct FeedbackView: View {
         }
     }
 
-    private var satisfactionScale: some View {
+    private var ratingScale: some View {
         VStack(alignment: .leading, spacing: 6) {
-            NemaraEyebrow("HOW IS MEMORIA GOING FOR YOU?")
+            HStack(spacing: 6) {
+                NemaraEyebrow("HOW IS MEMORIA GOING?")
+                Text("optional")
+                    .font(NemaraFont.caption.italic())
+                    .foregroundStyle(NemaraColor.ink3)
+            }
             let palette: [Color] = [
                 Color(red: 0xA0/255, green: 0x43/255, blue: 0x31/255),
                 Color(red: 0xC2/255, green: 0x62/255, blue: 0x44/255),
@@ -178,21 +182,29 @@ struct FeedbackView: View {
         }
     }
 
-    private var workingField: some View {
+    private var likeField: some View {
         VStack(alignment: .leading, spacing: 6) {
-            NemaraEyebrow("WHAT'S WORKING?")
+            HStack(spacing: 6) {
+                NemaraEyebrow("WHAT DO YOU LIKE ABOUT MEMORIA?")
+                Text("optional")
+                    .font(NemaraFont.caption.italic())
+                    .foregroundStyle(NemaraColor.ink3)
+            }
             ZStack(alignment: .topLeading) {
-                if whatsWorking.isEmpty {
+                if whatsLoved.isEmpty {
                     Text("What's landing well for you…")
                         .font(NemaraFont.bodySmall)
                         .foregroundStyle(NemaraColor.ink3)
                         .padding(12)
                 }
-                TextEditor(text: $whatsWorking)
+                TextEditor(text: $whatsLoved)
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink)
                     .scrollContentBackground(.hidden)
-                    .padding(8)
+                    // Match notWorkingField — keep the caret aligned with the
+                    // placeholder (see note there).
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .tint(NemaraColor.terra)
             }
             .frame(minHeight: 64)
@@ -201,55 +213,31 @@ struct FeedbackView: View {
         }
     }
 
-    private var frustratingField: some View {
+    private var notWorkingField: some View {
         VStack(alignment: .leading, spacing: 6) {
-            NemaraEyebrow("WHAT'S FRUSTRATING?")
+            NemaraEyebrow("WHAT'S NOT WORKING / COULD BE IMPROVED?")
             ZStack(alignment: .topLeading) {
-                if whatsFrustrating.isEmpty {
-                    Text("Where Memoria fell short for you…")
+                if whatsNotWorking.isEmpty {
+                    Text("What should we fix or improve…")
                         .font(NemaraFont.bodySmall)
                         .foregroundStyle(NemaraColor.ink3)
                         .padding(12)
                 }
-                TextEditor(text: $whatsFrustrating)
+                TextEditor(text: $whatsNotWorking)
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink)
                     .scrollContentBackground(.hidden)
-                    .padding(8)
+                    // Less vertical padding so the caret/first line lines up
+                    // with the placeholder — TextEditor adds its own ~8pt top
+                    // text-container inset on top of this, which was pushing the
+                    // caret a few points below the placeholder text.
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .tint(NemaraColor.terra)
             }
             .frame(minHeight: 64)
             .background(NemaraColor.paperDim)
             .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
-        }
-    }
-
-    private var categorySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                NemaraEyebrow("WHAT'S THIS ABOUT?")
-                Text("optional")
-                    .font(NemaraFont.caption.italic())
-                    .foregroundStyle(NemaraColor.ink3)
-            }
-            FlexibleGrid(spacing: 6) {
-                ForEach(categories, id: \.self) { name in
-                    let on = category == name
-                    Button { category = on ? nil : name } label: {
-                        Text(name)
-                            .font(NemaraFont.bodyMedium)
-                            .foregroundStyle(on ? NemaraColor.terraInk : NemaraColor.ink2)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(on ? NemaraColor.terra : .clear)
-                            .overlay(
-                                Capsule().strokeBorder(on ? NemaraColor.terra : NemaraColor.line, lineWidth: 1)
-                            )
-                            .clipShape(Capsule(style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
         }
     }
 
