@@ -1,9 +1,8 @@
 import SwiftUI
 
-/// The Nemara brand mark, rendered from a vector asset that mirrors the
-/// app icon exactly (Fraunces 144pt Soft "n" outline, terra-rust rounded
-/// square). Using a vector image instead of live-rendering Text keeps the
-/// in-app mark in pixel-parity with AppIcon at every size and removes any
+/// The Memoria brand mark — the terra-rust square with the cream "m",
+/// mirroring the app icon. Using an image instead of live-rendering Text keeps
+/// the in-app mark in pixel-parity with AppIcon at every size and removes any
 /// runtime font-registration risk.
 struct NemaraMark: View {
     let size: CGFloat
@@ -17,6 +16,13 @@ struct NemaraMark: View {
             .resizable()
             .interpolation(.high)
             .frame(width: size, height: size)
+            // The asset is an opaque square (no alpha channel), so its corners
+            // render as a hard square on any background. Clip to a continuous
+            // rounded rect (the iOS app-icon squircle ratio) so the mark reads
+            // as a rounded square, matching the previous brand mark.
+            .clipShape(
+                RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
+            )
     }
 }
 
