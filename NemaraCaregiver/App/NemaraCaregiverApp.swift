@@ -69,15 +69,26 @@ struct NemaraCaregiverApp: App {
                     await Self.requestPushAuthorization()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
-                    // Realtime catch-up. The Supabase socket is severed
-                    // while the app is suspended, and Realtime has no
-                    // replay — any event created while we were
-                    // backgrounded is never pushed on resume. Refetch on
-                    // foreground so new events land immediately, without
-                    // the user pulling to refresh. No-op before the first
-                    // bootstrap (resync guards on an empty roster).
-                    guard newPhase == .active else { return }
-                    Task { await environment.api.resync() }
+                    // The Supabase socket is severed while suspended and Realtime
+                    // has no replay, so on foreground we: (1) refetch everything
+                    // missed (resync), (2) rebuild the Realtime channels with the
+                    // current token so instant push resumes, and (3) (re)start the
+                    // 1s state poll — the backstop that keeps camera badges within
+                    // ~1s of backend truth even if Realtime stays dead. On
+                    // background we stop the poll (the app is suspended anyway).
+                    // All three no-op before the first bootstrap / when signed out.
+                    switch newPhase {
+                    case .active:
+                        Task {
+                            await environment.api.resync()
+                            await environment.api.rebuildRealtimeChannels()
+                            environment.api.startStatePolling()
+                        }
+                    case .background:
+                        environment.api.stopStatePolling()
+                    default:
+                        break
+                    }
                 }
                 .onOpenURL { url in
                     handleIncomingURL(url)

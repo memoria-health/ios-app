@@ -209,3 +209,41 @@ struct UpdateDetectorRequest: Encodable, Sendable {
         try c.encodeIfPresent(customPrompt, forKey: .customPrompt)
     }
 }
+
+/// One detector-catalog entry from
+/// `GET /v1/patients/{id}/detectors/library` — the detection library. Mirrors
+/// `nemara-backend/src/schemas/detector.py` `DetectorLibraryEntry`.
+///
+/// `alreadyAdded` is true when the patient already has a detector with this
+/// identifier (e.g. an auto-seeded preset), so the picker pre-checks/disables
+/// it. `recommended` entries are the cohort's default presets.
+struct DetectorLibraryEntry: Identifiable, Hashable, Sendable, Decodable {
+    var key: String
+    var name: String
+    var iconName: String
+    var description: String
+    var category: Detector.Category
+    var cohort: String          // "child" | "adult" | "both"
+    var recommended: Bool
+    var alreadyAdded: Bool
+
+    var id: String { key }
+
+    enum CodingKeys: String, CodingKey {
+        case key
+        case name
+        case iconName = "icon_name"
+        case description
+        case category
+        case cohort
+        case recommended
+        case alreadyAdded = "already_added"
+    }
+}
+
+/// Body of `POST /v1/patients/{id}/detectors/from-library` — the catalog keys
+/// to instantiate as preset detectors. Server skips unknown/already-present
+/// keys (unknown → 422).
+struct AddFromLibraryRequest: Encodable, Sendable {
+    var keys: [String]
+}

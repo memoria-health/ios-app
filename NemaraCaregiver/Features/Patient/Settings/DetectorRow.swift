@@ -174,7 +174,7 @@ struct DetectorRow: View {
         switch detector.sensitivity {
         case .low:      "Fewer alerts · only the clearest signals"
         case .standard: "Recommended baseline"
-        case .high:     "More alerts · catches subtle signals"
+        case .high:     "More alerts"
         case .off:      "Detector off"
         }
     }

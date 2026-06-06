@@ -13,6 +13,7 @@ struct PatientDetectorsView: View {
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
     @State private var showingAddDetector = false
+    @State private var showingLibrary = false
 
     private var detectors: [Detector] {
         env.api.detectorsByPatient[patientId] ?? []
@@ -28,12 +29,22 @@ struct PatientDetectorsView: View {
                     list
                 }
                 NemaraButton(
-                    "Add a detector",
+                    "Add a custom detector",
                     variant: .secondary,
                     block: true,
                     systemImage: "plus",
                 ) {
                     showingAddDetector = true
+                }
+                .padding(.horizontal, 16)
+
+                NemaraButton(
+                    "Add from detection library",
+                    variant: .secondary,
+                    block: true,
+                    systemImage: "square.grid.2x2",
+                ) {
+                    showingLibrary = true
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 40)
@@ -43,6 +54,10 @@ struct PatientDetectorsView: View {
         .background(NemaraColor.paper)
         .sheet(isPresented: $showingAddDetector) {
             AddDetectorView(patientId: patientId)
+        }
+        .sheet(isPresented: $showingLibrary) {
+            DetectorLibraryView(patientId: patientId, mode: .add)
+                .environment(env)
         }
     }
 

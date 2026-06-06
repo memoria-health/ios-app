@@ -77,6 +77,11 @@ final class NemaraAPIClient {
     /// `unsubscribe()` cleanly on sign-out.
     private var channels: [RealtimeChannelV2] = []
 
+    /// The 1-second camera-state poll — the always-on BACKSTOP to Realtime.
+    /// Held so it can be cancelled on background / sign-out. See
+    /// `startStatePolling`.
+    private var statePollTask: Task<Void, Never>?
+
     /// Set by `AppEnvironment` so the cameras Realtime handler can
     /// poke the LiveKit reconciler without taking a hard dependency on
     /// `LiveKitClient`. Called with the camera's `livekit_identity`
@@ -126,6 +131,7 @@ final class NemaraAPIClient {
         }
 
         await openRealtimeChannels()
+        startStatePolling()
     }
 
     /// Refetch the full roster + every per-patient sub-collection.
@@ -159,6 +165,7 @@ final class NemaraAPIClient {
 
     /// Clear all state and disconnect from Realtime. Called on sign-out.
     func teardown() async {
+        stopStatePolling()
         for t in streamTasks { t.cancel() }
         streamTasks.removeAll()
         for ch in channels { await ch.unsubscribe() }
@@ -553,11 +560,17 @@ final class NemaraAPIClient {
     // MARK: - Cameras (GET / DELETE / POST pairing-code)
 
     func loadCameras(forPatient pid: UUID) async throws {
-        let cams: [Camera] = try await sendNoBody(
-            method: "GET", path: "/v1/patients/\(pid.uuidString.lowercased())/cameras",
-        )
+        let cams = try await fetchCameras(forPatient: pid)
         camerasByPatient[pid] = cams
         for cam in cams where cam.online { markEverOnline(cam.id) }
+    }
+
+    /// GET a patient's cameras WITHOUT mutating the cache — lets the 1s state
+    /// poll fetch fresh rows and reconcile only what actually changed.
+    private func fetchCameras(forPatient pid: UUID) async throws -> [Camera] {
+        try await sendNoBody(
+            method: "GET", path: "/v1/patients/\(pid.uuidString.lowercased())/cameras",
+        )
     }
 
     /// Mint a 6-digit pairing code for a new wall phone on this
@@ -739,6 +752,29 @@ final class NemaraAPIClient {
                 break
             }
         }
+    }
+
+    /// The detection library for this patient's cohort — the prebuilt detectors
+    /// they can add. `alreadyAdded` is set for ones the patient already has.
+    func fetchDetectorLibrary(forPatient pid: UUID) async throws -> [DetectorLibraryEntry] {
+        try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/detectors/library",
+        )
+    }
+
+    /// Instantiate one or more catalog detectors for the patient (no compile —
+    /// instant). Returns the newly-created detectors; keys the patient already
+    /// has are skipped server-side. Appends the new rows to the local cache.
+    @discardableResult
+    func addDetectorsFromLibrary(forPatient pid: UUID, keys: [String]) async throws -> [Detector] {
+        let created: [Detector] = try await sendJSON(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/detectors/from-library",
+            body: AddFromLibraryRequest(keys: keys),
+        )
+        detectorsByPatient[pid, default: []].append(contentsOf: created)
+        return created
     }
 
     // MARK: - Events
@@ -1109,6 +1145,86 @@ extension NemaraAPIClient {
             #if DEBUG
             print("[NemaraAPIClient] Realtime subscribe failed for \(table): \(error)")
             #endif
+        }
+    }
+
+    // MARK: - State poll (Realtime backstop) + channel rebuild
+
+    /// Tear down and reopen the Realtime channels (NOT the cached data). The
+    /// Supabase socket is severed on suspend and Realtime has no replay, so a
+    /// channel that died while backgrounded stays dead; reopening on foreground
+    /// with the current (possibly refreshed) session token resumes instant push.
+    /// No-op until the first bootstrap. Best-effort — the 1s poll keeps state
+    /// correct regardless.
+    func rebuildRealtimeChannels() async {
+        guard !patients.isEmpty else { return }   // not bootstrapped / signed out
+        for t in streamTasks { t.cancel() }
+        streamTasks.removeAll()
+        for ch in channels { await ch.unsubscribe() }
+        channels.removeAll()
+        await openRealtimeChannels()
+    }
+
+    /// Start the 1-second camera-state poll — the always-on BACKSTOP to
+    /// Realtime. Realtime pushes instantly when healthy, but its websocket can
+    /// silently die (suspend / network / stale auth → RLS) with no replay, so a
+    /// badge could otherwise sit stale indefinitely. This reconciles every
+    /// patient's cached camera rows to the backend truth each second, so a badge
+    /// can never lag more than ~1s no matter what Realtime does. Idempotent —
+    /// cancels any existing loop and starts a fresh one.
+    func startStatePolling() {
+        statePollTask?.cancel()
+        statePollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)   // 1s
+                guard let self else { break }
+                await self.pollCameraStateOnce()
+            }
+        }
+    }
+
+    func stopStatePolling() {
+        statePollTask?.cancel()
+        statePollTask = nil
+    }
+
+    /// One reconcile pass: fetch each patient's cameras and update ONLY the rows
+    /// that disagree with the backend (per-camera diff → no churn when nothing
+    /// changed, so it won't thrash the Live grid). Mirrors `handleCameraChange`'s
+    /// side effects (reconnect window, ever-online) so polling and Realtime stay
+    /// behaviourally identical. A failed fetch (e.g. a 401 during a token
+    /// refresh, or a transient network blip) is swallowed — the next tick retries.
+    private func pollCameraStateOnce() async {
+        for p in patients {
+            guard let fresh = try? await fetchCameras(forPatient: p.id) else { continue }
+            var arr = camerasByPatient[p.id] ?? []
+            var changed = false
+            let freshIds = Set(fresh.map(\.id))
+            if arr.contains(where: { !freshIds.contains($0.id) }) {
+                arr.removeAll { !freshIds.contains($0.id) }   // deleted server-side
+                changed = true
+            }
+            for f in fresh {
+                if let idx = arr.firstIndex(where: { $0.id == f.id }) {
+                    if arr[idx] != f {
+                        // Another node flipped it back on — open the reconnect
+                        // window, exactly like the Realtime handler.
+                        if arr[idx].desiredState == .disconnected,
+                           f.desiredState == .connected {
+                            reconnectingUntil[f.id] = Date().addingTimeInterval(reconnectWindow)
+                        }
+                        arr[idx] = f
+                        changed = true
+                    }
+                } else {
+                    arr.append(f)
+                    changed = true
+                }
+                if f.online { markEverOnline(f.id) }
+            }
+            if changed {
+                camerasByPatient[p.id] = arr.sorted { $0.displayId < $1.displayId }
+            }
         }
     }
 

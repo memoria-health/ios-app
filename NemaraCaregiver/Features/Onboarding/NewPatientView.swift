@@ -475,21 +475,34 @@ private struct PostCreateEnrollmentFlow: View {
     let patientId: UUID
     let onFinish: () -> Void
     @Environment(AppEnvironment.self) private var env
-    @State private var showEnrollment = false
+
+    private enum Step { case detectors, faceConsent, faceEnrollment }
+    @State private var step: Step = .detectors
 
     var body: some View {
-        if showEnrollment {
-            FaceEnrollmentStepView(patientId: patientId) { onFinish() }
-                .environment(env)
-        } else {
+        switch step {
+        case .detectors:
+            // First: pick the patient's detectors from the library. The
+            // recommended set (the auto-seeded presets for this cohort) is
+            // pre-checked; the caregiver can add or uncheck before continuing.
+            DetectorLibraryView(
+                patientId: patientId,
+                mode: .onboarding,
+                onContinue: { step = .faceConsent },
+            )
+            .environment(env)
+        case .faceConsent:
             FaceDetectionConsentView(
-                onProceed: { showEnrollment = true },
+                onProceed: { step = .faceEnrollment },
                 onMaybeLater: onFinish,
                 onDontAskAgain: {
                     FaceConsentPrefs.setDismissed(patientId)
                     onFinish()
                 }
             )
+        case .faceEnrollment:
+            FaceEnrollmentStepView(patientId: patientId) { onFinish() }
+                .environment(env)
         }
     }
 }
