@@ -5,6 +5,8 @@
 PRODUCT_BUNDLE_IDENTIFIER = co.sunny.nemara.caregiver
 PRODUCT_NAME = Nemara
 
-// Signing — pick a team in Xcode the first time you build.
-// CODE_SIGN_STYLE = Automatic
-// DEVELOPMENT_TEAM =
+// Signing — pinned to the org team "Darda and Cui, Inc" so both
+// founders build/sign without swapping. Per-developer overrides still
+// go in Local.xcconfig (gitignored) if ever needed.
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM = 2RM3SKJN35
