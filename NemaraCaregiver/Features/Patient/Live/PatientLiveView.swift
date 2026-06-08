@@ -22,6 +22,12 @@ struct PatientLiveView: View {
     /// both video display and call-routing target.
     @State private var selectedCameraId: UUID?
 
+    /// TEMPORARY: the two-way "talk" (push-to-talk) feature is hidden for the
+    /// initial App Store release while it's being hardened. Flip to `true` to
+    /// restore the on-tile Call button — no underlying call code was removed,
+    /// it's just not reachable from the UI. (Gates `CallButton` below.)
+    private static let talkEnabled = false
+
     /// Lifecycle state of the call. `.idle` means no call in flight;
     /// `.connecting` covers token-mint + mic-publish + first
     /// `/talk/start`; `.active` is the live state where swipes
@@ -690,7 +696,7 @@ struct PatientLiveView: View {
                 .strokeBorder(NemaraColor.line, lineWidth: 1)
         )
         .overlay(alignment: .bottom) {
-            if isThisCallTarget {
+            if Self.talkEnabled && isThisCallTarget {
                 CallButton(state: callState, onTap: handleCallButtonTap)
                     .offset(y: -10)
             }
