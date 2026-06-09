@@ -9,6 +9,7 @@ struct SignUpView: View {
 
     @State private var name = ""
     @State private var email = ""
+    @State private var phone = ""
     @State private var password = ""
     @State private var agreedToTerms = true
     @State private var errorMessage: String?
@@ -21,9 +22,16 @@ struct SignUpView: View {
             && password.range(of: #"[^A-Za-z0-9]"#, options: .regularExpression) != nil
     }
 
+    /// Phone is required so we can text the caregiver back from support.
+    /// Light validation: at least 10 digits once non-digit chars are stripped.
+    private var phoneValid: Bool {
+        phone.filter(\.isNumber).count >= 10
+    }
+
     private var canSubmit: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && email.contains("@")
+            && phoneValid
             && passwordValid
             && agreedToTerms
             && !env.auth.isAuthenticating
@@ -46,6 +54,8 @@ struct SignUpView: View {
                                 autocapitalization: .words)
                     NemaraField("Email", text: $email, placeholder: "you@home.com",
                                 keyboardType: .emailAddress, autocapitalization: .never)
+                    NemaraField("Phone", text: $phone, placeholder: "(555) 123-4567",
+                                keyboardType: .phonePad)
                     NemaraField("Password", text: $password, placeholder: "8+ chars, mixed case, number, symbol",
                                 isSecure: true)
                     NemaraPasswordChecklist(value: password)
@@ -140,7 +150,7 @@ struct SignUpView: View {
         Task {
             do {
                 errorMessage = nil
-                try await env.auth.signUp(displayName: name, email: email, password: password)
+                try await env.auth.signUp(displayName: name, email: email, password: password, phone: phone)
             } catch let e as APIError {
                 errorMessage = e.errorDescription
             } catch {

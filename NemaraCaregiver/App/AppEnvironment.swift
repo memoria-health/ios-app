@@ -65,13 +65,13 @@ final class AppEnvironment {
 
         // Provisioning + bootstrap pipeline. AppEnvironment owns the
         // composition; auth + api stay decoupled.
-        auth.onAuthenticated = { [weak api] signUpDisplayName in
+        auth.onAuthenticated = { [weak api] signUpDisplayName, signUpPhone in
             guard let api else {
                 throw APIError.other(message: "API client released before bootstrap.")
             }
             let caregiver: Caregiver
             if let dn = signUpDisplayName {
-                caregiver = try await api.provisionMe(displayName: dn)
+                caregiver = try await api.provisionMe(displayName: dn, phone: signUpPhone)
             } else {
                 caregiver = try await api.me()
             }

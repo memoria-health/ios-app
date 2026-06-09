@@ -42,7 +42,9 @@ final class SupabaseAuthService {
     ///   then bootstrap.
     /// Returns the caregiver row, which this service caches as
     /// `currentCaregiver`. Throws if provisioning or fetch fails.
-    var onAuthenticated: ((_ signUpDisplayName: String?) async throws -> Caregiver)?
+    /// `signUpPhone` is non-nil only on the signUp path (provisioned into the
+    /// caregiver row); nil on signIn / restore (the existing row is fetched).
+    var onAuthenticated: ((_ signUpDisplayName: String?, _ signUpPhone: String?) async throws -> Caregiver)?
 
     /// Called when the user signs out. AppEnvironment wires this to
     /// `NemaraAPIClient.teardown()` so cached observable state is
@@ -98,7 +100,7 @@ final class SupabaseAuthService {
 
     // MARK: - Sign up
 
-    func signUp(displayName: String, email: String, password: String) async throws {
+    func signUp(displayName: String, email: String, password: String, phone: String) async throws {
         isAuthenticating = true
         defer { isAuthenticating = false }
 
@@ -108,7 +110,7 @@ final class SupabaseAuthService {
             guard response.session != nil else {
                 throw APIError.other(message: "Check your email to confirm your account.")
             }
-            currentCaregiver = try await onAuthenticated?(displayName)
+            currentCaregiver = try await onAuthenticated?(displayName, phone)
         } catch let apiError as APIError {
             throw apiError
         } catch let authError as AuthError {
@@ -126,7 +128,7 @@ final class SupabaseAuthService {
 
         do {
             _ = try await client.auth.signIn(email: email, password: password)
-            currentCaregiver = try await onAuthenticated?(nil)
+            currentCaregiver = try await onAuthenticated?(nil, nil)
         } catch let apiError as APIError {
             // Backend-side error after Supabase succeeded — surface so
             // the UI can show it. User is signed in server-side.
@@ -191,7 +193,7 @@ final class SupabaseAuthService {
         defer { isAuthenticating = false }
         do {
             _ = try await client.auth.update(user: UserAttributes(password: newPassword))
-            currentCaregiver = try await onAuthenticated?(nil)
+            currentCaregiver = try await onAuthenticated?(nil, nil)
         } catch let apiError as APIError {
             throw apiError
         } catch let authError as AuthError {
@@ -255,7 +257,7 @@ final class SupabaseAuthService {
     func restoreSession() async {
         do {
             _ = try await client.auth.session  // throws if no session
-            currentCaregiver = try await onAuthenticated?(nil)
+            currentCaregiver = try await onAuthenticated?(nil, nil)
         } catch {
             // No session on disk — user is signed out. No-op.
         }
