@@ -89,6 +89,11 @@ struct PatientShell: View {
             .tag(PatientTab.settings)
         }
         .background(NemaraColor.paper)
+        // Perpetual help button — re-applied here because PatientShell is a
+        // fullScreenCover over MainTabView, which hides MainTabView's overlay.
+        // The expanded single-camera live view (its own cover) intentionally
+        // does NOT carry it.
+        .supportButtonOverlay()
         // The single LiveKit teardown point. .onDisappear on the
         // outer TabView fires when the whole patient cover is
         // dismissed, NOT on inner sub-tab switches — so the room

@@ -10,16 +10,11 @@ struct RootView: View {
     var body: some View {
         Group {
             if env.auth.currentCaregiver != nil {
+                // Perpetual "Text us" help button. Applied here AND on
+                // PatientShell, since the patient is a fullScreenCover that
+                // would otherwise hide this presenter-level overlay.
                 MainTabView()
-                    // Perpetual "Text us" help button. A footprint-only overlay
-                    // (NOT a gesture on the TabView, which would swallow tab
-                    // taps). Bottom-trailing, lifted above the tab bar — the
-                    // exact bottom offset may need on-device tuning per device.
-                    .overlay(alignment: .bottomTrailing) {
-                        SupportButton()
-                            .padding(.trailing, 18)
-                            .padding(.bottom, 90)
-                    }
+                    .supportButtonOverlay()
             } else {
                 NavigationStack {
                     WelcomeView()
