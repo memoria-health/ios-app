@@ -49,7 +49,7 @@ struct EditProfileView: View {
                     NemaraField(
                         "PHONE",
                         text: $phone,
-                        placeholder: "Optional",
+                        placeholder: "(555) 123-4567",
                         keyboardType: .phonePad,
                         autocapitalization: .never,
                     )
@@ -118,9 +118,16 @@ struct EditProfileView: View {
 
     private var hasChanges: Bool { nameChanged || emailChanged || phoneChanged }
 
+    /// Phone is required (mirrors signup): at least 10 digits once non-digit
+    /// characters are stripped. The backend normalizes the format to E.164.
+    private var phoneValid: Bool {
+        trimmedPhone.filter(\.isNumber).count >= 10
+    }
+
     private var isValid: Bool {
         guard !trimmedName.isEmpty else { return false }
         guard trimmedEmail.contains("@"), trimmedEmail.contains(".") else { return false }
+        guard phoneValid else { return false }
         return true
     }
 
