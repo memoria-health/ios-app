@@ -63,12 +63,14 @@ targets:
       path: NemaraCaregiver/Resources/Info.plist
       properties:
         CFBundleDisplayName: Memoria
-        # PILOT (TestFlight): keep the marketing version on 0.1.0 (already
-        # beta-approved) so new external builds skip Beta App Review — bump
-        # only the build number (20, 21, …). Switch to a real version (1.1, …)
-        # ONLY for an actual App Store release.
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "20"
+        # TWO RELEASE LANES — same code, different version numbers:
+        #  • App Store releases → a real version (1.1, 1.2, …); each is reviewed.
+        #  • TestFlight pilot   → 0.1.0 (already beta-approved) so external builds
+        #    skip Beta App Review; bump only the build number (20, 21, 22, …).
+        # CURRENTLY set for an APP STORE release (1.1). Flip back to 0.1.0 with
+        # the next build number before archiving pilot builds again.
+        CFBundleShortVersionString: "1.1"
+        CFBundleVersion: "23"
         UILaunchScreen:
           UIColorName: Colors/Paper
         UIApplicationSceneManifest:
