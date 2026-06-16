@@ -32,7 +32,10 @@ struct AddCameraSheet: View {
         var label: String {
             switch self {
             case .phone: "Phone"
-            case .sensor: "Native"
+            // "Native" was dev jargon for the purpose-built hardware. The ™
+            // signals it's our own dedicated device, distinct from the
+            // spare-phone option.
+            case .sensor: "Memoria™ Sensor"
             }
         }
     }
@@ -60,12 +63,16 @@ struct AddCameraSheet: View {
                     PhoneCameraTab(patientId: patientId, onDone: { dismiss() })
                 case .sensor:
                     SensorSetupWizard(patientId: patientId, onFinished: { dismiss() })
+                        .trackScreen("sensor_setup")
                 }
             }
 
             Spacer(minLength: 0)
         }
         .background(NemaraColor.paper)
+        // Welcome-tour host: this sheet renders above the patient shell, so
+        // the generate-code / pairing steps need their own layer here.
+        .tutorialOverlay(.addCameraSheet)
     }
 }
 
@@ -90,6 +97,16 @@ private struct PhoneCameraTab: View {
     @State private var icon: String = "tv"
     @State private var state: TabState = .composing
     @State private var clockTick: Int = 0
+    /// The placeholder camera created by the just-generated pairing code.
+    /// Watched so the sheet can auto-dismiss the moment THIS camera pairs.
+    @State private var generatedCameraId: UUID?
+
+    /// Welcome-tour debounce: true once the room name has sat unchanged
+    /// (and non-empty) for 1s — the "done typing" signal that moves the
+    /// tour's ring onto Generate code. A length threshold rang mid-word
+    /// for longer room names. Tour-only plumbing; no behavior.
+    @State private var roomSettled = false
+    @State private var roomSettleTask: Task<Void, Never>?
 
     enum TabState {
         case composing
@@ -116,16 +133,64 @@ private struct PhoneCameraTab: View {
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             if case .showing = state { clockTick &+= 1 }
         }
+        // Welcome-tour debounce: each keystroke resets the 1s settle timer;
+        // when the room name rests non-empty for a second, the marker below
+        // reports and the tour rings Generate code.
+        .onChange(of: room) { _, newValue in
+            roomSettled = false
+            roomSettleTask?.cancel()
+            guard !newValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            roomSettleTask = Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if !Task.isCancelled { roomSettled = true }
+            }
+        }
+        // Auto-dismiss the moment the wall phone finishes pairing. The
+        // placeholder camera created by our pairing code flips `paired` true
+        // via Supabase Realtime; when it does, close the sheet so the
+        // caregiver doesn't have to tap "Done". Scoped to OUR camera id, so an
+        // unrelated camera's update can never dismiss this sheet.
+        .onChange(of: env.api.camerasByPatient[patientId]) { _, cameras in
+            guard let id = generatedCameraId,
+                  let cam = cameras?.first(where: { $0.id == id }),
+                  cam.paired
+            else { return }
+            onDone()
+        }
     }
 
     private var composeForm: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // "Which one do I pick?" hint. Phone = a spare iPhone running the
+            // Memoria Sensor app; the dedicated-hardware option lives on the
+            // other tab. Plain sibling row (no .tutorialTarget) so the welcome
+            // tour's spotlight — which keys off the Room field / Generate code
+            // frames — is unaffected; the form just sits a row lower.
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "iphone")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(NemaraColor.terra)
+                Text("Use this to pair a spare iPhone that has the Memoria Sensor app installed.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink2)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(NemaraColor.terraSoft)
+            .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.sm, style: .continuous))
+
             NemaraField(
                 "Room",
                 text: $room,
                 placeholder: "e.g. Living room",
                 autocapitalization: .words,
             )
+            // Welcome-tour marker: the field stays spotlit while empty AND
+            // while typing; the 1s settle (roomSettled) hands the ring off
+            // to Generate code. Clearing the text brings it back here.
+            .tutorialTarget(roomSettled ? nil : .roomField)
             IconPicker(selection: $icon)
             NemaraButton(
                 "Generate code",
@@ -136,6 +201,10 @@ private struct PhoneCameraTab: View {
             ) {
                 Task { await generate() }
             }
+            // Welcome-tour marker, reported once the room name has settled
+            // (1s without typing, non-empty — see the debounce above) so the
+            // gray-out never slams in mid-word regardless of name length.
+            .tutorialTarget(roomSettled ? .generateCode : nil)
             .disabled(room.trimmingCharacters(in: .whitespaces).isEmpty)
             .padding(.top, 4)
             Text("Open the MemoriaSensor app on your wall phone and enter the code that appears.")
@@ -161,6 +230,10 @@ private struct PhoneCameraTab: View {
             NemaraButton("Done", variant: .secondary, size: .lg, block: true) {
                 onDone()
             }
+            // Welcome-tour marker: when the tour moves on while this code
+            // sheet is still up ("I'll pair this later"), it spotlights
+            // Done to walk the user out of the sheet. Frame only.
+            .tutorialTarget(.sheetDone)
             .padding(.top, 8)
         }
         .padding(.vertical, 16)
@@ -200,6 +273,10 @@ private struct PhoneCameraTab: View {
             let response = try await env.api.createPairingCode(
                 forPatient: patientId, room: trimmed, iconName: icon,
             )
+            generatedCameraId = response.cameraId
+            // Welcome-tour: let the tour's keypad illustration show this
+            // real code. Fire-and-forget annotation; no behavior.
+            TutorialManager.shared.notePairingCode(response.pairingCode)
             state = .showing(code: response.pairingCode, expiresAt: response.expiresAt)
         } catch {
             state = .error(errorMessage(error))

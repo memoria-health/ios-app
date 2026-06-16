@@ -16,8 +16,14 @@ struct NewPatientView: View {
     @State private var dobMonth = 1
     @State private var dobDay = 1
     @State private var dobYear = Calendar.current.component(.year, from: Date()) - 70
-    @State private var gender = "Female"
-    @State private var relation: Patient.Relation = .parent
+    // Empty = not yet chosen. Deliberately NO default: the patient's
+    // gender must be an explicit choice (a "Female" default meant one DOB
+    // tap "completed" the form), and the welcome tour's Add-patient ring
+    // waits for it via canSubmit.
+    @State private var gender = ""
+    // nil = not selected. Relationship is optional in the UI; the backend
+    // column is NOT NULL, so an unselected relationship submits as .other.
+    @State private var relation: Patient.Relation? = nil
 
     // Photo is picked here but uploaded only AFTER createPatient
     // returns the new patient_id — the upload endpoint is keyed by
@@ -40,6 +46,7 @@ struct NewPatientView: View {
     private var canSubmit: Bool {
         !fullName.trimmingCharacters(in: .whitespaces).isEmpty
             && dateOfBirth != nil
+            && !gender.isEmpty
     }
 
     var body: some View {
@@ -51,6 +58,10 @@ struct NewPatientView: View {
                         intro
                         NemaraField("Name", text: $fullName, placeholder: "Margaret O'Brien",
                                     autocapitalization: .words)
+                            // Welcome-tour marker: reported while empty, so
+                            // the tour's first red box lands here; clears the
+                            // moment typing starts (the ring then walks on).
+                            .tutorialTarget(fullName.trimmingCharacters(in: .whitespaces).isEmpty ? .nameField : nil)
                         dateOfBirthAndGender
                         relationshipPicker
                         photoRow
@@ -74,9 +85,15 @@ struct NewPatientView: View {
                         dismiss()
                     }
                     .environment(env)
+                    // Welcome-tour host: this cover renders above the form
+                    // sheet, so the enrollment guidance needs its own layer.
+                    .tutorialOverlay(.enrollment)
                 }
             }
             .sheet(isPresented: $showDOBSheet) { dobSheet }
+            // Welcome-tour host: sheets render above their presenter, so the
+            // tour's form-step card needs its own layer here. Footprint-only.
+            .tutorialOverlay(.newPatientForm)
         }
     }
 
@@ -164,9 +181,9 @@ struct NewPatientView: View {
                     }
                 } label: {
                     HStack {
-                        Text(gender)
+                        Text(gender.isEmpty ? "Select" : gender)
                             .font(NemaraFont.bodyLarge)
-                            .foregroundStyle(NemaraColor.ink)
+                            .foregroundStyle(gender.isEmpty ? NemaraColor.ink3 : NemaraColor.ink)
                         Spacer()
                         Image(systemName: "chevron.down")
                             .font(.system(size: 12, weight: .semibold))
@@ -188,7 +205,7 @@ struct NewPatientView: View {
 
     private var relationshipPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            NemaraEyebrow("YOUR RELATIONSHIP")
+            NemaraEyebrow("YOUR RELATIONSHIP (OPTIONAL)")
             FlexibleGrid(spacing: 6) {
                 ForEach(Patient.Relation.allCases, id: \.self) { rel in
                     let on = rel == relation
@@ -283,6 +300,10 @@ struct NewPatientView: View {
                 )
                 .disabled(!canSubmit || isSubmitting)
                 .opacity((canSubmit && !isSubmitting) ? 1 : 0.5)
+                // Welcome-tour marker, reported ONLY while the button is
+                // enabled — the frame appearing is the tour's "form is
+                // complete" signal (it then pulses a ring here). No behavior.
+                .tutorialTarget((canSubmit && !isSubmitting) ? .submitPatient : nil)
             }
         }
         .padding(.horizontal, 14)
@@ -301,7 +322,7 @@ struct NewPatientView: View {
         let body = CreatePatientRequest(
             fullName: name,
             preferredName: String(name.prefix(80)),
-            relation: relation,
+            relation: relation ?? .other,
             dateOfBirth: dateOfBirth,
             gender: gender.isEmpty ? nil : gender,
             homeAddress: nil,
@@ -538,6 +559,9 @@ private struct FaceDetectionConsentView: View {
             Spacer()
             VStack(spacing: 10) {
                 NemaraButton("Proceed", variant: .primary, block: true, action: onProceed)
+                    // Welcome-tour marker: rings the primary option without
+                    // blocking — the user freely picks any of the three.
+                    .tutorialTarget(.faceProceed)
                 NemaraButton("Maybe later", variant: .secondary, block: true, action: onMaybeLater)
                 NemaraButton("Don't ask me again", variant: .ghost, block: true, action: onDontAskAgain)
             }

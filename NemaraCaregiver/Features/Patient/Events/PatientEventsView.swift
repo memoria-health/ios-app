@@ -73,6 +73,7 @@ struct PatientEventsView: View {
                     patientId: patientId,
                     onReviewSubmitted: { openedEvent = nil },
                 )
+                .trackScreen("event_detail")
             }
         }
         // Reliability net for the Events feed. Realtime is the instant

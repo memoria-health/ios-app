@@ -25,6 +25,12 @@ struct RosterView: View {
                                             .foregroundStyle(NemaraColor.ink)
                                     }
                                     .buttonStyle(.plain)
+                                    // Welcome-tour anchor for replays: with
+                                    // patients present the empty-state button
+                                    // doesn't exist, so "add a patient" points
+                                    // here instead. (Only one of the two is
+                                    // ever on screen.)
+                                    .tutorialTarget(.addPatient)
                                     Button { showingEditProfile = true } label: {
                                         NemaraAvatar(letter: firstName, size: 28)
                                     }
@@ -39,6 +45,9 @@ struct RosterView: View {
                                     PatientRow(patient: p)
                                 }
                                 .buttonStyle(.plain)
+                                // Welcome-tour spotlight marker — first
+                                // row only; reports a frame, no behavior.
+                                .tutorialTarget(p.id == env.api.patients.first?.id ? .patientCard : nil)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -63,10 +72,12 @@ struct RosterView: View {
         }
         .sheet(isPresented: $showingNewPatient) {
             NewPatientView()
+                .trackScreen("new_patient")
         }
         .sheet(isPresented: $showingEditProfile) {
             EditProfileView()
                 .environment(env)
+                .trackScreen("edit_profile")
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)

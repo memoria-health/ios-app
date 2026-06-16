@@ -109,6 +109,7 @@ struct SignUpView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .trackScreen("auth.signup")
     }
 
     // MARK: - subviews

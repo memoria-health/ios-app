@@ -54,10 +54,12 @@ struct PatientDetectorsView: View {
         .background(NemaraColor.paper)
         .sheet(isPresented: $showingAddDetector) {
             AddDetectorView(patientId: patientId)
+                .trackScreen("add_detector")
         }
         .sheet(isPresented: $showingLibrary) {
             DetectorLibraryView(patientId: patientId, mode: .add)
                 .environment(env)
+                .trackScreen("detector_library")
         }
     }
 
@@ -94,6 +96,9 @@ struct PatientDetectorsView: View {
                             detector: detectors[i],
                             isLast: i == detectors.count - 1,
                         )
+                        // Welcome-tour marker: the tour's "this is a
+                        // detector" pause rings the first row. Frame only.
+                        .tutorialTarget(i == 0 ? .firstDetector : nil)
                     }
                 }
             }

@@ -19,6 +19,11 @@ struct NemaraButton: View {
     let block: Bool
     let systemImage: String?
     let action: () -> Void
+    /// Optional stable analytics id for this button. When set, taps log under
+    /// this label (e.g. "live.talk_start") instead of the visible title — so
+    /// analytics survive copy/localization changes and disambiguate buttons
+    /// that share a title. Falls back to `title` when nil.
+    let track: String?
 
     init(
         _ title: String,
@@ -26,6 +31,7 @@ struct NemaraButton: View {
         size: Size = .md,
         block: Bool = false,
         systemImage: String? = nil,
+        track: String? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -33,11 +39,19 @@ struct NemaraButton: View {
         self.size = size
         self.block = block
         self.systemImage = systemImage
+        self.track = track
         self.action = action
     }
 
     var body: some View {
-        Button(action: action) {
+        // Log the tap, then run the original action UNCHANGED. logButton is a
+        // synchronous, non-throwing buffer append — it cannot alter or delay
+        // `action`. This is the single instrumentation point covering every
+        // NemaraButton in the app.
+        Button(action: {
+            Analytics.shared.logButton(track ?? title)
+            action()
+        }) {
             HStack(spacing: 8) {
                 if let systemImage {
                     Image(systemName: systemImage)

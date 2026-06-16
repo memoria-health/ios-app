@@ -34,6 +34,8 @@ struct PatientCamerasView: View {
                 ) {
                     showingAddCamera = true
                 }
+                // Welcome-tour spotlight anchor — frame only, no behavior.
+                .tutorialTarget(.addSensor)
                 .padding(.horizontal, 16)
                 // Clear the floating tab bar so the last row isn't
                 // hidden behind it.
@@ -45,6 +47,7 @@ struct PatientCamerasView: View {
         .sheet(isPresented: $showingAddCamera) {
             AddCameraSheet(patientId: patientId)
                 .presentationDetents([.large])
+                .trackScreen("add_camera")
         }
     }
 
@@ -86,6 +89,7 @@ struct PatientCamerasView: View {
         }
         .navigationDestination(for: UUID.self) { cameraId in
             CameraDetailView(cameraId: cameraId, patientId: patientId)
+                .trackScreen("camera_detail")
         }
     }
 

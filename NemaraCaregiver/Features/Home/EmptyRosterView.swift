@@ -36,6 +36,9 @@ struct EmptyRosterView: View {
                     NemaraButton("Add a patient", variant: .primary, size: .lg, systemImage: "plus") {
                         showingNewPatient = true
                     }
+                    // Welcome-tour spotlight anchor — publishes this button's
+                    // frame; no behavior.
+                    .tutorialTarget(.addPatient)
                     .padding(.top, 4)
                 }
                 .padding(.vertical, 20)

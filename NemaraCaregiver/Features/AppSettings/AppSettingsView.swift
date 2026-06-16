@@ -47,17 +47,21 @@ struct AppSettingsView: View {
         .sheet(isPresented: $showingEditProfile) {
             EditProfileView()
                 .environment(env)
+                .trackScreen("edit_profile")
         }
         .sheet(isPresented: $showingContactSupport) {
             SupportContactView()
                 .environment(env)
+                .trackScreen("support_contact")
         }
         .sheet(isPresented: $showingPrivacy) {
             PrivacyPolicyView()
+                .trackScreen("privacy_policy")
         }
         .sheet(isPresented: $showingNewPatient) {
             NewPatientView()
                 .environment(env)
+                .trackScreen("new_patient")
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
@@ -159,6 +163,11 @@ struct AppSettingsView: View {
                 NemaraColor.line.frame(height: 1)
                 Button { showingContactSupport = true } label: {
                     rowChevron(icon: "envelope.fill", title: "Contact support")
+                }
+                .buttonStyle(.plain)
+                NemaraColor.line.frame(height: 1)
+                Button { TutorialManager.shared.replay() } label: {
+                    rowChevron(icon: "sparkles", title: "Replay the welcome tour")
                 }
                 .buttonStyle(.plain)
                 NemaraColor.line.frame(height: 1)

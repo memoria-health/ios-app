@@ -1073,6 +1073,10 @@ struct PatientLiveView: View {
             if showReconnect { reconnectAll() }
             else { disconnectAll() }
         }
+        // Welcome-tour marker, reported only in the "Reconnect" state: the
+        // tour's Live step rings this first when nothing is streaming, and
+        // moves on to the live-view explanation once video comes up.
+        .tutorialTarget(showReconnect ? .reconnectAll : nil)
         .disabled(isTogglingMonitoring)
         .opacity(isTogglingMonitoring ? 0.6 : 1)
     }

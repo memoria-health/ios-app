@@ -41,6 +41,16 @@ final class AppEnvironment {
         let liveKit = LiveKitClient()
         let env = AppEnvironment(auth: auth, api: api, liveKit: liveKit)
 
+        // Wire UI-interaction analytics: shares the authed Supabase client
+        // (so inserts carry the user JWT and RLS attributes them correctly)
+        // and reads the current caregiver id to stamp each event. Logging
+        // itself is a synchronous, fire-and-forget side effect that touches
+        // no app logic — see Analytics.swift.
+        Analytics.shared.configure(
+            client: auth.client,
+            caregiverIDProvider: { [weak auth] in auth?.currentCaregiver?.id },
+        )
+
         // iOS analog of the backend's REST-poll reconciler. When
         // Supabase Realtime delivers a `cameras` row that's meant to be
         // live (desired_state==connected, or worker-confirmed
@@ -72,6 +82,9 @@ final class AppEnvironment {
             let caregiver: Caregiver
             if let dn = signUpDisplayName {
                 caregiver = try await api.provisionMe(displayName: dn, phone: signUpPhone)
+                // Brand-new account → the welcome tour auto-starts once the
+                // signed-in UI mounts. Sign-in / restore never set this.
+                TutorialFlags.markNewAccount()
             } else {
                 caregiver = try await api.me()
             }

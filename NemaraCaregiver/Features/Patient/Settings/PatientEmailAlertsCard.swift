@@ -79,7 +79,7 @@ struct PatientEmailAlertsCard: View {
             NemaraToggle(isOn: Binding(
                 get: { enabled },
                 set: { newValue in Task { await toggle(to: newValue) } }
-            ))
+            ), track: "email_alerts.toggle")
             .disabled(busy)
         }
     }

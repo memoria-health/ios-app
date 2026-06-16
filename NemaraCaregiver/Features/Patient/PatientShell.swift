@@ -30,7 +30,7 @@ struct PatientShell: View {
         TabView(selection: $tab) {
             NavigationStack {
                 patientTab {
-                    PatientLiveView(patientId: patientId)
+                    PatientLiveView(patientId: patientId).trackScreen("patient.live")
                 } header: {
                     if let patient {
                         PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
@@ -42,7 +42,7 @@ struct PatientShell: View {
 
             NavigationStack {
                 patientTab {
-                    PatientEventsView(patientId: patientId)
+                    PatientEventsView(patientId: patientId).trackScreen("patient.events")
                 } header: {
                     if let patient {
                         PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
@@ -54,7 +54,7 @@ struct PatientShell: View {
 
             NavigationStack {
                 patientTab {
-                    PatientCamerasView(patientId: patientId)
+                    PatientCamerasView(patientId: patientId).trackScreen("patient.sensors")
                 } header: {
                     if let patient {
                         PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
@@ -66,7 +66,7 @@ struct PatientShell: View {
 
             NavigationStack {
                 patientTab {
-                    PatientDetectorsView(patientId: patientId)
+                    PatientDetectorsView(patientId: patientId).trackScreen("patient.detectors")
                 } header: {
                     if let patient {
                         PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
@@ -78,7 +78,7 @@ struct PatientShell: View {
 
             NavigationStack {
                 patientTab {
-                    PatientSettingsView(patientId: patientId)
+                    PatientSettingsView(patientId: patientId).trackScreen("patient.settings")
                 } header: {
                     if let patient {
                         PHeader(patient: patient, showsIdentity: false, onFeedback: { showFeedback = true }) { dismiss() }
@@ -94,6 +94,14 @@ struct PatientShell: View {
         // The expanded single-camera live view (its own cover) intentionally
         // does NOT carry it.
         .supportButtonOverlay()
+        // Welcome-tour host must survive into the patient cover (which
+        // hides RootView's overlay) — same reasoning as the support button.
+        .tutorialOverlay(.patientShell)
+        // Pure notification — lets the tour auto-advance when the user taps
+        // the tab it's pointing at. No behavior change.
+        .onChange(of: tab) { _, t in
+            TutorialManager.shared.patientTabChanged(String(describing: t))
+        }
         // The single LiveKit teardown point. .onDisappear on the
         // outer TabView fires when the whole patient cover is
         // dismissed, NOT on inner sub-tab switches — so the room
@@ -108,7 +116,7 @@ struct PatientShell: View {
         // pill. NavigationStack gives it the title bar + its own back chevron
         // (which dismisses the sheet).
         .sheet(isPresented: $showFeedback) {
-            NavigationStack { FeedbackView() }
+            NavigationStack { FeedbackView().trackScreen("feedback") }
                 .environment(env)
         }
         // APNs deep link: when the router targets THIS patient with an

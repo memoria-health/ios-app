@@ -68,6 +68,7 @@ struct LoginView: View {
                     Spacer()
                     NavigationLink {
                         ForgotPasswordView()
+                            .trackScreen("forgot_password")
                     } label: {
                         Text("Forgot password?")
                             .font(NemaraFont.bodySmall.weight(.semibold))
@@ -122,6 +123,7 @@ struct LoginView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .trackScreen("auth.login")
     }
 
     private func submit() {

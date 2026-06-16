@@ -15,6 +15,10 @@ struct RootView: View {
                 // would otherwise hide this presenter-level overlay.
                 MainTabView()
                     .supportButtonOverlay()
+                    // Welcome-tour spotlight overlay. Additive footprint-only
+                    // host (same pattern as the support button); renders
+                    // nothing unless the tour is active.
+                    .tutorialOverlay(.root)
             } else {
                 NavigationStack {
                     WelcomeView()

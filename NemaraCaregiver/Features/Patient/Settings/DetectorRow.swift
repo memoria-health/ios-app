@@ -13,6 +13,7 @@ struct DetectorRow: View {
 
     @State private var confirmingDelete = false
     @State private var deleting = false
+    @State private var showSensitivityInfo = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,7 +61,7 @@ struct DetectorRow: View {
                             )
                         }
                     }
-                ))
+                ), track: "detector.toggle")
                 Menu {
                     Button(role: .destructive) {
                         confirmingDelete = true
@@ -129,6 +130,14 @@ struct DetectorRow: View {
                     .font(NemaraFont.mono(size: 10, weight: .semibold))
                     .tracking(0.3)
                     .foregroundStyle(NemaraColor.ink3)
+                Button { showSensitivityInfo = true } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(NemaraColor.ink3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("What does sensitivity mean?")
                 Spacer()
                 Text(sensitivityHint)
                     .font(NemaraFont.caption)
@@ -164,6 +173,10 @@ struct DetectorRow: View {
             .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
         }
         .padding(.leading, 44)
+        .sheet(isPresented: $showSensitivityInfo) {
+            SensitivityInfoSheet()
+                .presentationDetents([.medium])
+        }
     }
 
     private var tunableLevels: [Detector.Sensitivity] {
@@ -176,6 +189,72 @@ struct DetectorRow: View {
         case .standard: "Recommended baseline"
         case .high:     "More alerts"
         case .off:      "Detector off"
+        }
+    }
+}
+
+/// Explains what Low / Standard / High sensitivity actually do — the
+/// confidence-vs-noise trade-off — so caregivers can tune intentionally.
+private struct SensitivityInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Sensitivity")
+                        .font(NemaraFont.title2)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text("How sure Memoria needs to be before it alerts you. Higher catches more, but with more false alarms.")
+                        .font(NemaraFont.bodySmall)
+                        .foregroundStyle(NemaraColor.ink2)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                level("Low", "Fewer alerts", "Only fires on the clearest, most obvious signals. Best when you want to avoid false alarms and only hear about the strongest events — at the cost of missing subtler ones.")
+                level("Standard", "Recommended", "A balanced baseline that works well for most rooms and detectors. Start here.")
+                level("High", "More alerts", "Fires on weaker or more ambiguous signals, so it catches subtle events others miss — but expect more false alarms to review.")
+
+                Text("You can change this anytime per detector; it only affects this sensor.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .padding(.top, 2)
+            }
+            .padding(20)
+        }
+        .background(NemaraColor.paper)
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+        }
+    }
+
+    private func level(_ name: String, _ tag: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(name)
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.ink)
+                Text(tag.uppercased())
+                    .font(NemaraFont.mono(size: 9, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(NemaraColor.terra)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(NemaraColor.terraSoft)
+                    .clipShape(Capsule(style: .continuous))
+            }
+            Text(body)
+                .font(NemaraFont.bodySmall)
+                .foregroundStyle(NemaraColor.ink2)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

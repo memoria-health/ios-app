@@ -19,10 +19,10 @@ struct MainTabView: View {
             // dismissKeyboardOnTap goes on each tab's CONTENT, never on the
             // TabView — attaching a tap gesture to a TabView swallows its
             // tab-bar taps on iOS 17/18 (you get stuck on the initial tab).
-            NavigationStack { RosterView().dismissKeyboardOnTap() }
+            NavigationStack { RosterView().dismissKeyboardOnTap().trackScreen("home") }
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(AppTab.home)
-            NavigationStack { AppSettingsView().dismissKeyboardOnTap() }
+            NavigationStack { AppSettingsView().dismissKeyboardOnTap().trackScreen("settings") }
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(AppTab.settings)
         }
@@ -42,6 +42,13 @@ struct MainTabView: View {
         // sign-in-after-cold-tap. Idempotent — a stale appear finds an empty
         // buffer and no-ops.
         .onAppear { env.deepLink.drainPendingTap() }
+        // Welcome tour transport: when the tour (re)starts at its welcome
+        // step — e.g. "Replay the welcome tour" tapped on the Settings tab —
+        // steer to Home, where the tour's first spotlight lives. Additive;
+        // never fires outside that one transition.
+        .onChange(of: TutorialManager.shared.step) { _, step in
+            if step == .welcome { selection = .home }
+        }
     }
 }
 

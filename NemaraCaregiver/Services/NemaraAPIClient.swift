@@ -299,6 +299,7 @@ final class NemaraAPIClient {
         whatsWorking: String?,
         whatsFrustrating: String?,
         category: String?,
+        attachments: [String]? = nil,
     ) async throws -> FeedbackResponse {
         try await sendJSON(
             method: "POST", path: "/v1/feedback",
@@ -307,6 +308,7 @@ final class NemaraAPIClient {
                 whatsWorking: whatsWorking,
                 whatsFrustrating: whatsFrustrating,
                 category: category,
+                attachments: attachments,
             ),
         )
     }

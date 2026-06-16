@@ -54,6 +54,7 @@ struct WelcomeView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .trackScreen("auth.welcome")
     }
 }
 

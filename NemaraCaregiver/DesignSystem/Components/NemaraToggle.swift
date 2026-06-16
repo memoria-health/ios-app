@@ -5,9 +5,16 @@ import SwiftUI
 /// green. Pure presentation — wire a binding through `isOn`.
 struct NemaraToggle: View {
     @Binding var isOn: Bool
+    /// Optional stable analytics id (e.g. "settings.email_alerts"). Toggles
+    /// have no visible title, so set this where the flip is worth tracking;
+    /// defaults to a generic "toggle" label otherwise.
+    var track: String? = nil
 
     var body: some View {
         Button {
+            // Log the new value, then flip UNCHANGED. logToggle is a
+            // synchronous, non-throwing buffer append.
+            Analytics.shared.logToggle(track ?? "toggle", isOn: !isOn)
             withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
                 isOn.toggle()
             }

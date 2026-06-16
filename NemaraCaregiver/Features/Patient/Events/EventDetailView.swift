@@ -225,6 +225,7 @@ struct EventDetailView: View {
                     patientId: patientId,
                     onSubmitted: onReviewSubmitted,
                 )
+                .trackScreen("event_review")
             } label: {
                 Text("Review this event →")
                     .font(NemaraFont.sans(size: 16, weight: .semibold))

@@ -48,6 +48,11 @@ struct NemaraCaregiverApp: App {
             Task { @MainActor in deepLink?.drainPendingTap() }
         }
 
+        // App-start analytics. AppEnvironment.live() (above) has already
+        // configured Analytics, so this lands in the buffer immediately. A
+        // synchronous, non-throwing append — no effect on launch behavior.
+        Analytics.shared.logLifecycle("app_launch")
+
         #if DEBUG
         NemaraFont.logRegisteredFonts()
         #endif
@@ -79,12 +84,17 @@ struct NemaraCaregiverApp: App {
                     // All three no-op before the first bootstrap / when signed out.
                     switch newPhase {
                     case .active:
+                        Analytics.shared.logLifecycle("app_foreground")
                         Task {
                             await environment.api.resync()
                             await environment.api.rebuildRealtimeChannels()
                             environment.api.startStatePolling()
                         }
                     case .background:
+                        Analytics.shared.logLifecycle("app_background")
+                        // Snapshot to disk + best-effort flush while we still
+                        // have a moment before suspension. Fire-and-forget.
+                        Analytics.shared.persistAndFlush()
                         environment.api.stopStatePolling()
                     default:
                         break
@@ -102,6 +112,7 @@ struct NemaraCaregiverApp: App {
                     if let code = pendingResetCode {
                         ResetPasswordView(code: code)
                             .environment(environment)
+                            .trackScreen("reset_password")
                     }
                 }
         }

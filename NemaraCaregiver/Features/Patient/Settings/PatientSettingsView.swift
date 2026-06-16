@@ -84,6 +84,7 @@ struct PatientSettingsView: View {
         }
         .navigationDestination(isPresented: $showingFeedback) {
             FeedbackView()
+                .trackScreen("feedback")
         }
         .fullScreenCover(isPresented: $showingReEnrollment) {
             FaceEnrollmentStepView(patientId: patientId) {
@@ -91,6 +92,7 @@ struct PatientSettingsView: View {
                 Task { await loadEnrollmentSummary() }
             }
             .environment(env)
+            .trackScreen("face_enrollment")
         }
         .task { await loadEnrollmentSummary() }
     }

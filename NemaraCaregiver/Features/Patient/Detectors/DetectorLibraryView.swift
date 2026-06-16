@@ -264,6 +264,9 @@ struct DetectorLibraryView: View {
             }
             .disabled(isSubmitting || footerDisabled)
             .opacity((isSubmitting || footerDisabled) ? 0.5 : 1)
+            // Welcome-tour marker (onboarding flow only): rings Continue
+            // while leaving the detector toggles free. Frame only.
+            .tutorialTarget(mode == .onboarding && !isSubmitting ? .enrollContinue : nil)
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)

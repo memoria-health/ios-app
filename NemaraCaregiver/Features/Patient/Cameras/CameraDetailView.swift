@@ -118,6 +118,7 @@ struct CameraDetailView: View {
                     room: cam.room,
                 )
                 .presentationDetents([.medium, .large])
+                .trackScreen("pairing_code")
             }
         }
     }
