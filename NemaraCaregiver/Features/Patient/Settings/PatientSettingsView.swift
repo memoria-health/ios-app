@@ -49,7 +49,6 @@ struct PatientSettingsView: View {
                 profileCard
                 identityCard
                 PatientEmailAlertsCard(patientId: patientId)
-                testAlertsCard
                 feedbackEntry
 
                 NemaraButton(
@@ -338,63 +337,6 @@ struct PatientSettingsView: View {
     // PatientCamerasView — so each gets the full screen and a
     // navigation stack of its own. See PatientShell.swift for tab
     // routing.
-
-    /// One-time "does this actually work?" check for families during setup.
-    /// Purely instructional — the verification itself is a hidden, fire-once
-    /// detector on the backend (seeded per patient, assigned to every camera).
-    /// When someone holds three fingers up to any camera, that detector fires a
-    /// single "Memoria Test Alert successful" event (push + email + feed),
-    /// proving the whole alert path end-to-end, then disables itself so it can
-    /// never fire again on any camera.
-    private var testAlertsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NemaraEyebrow("VERIFY ALERTS")
-                .padding(.horizontal, 16)
-            NemaraCard(padding: 14) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(NemaraColor.terraSoft)
-                            Image(systemName: "hand.raised.fingers.spread")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(NemaraColor.terra)
-                        }
-                        .frame(width: 32, height: 32)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Test your alerts")
-                                .font(NemaraFont.bodySmallStrong)
-                                .foregroundStyle(NemaraColor.ink)
-                            Text("A one-time check that everything's working")
-                                .font(NemaraFont.caption)
-                                .foregroundStyle(NemaraColor.ink3)
-                        }
-                        Spacer()
-                    }
-                    Text("Hold up three fingers — a \u{201C}3\u{201D} — in front of any camera. When Memoria sees it, you'll get a test alert confirming detection, notifications, and email all work. This runs only once.")
-                        .font(NemaraFont.bodySmall)
-                        .foregroundStyle(NemaraColor.ink2)
-                        .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(NemaraColor.ink3)
-                        Text("If Face ID is set up, the enrolled person should be the one to hold up the three fingers.")
-                            .font(NemaraFont.caption)
-                            .foregroundStyle(NemaraColor.ink3)
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(NemaraColor.paperDim)
-                    .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.sm, style: .continuous))
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-    }
 
     private var feedbackEntry: some View {
         VStack(alignment: .leading, spacing: 8) {
