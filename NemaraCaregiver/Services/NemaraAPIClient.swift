@@ -335,6 +335,16 @@ final class NemaraAPIClient {
         )
     }
 
+    /// De-register an APNs token for the caller (sign-out). Scoped
+    /// server-side to the caller's own rows, so a token that has already
+    /// moved to another account on the same device is left alone.
+    /// Best-effort: the caller (sign-out flow) ignores failures.
+    func deleteDeviceToken(_ apnsToken: String) async throws {
+        try await sendNoBodyVoid(
+            method: "DELETE", path: "/v1/me/devices/\(apnsToken)",
+        )
+    }
+
     // MARK: - Patients (GET/POST/GET/PATCH/DELETE /v1/patients...)
 
     func loadPatients() async throws {
@@ -653,6 +663,20 @@ final class NemaraAPIClient {
                 camerasByPatient[pid]?.remove(at: idx)
                 break
             }
+        }
+    }
+
+    /// Soft-unpair a camera: clears its pairing server-side so it returns
+    /// to the UNPAIRED state (`paired == false`) WITHOUT deleting the row —
+    /// the room, detectors, and history are kept, and the camera becomes
+    /// re-pairable via "Show pairing code". Distinct from `deleteCamera`.
+    /// Reloads the owning patient's cameras so `paired` flips immediately
+    /// (the realtime UPDATE also propagates it).
+    func unpairCamera(_ id: UUID) async throws {
+        try await sendNoBodyVoid(method: "POST", path: "/v1/cameras/\(id.uuidString.lowercased())/unpair")
+        for (pid, cams) in camerasByPatient where cams.contains(where: { $0.id == id }) {
+            try? await loadCameras(forPatient: pid)
+            break
         }
     }
 

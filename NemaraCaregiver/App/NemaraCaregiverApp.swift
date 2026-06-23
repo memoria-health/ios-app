@@ -73,6 +73,18 @@ struct NemaraCaregiverApp: App {
                 .task {
                     await Self.requestPushAuthorization()
                 }
+                // Re-bind the APNs token to the caregiver who just signed in.
+                // The device token is per-device (globally unique) and the
+                // backend reassigns it to the current caller — but the token
+                // is only registered when iOS first delivers it (launch), so
+                // without this, signing into a different account on the same
+                // device would leave the token under the previous account and
+                // the new one would get no pushes. Re-registering here moves
+                // it. Fires on every sign-in / account switch (nil → id).
+                .onChange(of: environment.auth.currentCaregiver?.id) { _, newID in
+                    guard newID != nil else { return }
+                    Task { await Self.requestPushAuthorization() }
+                }
                 .onChange(of: scenePhase) { _, newPhase in
                     // The Supabase socket is severed while suspended and Realtime
                     // has no replay, so on foreground we: (1) refetch everything

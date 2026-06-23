@@ -46,6 +46,12 @@ final class SupabaseAuthService {
     /// caregiver row); nil on signIn / restore (the existing row is fetched).
     var onAuthenticated: ((_ signUpDisplayName: String?, _ signUpPhone: String?) async throws -> Caregiver)?
 
+    /// Called at the START of sign-out, while the Supabase session is
+    /// still valid (so authed calls still work). AppEnvironment wires
+    /// this to de-register this device's APNs token, so a signed-out
+    /// caregiver stops receiving pushes on a device they've left.
+    var onWillSignOut: (() async -> Void)?
+
     /// Called when the user signs out. AppEnvironment wires this to
     /// `NemaraAPIClient.teardown()` so cached observable state is
     /// cleared and any open Realtime channels close.
@@ -225,6 +231,9 @@ final class SupabaseAuthService {
     // MARK: - Sign out
 
     func signOut() async {
+        // De-register the device token FIRST, while the session is still
+        // valid (the authed DELETE needs a live token). Best-effort.
+        await onWillSignOut?()
         try? await client.auth.signOut()
         currentCaregiver = nil
         await onSignedOut?()
