@@ -22,6 +22,7 @@ struct DataCollectionCard: View {
         env.api.patients.first(where: { $0.id == patientId })
     }
     private var enabled: Bool { patient?.dataCollectionEnabled ?? false }
+    private var name: String { patient?.preferredName ?? "this patient" }
 
     var body: some View {
         NemaraCard(padding: 14) {
@@ -55,8 +56,8 @@ struct DataCollectionCard: View {
                     .font(NemaraFont.bodySemibold)
                     .foregroundStyle(NemaraColor.ink)
                 Text(enabled
-                     ? "Short clips are securely stored — only when someone is present — to improve our AI."
-                     : "Help improve Memoria's AI by securely sharing short clips, captured only when someone is present.")
+                     ? "Memoria is securely storing video and audio clips of \(name) to help improve our understanding of elderly health and disease."
+                     : "Memoria will securely store video and audio clips of \(name) to help improve our understanding of elderly health and disease.")
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
                     .lineSpacing(2)
