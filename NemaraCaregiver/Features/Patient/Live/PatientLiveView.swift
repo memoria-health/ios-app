@@ -22,11 +22,13 @@ struct PatientLiveView: View {
     /// both video display and call-routing target.
     @State private var selectedCameraId: UUID?
 
-    /// TEMPORARY: the two-way "talk" (push-to-talk) feature is hidden for the
-    /// initial App Store release while it's being hardened. Flip to `true` to
-    /// restore the on-tile Call button — no underlying call code was removed,
-    /// it's just not reachable from the UI. (Gates `CallButton` below.)
-    private static let talkEnabled = false
+    /// Master switch for the two-way "talk" (push-to-talk) feature. Kept as a
+    /// kill-switch after the Phase-3 hardening — speakerphone audio routing
+    /// (force `.speaker` on mic publish) + removal of the per-call room
+    /// reconnect (we now hold broadcaster grants for the whole session and just
+    /// toggle the mic). Set to `false` to hide the on-tile Call button without
+    /// removing any call code. (Gates `CallButton` below.)
+    private static let talkEnabled = true
 
     /// Lifecycle state of the call. `.idle` means no call in flight;
     /// `.connecting` covers token-mint + mic-publish + first
@@ -175,6 +177,21 @@ struct PatientLiveView: View {
             guard callState == .active, let newValue else { return }
             Task { await transferCall(to: newValue) }
         }
+        .onChange(of: onlineCameras.map(\.id)) { _, ids in
+            // Make the Call (dial-in) button appear the instant a sensor goes
+            // live. When the FIRST camera comes online while we're already
+            // sitting on the Live tab, `bootstrap` had already run against an
+            // empty roster (→ selectedCameraId == nil) and nothing re-resolves
+            // it: SwiftUI's paged TabView won't write back a selection on its
+            // own. With no selection, no tile is the call target
+            // (`isThisCallTarget`), so the button stayed hidden until you tabbed
+            // away and back (which re-ran bootstrap → resolveSelectedCamera).
+            // Resolve here the moment the live set changes. Keep a still-valid
+            // selection (don't yank the user mid-swipe / mid-call); otherwise
+            // fall to the first online camera.
+            if let current = selectedCameraId, ids.contains(current) { return }
+            selectedCameraId = ids.first
+        }
         .fullScreenCover(item: Binding(
             get: { fullScreenCameraId.map(IdentifiableUUID.init) },
             set: { fullScreenCameraId = $0?.id },
@@ -301,7 +318,14 @@ struct PatientLiveView: View {
         }
 
         do {
-            let tok = try await env.api.mintViewerToken(forPatient: patientId)
+            // Connect with BROADCASTER grants up front (canPublish=true) even
+            // for plain viewing. We never publish the mic until the caregiver
+            // taps Call, but holding the publish grant means start/end of a
+            // call is just a mic toggle — NO room reconnect, so the video tiles
+            // never blink. The wall phone still won't play our audio outside a
+            // call: it gates on the backend's set_talk_active packet, not on
+            // our grant.
+            let tok = try await env.api.mintBroadcasterToken(forPatient: patientId)
             await env.liveKit.connect(
                 url: tok.url,
                 token: tok.token,
@@ -421,14 +445,9 @@ struct PatientLiveView: View {
             .livekitIdentity
         callState = .connecting
         do {
-            // Broadcaster grants over the same room; LiveKitClient
-            // disconnects + reconnects to upgrade publish capabilities.
-            let tok = try await env.api.mintBroadcasterToken(forPatient: patientId)
-            await env.liveKit.connect(
-                url: tok.url,
-                token: tok.token,
-                room: "patient_\(patientId.uuidString.lowercased())",
-            )
+            // The room is already connected with broadcaster grants (see
+            // bootstrap), so starting a call is just enabling the mic — NO
+            // room reconnect, so the video tiles stay up the whole time.
             try await env.liveKit.publishMicrophone(enable: true)
             // Unmute the target camera's remote audio so the caregiver
             // hears the wall phone, and so the combined audio renderer
@@ -479,22 +498,12 @@ struct PatientLiveView: View {
             lkError = "End call failed: \(error.localizedDescription)"
         }
 
-        // Guaranteed mic-off: reconnect with the VIEWER token. The
-        // broadcaster grant we connected with is what gives this
-        // session canPublish=true; once we re-mint as viewer the SDK
-        // physically can't publish audio even if some prior call
-        // somehow left a track active. ~1-2s video gap during
-        // reconnect — acceptable for a call-end transition.
-        do {
-            let tok = try await env.api.mintViewerToken(forPatient: patientId)
-            await env.liveKit.connect(
-                url: tok.url,
-                token: tok.token,
-                room: "patient_\(patientId.uuidString.lowercased())",
-            )
-        } catch {
-            NSLog("[endCall] re-connect as viewer failed: %@", "\(error)")
-        }
+        // No reconnect on hang-up — we stay in the room as broadcaster so the
+        // video never blinks. The mic is already unpublished above, and the
+        // wall phone stops playing our audio the instant endTalk broadcasts
+        // set_talk_active=false. That packet is the real playback gate, so even
+        // a lingering local mic track (there shouldn't be one) is inaudible in
+        // the room regardless of our publish grant.
     }
 
     private func transferCall(to cameraId: UUID) async {

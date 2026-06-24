@@ -102,6 +102,7 @@ enum AppConfig {
     /// `LocalAppConfig.enableClipCapture = true` or the
     /// `NEMARA_ENABLE_CLIP_CAPTURE` env var.
     static let enableClipCapture: Bool = {
+        #if DEBUG
         if let override = LocalAppConfig.enableClipCapture {
             return override
         }
@@ -109,5 +110,16 @@ enum AppConfig {
             return (raw as NSString).boolValue
         }
         return false
+        #else
+        // Release / Archive / TestFlight / App Store: the data-collection clip
+        // button is a dev-only research tool and must NEVER ship. Hard-compile it
+        // OFF so no leftover `LocalAppConfig.enableClipCapture = true` (that file
+        // is skip-worktree, so a dev's local `true` persists on the machine that
+        // cuts the build) and no scheme env var can re-enable it in a
+        // distribution build. This is the single choke point for the whole clip
+        // chain: button → backend → camera `record_trigger`. Off here = the
+        // camera is never told to record in production.
+        return false
+        #endif
     }()
 }
