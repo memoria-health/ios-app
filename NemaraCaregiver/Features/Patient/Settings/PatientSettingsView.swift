@@ -49,6 +49,7 @@ struct PatientSettingsView: View {
                 profileCard
                 identityCard
                 PatientEmailAlertsCard(patientId: patientId)
+                DataCollectionCard(patientId: patientId)
                 feedbackEntry
 
                 NemaraButton(
