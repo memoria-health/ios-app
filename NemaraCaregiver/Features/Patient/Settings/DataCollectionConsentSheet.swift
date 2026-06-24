@@ -41,13 +41,10 @@ struct DataCollectionConsentSheet: View {
 
             Spacer(minLength: 8)
 
+            // Single string literal (NOT `+`-concatenated) so SwiftUI renders
+            // the markdown bold; `\n\n` gives the paragraph break.
             Text(
-                "With your permission, Memoria will securely store short "
-                + "video and audio clips of \(patientName) — only when "
-                + "someone is present — to help improve our AI's "
-                + "understanding of elderly health and disease. This is "
-                + "optional, never required, and you can turn it off "
-                + "anytime in Settings."
+                "With your permission, Memoria will **securely store video and audio clips of \(patientName)** to help improve our understanding of elderly health and disease.\n\nThis is optional, never required, and you can turn it off anytime in Settings."
             )
             .font(NemaraFont.body)
             .foregroundStyle(NemaraColor.ink2)
