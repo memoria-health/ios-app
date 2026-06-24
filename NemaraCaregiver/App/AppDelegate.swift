@@ -24,6 +24,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// with the hex-encoded token string ready to ship to the backend.
     static var didReceiveAPNsToken: ((String) -> Void)?
 
+    /// Last APNs token iOS handed us this process, cached so the app can
+    /// re-bind it on a sign-in (move it to the now-current caregiver) and
+    /// de-register it on sign-out — without waiting for iOS to re-deliver.
+    static var lastAPNsTokenHex: String?
+
     /// Cold-launch-safe buffer for a notification tap. `didReceive`
     /// writes here unconditionally; the SwiftUI layer drains it (warm:
     /// via `onEventTap`; cold: when the signed-in surface mounts). Both
@@ -47,6 +52,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        Self.lastAPNsTokenHex = hex
         Self.didReceiveAPNsToken?(hex)
     }
 

@@ -23,11 +23,8 @@ struct PatientDetectorsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                if detectors.isEmpty {
-                    emptyCard
-                } else {
-                    list
-                }
+                // Add buttons sit at the TOP so they're reachable without
+                // scrolling past a long detector list (a patient can have 15+).
                 NemaraButton(
                     "Add a custom detector",
                     variant: .secondary,
@@ -47,9 +44,17 @@ struct PatientDetectorsView: View {
                     showingLibrary = true
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 40)
+
+                if detectors.isEmpty {
+                    emptyCard
+                } else {
+                    list
+                }
             }
             .padding(.top, 12)
+            // Bottom padding moved here (was on the library button) so the
+            // detector list now clears the floating tab bar.
+            .padding(.bottom, 40)
         }
         .background(NemaraColor.paper)
         .sheet(isPresented: $showingAddDetector) {

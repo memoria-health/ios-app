@@ -91,6 +91,13 @@ final class AppEnvironment {
             try await api.bootstrap()
             return caregiver
         }
+        auth.onWillSignOut = { [weak api] in
+            // De-register this device's APNs token so the signed-out
+            // caregiver stops getting pushes on a device they've left.
+            // Best-effort; runs while the session is still valid.
+            guard let token = AppDelegate.lastAPNsTokenHex else { return }
+            try? await api?.deleteDeviceToken(token)
+        }
         auth.onSignedOut = { [weak api] in
             await api?.teardown()
         }
