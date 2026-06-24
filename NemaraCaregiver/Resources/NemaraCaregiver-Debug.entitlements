@@ -2,9 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>aps-environment</key>
-	<string>development</string>
-	<key>com.apple.developer.networking.HotspotConfiguration</key>
-	<true/>
+	<!-- TEMP (local fallback — revert before PR): Push (aps-environment) and
+	     Hotspot stripped so the app provisions on a personal team for the
+	     dial-in audio test. Neither is used by the Talk / two-way-audio path. -->
 </dict>
 </plist>

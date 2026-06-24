@@ -2,11 +2,14 @@
 // Per-developer overrides go in Local.xcconfig (gitignored).
 #include? "Local.xcconfig"
 
-PRODUCT_BUNDLE_IDENTIFIER = co.sunny.nemara.caregiver
+PRODUCT_BUNDLE_IDENTIFIER = co.aryaman.nemara.caregiver
 PRODUCT_NAME = Nemara
 
 // Signing — pinned to the org team "Darda and Cui, Inc" so both
 // founders build/sign without swapping. Per-developer overrides still
 // go in Local.xcconfig (gitignored) if ever needed.
 CODE_SIGN_STYLE = Automatic
-DEVELOPMENT_TEAM = 2RM3SKJN35
+// TEMP (local fallback — revert before PR): the org team's developer-portal
+// access is stuck on Apple's side, so build on a personal team instead.
+// Team left unset here — pick "Aryaman Darda" in Xcode → Signing & Capabilities.
+// DEVELOPMENT_TEAM = 2RM3SKJN35
