@@ -15,6 +15,12 @@ struct PatientShell: View {
     /// Feedback form, reachable from every sub-tab's header via the "Feedback"
     /// pill. Presented once here (not per-tab) so there's a single sheet.
     @State private var showFeedback = false
+    /// First-open data-collection consent. Auto-presented exactly once,
+    /// only while the patient has never recorded a decision
+    /// (`dataCollectionDecidedAt == nil`). Both choices stamp
+    /// `decided_at` server-side, so this never re-nags after the first
+    /// answer. Changeable later via the Settings `DataCollectionCard`.
+    @State private var showConsent = false
 
     /// Five tabs mirror the web dashboard's IA (Live grid +
     /// per-camera + per-detector + events + patient-level settings).
@@ -118,6 +124,23 @@ struct PatientShell: View {
         .sheet(isPresented: $showFeedback) {
             NavigationStack { FeedbackView().trackScreen("feedback") }
                 .environment(env)
+        }
+        // First-open data-collection consent. Trigger on appearance only
+        // while the patient has never decided; both Share/Not now stamp
+        // decided_at server-side so it won't re-present afterwards.
+        .onAppear {
+            if patient?.dataCollectionDecidedAt == nil { showConsent = true }
+        }
+        .sheet(isPresented: $showConsent) {
+            if let patient {
+                DataCollectionConsentSheet(
+                    patientId: patient.id,
+                    patientName: patient.preferredName,
+                )
+                .environment(env)
+                .presentationDetents([.medium, .large])
+                .trackScreen("data_collection_consent")
+            }
         }
         // APNs deep link: when the router targets THIS patient with an
         // event to open, jump to the Events tab. `initial: true` handles
