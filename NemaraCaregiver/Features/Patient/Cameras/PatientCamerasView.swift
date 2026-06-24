@@ -139,6 +139,13 @@ private struct CameraRow: View {
     /// `paired` here.
     private var statusLine: String {
         let id = "SENSOR \(String(format: "%02d", camera.displayId))"
+        // UNPAIRED wins over every other state: the pairing was cleared
+        // (server-side api_key gone), so this camera can't stream until a
+        // phone is re-paired to it. Make that obvious + actionable — tapping
+        // the row opens the detail where "Show pairing code" lives.
+        if camera.sourceType == .phone && !camera.paired {
+            return "\(id) · UNPAIRED — TAP TO RE-PAIR"
+        }
         // APP CLOSED is the distinct 4th state: the Memoria Sensor app
         // isn't running on the phone, so reconnect can't help — the
         // caregiver must reopen it. It wins over the OFFLINE/DISCONNECTED
@@ -160,19 +167,26 @@ private struct CameraRow: View {
     @ViewBuilder
     private var userToggleBadges: some View {
         HStack(spacing: 4) {
-            // App-closed shows its own chip (amber = "needs you to act")
-            // and suppresses the DISCONNECTED chip, since "disconnected"
-            // now strictly means the reconnectable case.
-            if camera.isAppClosed {
-                NemaraChip("APP CLOSED", tone: .warning)
-            } else if camera.desiredState == .disconnected {
-                NemaraChip("DISCONNECTED", tone: .terra)
-            }
-            if camera.disabled {
-                NemaraChip("HIDDEN", tone: .warning)
-            }
-            if camera.aiPaused {
-                NemaraChip("AI PAUSED", tone: .neutral)
+            // UNPAIRED dominates: the camera has no sensor and can't stream
+            // until re-paired. Show ONLY this chip (the app-closed / paused /
+            // hidden toggles are moot for a row with no phone attached).
+            if camera.sourceType == .phone && !camera.paired {
+                NemaraChip("UNPAIRED", tone: .terra)
+            } else {
+                // App-closed shows its own chip (amber = "needs you to act")
+                // and suppresses the DISCONNECTED chip, since "disconnected"
+                // now strictly means the reconnectable case.
+                if camera.isAppClosed {
+                    NemaraChip("APP CLOSED", tone: .warning)
+                } else if camera.desiredState == .disconnected {
+                    NemaraChip("DISCONNECTED", tone: .terra)
+                }
+                if camera.disabled {
+                    NemaraChip("HIDDEN", tone: .warning)
+                }
+                if camera.aiPaused {
+                    NemaraChip("AI PAUSED", tone: .neutral)
+                }
             }
         }
     }

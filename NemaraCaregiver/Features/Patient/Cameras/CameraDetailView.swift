@@ -41,6 +41,8 @@ struct CameraDetailView: View {
 
     @State private var showingDisconnectConfirm = false
     @State private var showingDeleteConfirm = false
+    @State private var showingUnpairConfirm = false
+    @State private var unpairing = false
     @State private var showingPairingCode = false
 
     @Environment(\.dismiss) private var dismiss
@@ -66,6 +68,13 @@ struct CameraDetailView: View {
                     }
                     stateControls(cam)
                     detectorsSection
+                    // Unpair returns a paired phone camera to the UNPAIRED
+                    // state (re-pairable) without deleting it. Shown only
+                    // while paired; once unpaired, the pairing-code section
+                    // above takes over.
+                    if cam.sourceType == .phone && cam.paired {
+                        unpairButton(cam)
+                    }
                     deleteCameraButton(cam)
                 } else {
                     Text("Sensor not found")
@@ -81,6 +90,21 @@ struct CameraDetailView: View {
         .navigationTitle(camera?.room ?? "Sensor")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: cameraId) { await loadAssignments() }
+        .alert(
+            "Unpair this sensor?",
+            isPresented: $showingUnpairConfirm,
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Unpair", role: .destructive) {
+                Task { await unpairCamera() }
+            }
+        } message: {
+            Text(
+                "The paired phone returns to its pairing screen. This "
+                + "camera's room, detectors, and history are kept — pair a "
+                + "phone back to it any time with a fresh code."
+            )
+        }
         .alert(
             "Delete this sensor?",
             isPresented: $showingDeleteConfirm,
@@ -434,6 +458,51 @@ struct CameraDetailView: View {
     /// MemoriaSensor). Local cache update from the realtime DELETE event
     /// will remove the camera from `camerasByPatient` so the parent
     /// list updates without a refresh.
+    private func unpairButton(_ cam: Camera) -> some View {
+        VStack(spacing: 8) {
+            NemaraEyebrow("PAIRING")
+                .padding(.horizontal, 16)
+            Button {
+                showingUnpairConfirm = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "iphone.slash")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(unpairing ? "Unpairing…" : "Unpair sensor")
+                        .font(NemaraFont.bodySmallStrong)
+                    Spacer()
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity)
+                .foregroundStyle(NemaraColor.ink)
+                .background(NemaraColor.paperDim)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(unpairing)
+            .padding(.horizontal, 16)
+            Text("Frees this sensor so a phone can be re-paired to it. Keeps the room, detectors, and history.")
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+        }
+    }
+
+    private func unpairCamera() async {
+        unpairing = true
+        actionError = nil
+        defer { unpairing = false }
+        do {
+            try await env.api.unpairCamera(cameraId)
+            // Stay on the detail screen — the camera flips to unpaired and
+            // the "Show pairing code" section appears so a phone can be
+            // re-paired. (Delete dismisses; unpair does not.)
+        } catch {
+            actionError = "Couldn't unpair: " + error.localizedDescription
+        }
+    }
+
     private func deleteCameraButton(_ cam: Camera) -> some View {
         VStack(spacing: 8) {
             NemaraEyebrow("DANGER ZONE")
