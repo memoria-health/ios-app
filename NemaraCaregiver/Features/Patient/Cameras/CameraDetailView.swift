@@ -27,7 +27,6 @@ struct CameraDetailView: View {
     @Environment(AppEnvironment.self) private var env
 
     @State private var assignedDetectorIds: Set<UUID> = []
-    @State private var loadingAssignments = true
     @State private var assignmentsError: String?
 
     /// Detector currently in-flight on the toggle path. Drives a
@@ -330,19 +329,8 @@ struct CameraDetailView: View {
     /// membership in the camera's set.
     private var detectorsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .lastTextBaseline, spacing: 8) {
-                NemaraEyebrow("DETECTORS ON THIS SENSOR")
-                Spacer()
-                if loadingAssignments {
-                    ProgressView().controlSize(.small)
-                } else {
-                    NemaraChip(
-                        "\(assignedDetectorIds.count) / \(detectors.count) on",
-                        tone: assignedDetectorIds.isEmpty ? .neutral : .action,
-                    )
-                }
-            }
-            .padding(.horizontal, 16)
+            NemaraEyebrow("DETECTORS ON THIS SENSOR")
+                .padding(.horizontal, 16)
 
             if let err = assignmentsError {
                 Text(err)
@@ -387,9 +375,7 @@ struct CameraDetailView: View {
     /// and whenever `cameraId` changes (defensive — the view is
     /// usually constructed per-camera).
     private func loadAssignments() async {
-        loadingAssignments = true
         assignmentsError = nil
-        defer { loadingAssignments = false }
         do {
             let ids = try await env.api.getCameraDetectors(cameraId)
             assignedDetectorIds = Set(ids)
