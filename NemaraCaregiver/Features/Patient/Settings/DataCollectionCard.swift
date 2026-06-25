@@ -23,6 +23,11 @@ struct DataCollectionCard: View {
     }
     private var enabled: Bool { patient?.dataCollectionEnabled ?? false }
     private var name: String { patient?.preferredName ?? "this patient" }
+    /// Privacy mode SUSPENDS data collection without changing the stored
+    /// choice. While on, this card shows itself as suspended and the
+    /// toggle is locked — the underlying value is preserved and restored
+    /// the moment privacy clears.
+    private var suspendedByPrivacy: Bool { patient?.privacyModeEnabled ?? false }
 
     var body: some View {
         NemaraCard(padding: 14) {
@@ -55,9 +60,11 @@ struct DataCollectionCard: View {
                 Text("Contribute recordings to research")
                     .font(NemaraFont.bodySemibold)
                     .foregroundStyle(NemaraColor.ink)
-                Text(enabled
-                     ? "Memoria is securely storing video and audio clips of \(name) to help improve our understanding of elderly health and disease."
-                     : "Memoria will securely store video and audio clips of \(name) to help improve our understanding of elderly health and disease.")
+                Text(suspendedByPrivacy
+                     ? "Suspended while Privacy mode is on. Your choice is saved and resumes the moment Privacy mode is turned off."
+                     : (enabled
+                        ? "Memoria is securely storing video and audio clips of \(name) to help improve our understanding of elderly health and disease."
+                        : "Memoria will securely store video and audio clips of \(name) to help improve our understanding of elderly health and disease."))
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
                     .lineSpacing(2)
@@ -68,7 +75,7 @@ struct DataCollectionCard: View {
                 get: { enabled },
                 set: { newValue in Task { await toggle(to: newValue) } }
             ), track: "data_collection.toggle")
-            .disabled(busy)
+            .disabled(busy || suspendedByPrivacy)
         }
     }
 

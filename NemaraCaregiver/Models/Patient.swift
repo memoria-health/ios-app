@@ -63,6 +63,12 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     /// any PATCH that carries `data_collection_enabled`; the client never
     /// sends this field.
     var dataCollectionDecidedAt: Date?
+    /// Privacy mode (dignity override). When true: no clips are stored,
+    /// the live video+audio feed is severed server-side, and event clips
+    /// are stripped from insights — while text insights keep flowing.
+    /// Overrides (suspends) `dataCollectionEnabled` without changing it.
+    /// Default false; flipped by the Settings card.
+    var privacyModeEnabled: Bool
     /// Bucket-relative key in patient-photos (e.g. "{id}.jpg") when
     /// the caregiver has uploaded an avatar. NULL falls back to
     /// the initials placeholder in `NemaraAvatar`. The signed URL
@@ -88,6 +94,7 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case emailAlertRecipients = "email_alert_recipients"
         case dataCollectionEnabled = "data_collection_enabled"
         case dataCollectionDecidedAt = "data_collection_decided_at"
+        case privacyModeEnabled = "privacy_mode_enabled"
         case photoStorageKey = "photo_storage_key"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -157,6 +164,9 @@ struct UpdatePatientRequest: Encodable, Sendable {
     /// server-side whenever this field is present (true OR false records a
     /// decision), so the client never sends the timestamp itself.
     var dataCollectionEnabled: Bool?
+    /// Privacy mode toggle. Suspends data collection + severs the live
+    /// feed server-side; does not touch the stored consent decision.
+    var privacyModeEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case fullName = "full_name"
@@ -169,6 +179,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         case emailAlertsEnabled = "email_alerts_enabled"
         case emailAlertRecipients = "email_alert_recipients"
         case dataCollectionEnabled = "data_collection_enabled"
+        case privacyModeEnabled = "privacy_mode_enabled"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -187,6 +198,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         try c.encodeIfPresent(emailAlertsEnabled, forKey: .emailAlertsEnabled)
         try c.encodeIfPresent(emailAlertRecipients, forKey: .emailAlertRecipients)
         try c.encodeIfPresent(dataCollectionEnabled, forKey: .dataCollectionEnabled)
+        try c.encodeIfPresent(privacyModeEnabled, forKey: .privacyModeEnabled)
     }
 }
 

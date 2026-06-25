@@ -78,6 +78,7 @@ struct PatientLiveView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
+                if privacyOn { privacyBanner }
                 // The Live grid follows the cameras' ACTUAL live state, never
                 // the patient-level pause flag. "Disconnect all" / "Reconnect
                 // all" are just bulk desired_state toggles — they must not own
@@ -164,6 +165,22 @@ struct PatientLiveView: View {
                 }
             }
         }
+        .onChange(of: privacyOn) { oldValue, newValue in
+            // Privacy CLEARED → the caregiver is still holding a token
+            // minted with can_subscribe=false (that's what kept the feed
+            // severed across reconnects). The SDK reuses that token, so we
+            // must force a fresh room.connect() with a re-minted,
+            // now-unblocked token before video/audio can return. Same
+            // force-rejoin loop as the unpause path.
+            guard oldValue == true, newValue == false else { return }
+            Task {
+                for attempt in 0..<6 {
+                    await bootstrap(force: attempt % 2 == 0)
+                    if !onlineCameras.isEmpty { break }
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
+        }
         .onDisappear { Task { await tabAwayCleanup() } }
         .onReceive(timer) { now in
             clockTick = now
@@ -221,7 +238,9 @@ struct PatientLiveView: View {
                     // close-X and room label are both right-side-up over
                     // the video, matching every iOS video player.
                     ZStack {
-                        if let track {
+                        if privacyOn {
+                            privacyPlacard
+                        } else if let track {
                             LiveKitVideoView(track: track, identity: identity)
                         } else {
                             NemaraCamFeedPlaceholder(hue: 30, loading: true)
@@ -672,7 +691,13 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
         .background {
             ZStack {
-                if let track = videoTrack {
+                if privacyOn {
+                    // Privacy mode: the live feed is severed server-side, so
+                    // never render video even if a stale track lingers. Show
+                    // the dignity placard instead — insights still flow in
+                    // the rest of the app.
+                    privacyPlacard
+                } else if let track = videoTrack {
                     LiveKitVideoView(track: track, identity: identity)
                         .background(NemaraColor.ink)
                 } else {
@@ -708,6 +733,51 @@ struct PatientLiveView: View {
             if Self.talkEnabled && isThisCallTarget {
                 CallButton(state: callState, onTap: handleCallButtonTap)
                     .offset(y: -10)
+            }
+        }
+    }
+
+    /// Top-of-Live-tab indicator that Privacy mode is active for this
+    /// patient. Pairs with the per-tile placard so the state is obvious
+    /// from anywhere on the screen.
+    private var privacyBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(NemaraColor.action)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Privacy mode is on")
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.ink)
+                Text("Live view and audio are hidden. Insights are still active.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(NemaraColor.actionSoft)
+        .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
+    }
+
+    /// Fills a tile when the patient is in Privacy mode. Dignity-first:
+    /// no feed, no spinner — just a clear statement that the live view is
+    /// intentionally hidden while insights keep arriving elsewhere.
+    private var privacyPlacard: some View {
+        ZStack {
+            NemaraColor.ink
+            VStack(spacing: 8) {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
+                Text("Privacy mode")
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.terraInk)
+                Text("Live video and audio are hidden.\nInsights still arrive on your phone.")
+                    .font(NemaraFont.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.75))
+                    .padding(.horizontal, 16)
             }
         }
     }
@@ -1224,6 +1294,10 @@ struct PatientLiveView: View {
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
     }
+    /// Privacy mode for this patient. While on, the backend severs the
+    /// caregiver's LiveKit media at the SFU (no track ever arrives), so
+    /// every tile renders the privacy placard instead of a feed.
+    private var privacyOn: Bool { patient?.privacyModeEnabled ?? false }
     private var allCameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
     }
