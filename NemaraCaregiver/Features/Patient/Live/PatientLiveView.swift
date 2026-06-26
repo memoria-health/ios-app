@@ -599,7 +599,8 @@ struct PatientLiveView: View {
                     // active Talk camera is always audible regardless of
                     // this toggle; the toggle controls the non-Talk
                     // default mute state for each tile.
-                    if let id = identity {
+                    // Hidden under privacy: there's no audio to listen to.
+                    if !privacyOn, let id = identity {
                         Button {
                             _ = env.liveKit.toggleAudio(forIdentity: id)
                         } label: {
@@ -662,7 +663,7 @@ struct PatientLiveView: View {
 
                 Spacer()
 
-                if isThisCallTarget, let err = lkError {
+                if !privacyOn, isThisCallTarget, let err = lkError {
                     Text(err)
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.terraInk)
@@ -730,7 +731,10 @@ struct PatientLiveView: View {
                 .strokeBorder(NemaraColor.line, lineWidth: 1)
         )
         .overlay(alignment: .bottom) {
-            if Self.talkEnabled && isThisCallTarget {
+            // No Talk under privacy: the caregiver token is minted
+            // can_publish=false, so tapping Call only yields a
+            // "does not have permission to publish" error. Hide it.
+            if Self.talkEnabled && isThisCallTarget && !privacyOn {
                 CallButton(state: callState, onTap: handleCallButtonTap)
                     .offset(y: -10)
             }
