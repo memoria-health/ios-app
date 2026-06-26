@@ -20,6 +20,7 @@ enum AppConfig {
     /// Supabase project URL. Override via `LocalAppConfig.supabaseURL`
     /// or `SUPABASE_URL` env. Release builds default to prod Supabase.
     static let supabaseURL: URL? = {
+        #if DEBUG
         if let override = LocalAppConfig.supabaseURL {
             return override
         }
@@ -27,7 +28,6 @@ enum AppConfig {
             .flatMap(URL.init) {
             return fromEnv
         }
-        #if DEBUG
         // Local Supabase started by `supabase start`, API on port 54341.
         // Bonjour hostname resolves to whichever Mac is currently
         // running nemara-backend on this Wi-Fi network. Tracks Sunny's
@@ -35,6 +35,9 @@ enum AppConfig {
         // `LocalAppConfig.supabaseURL` to your own LAN IP / hostname.
         return URL(string: "http://sunnys-macbook-air.local:54341")
         #else
+        // Release / Archive / TestFlight / App Store: ALWAYS prod. Never
+        // consult LocalAppConfig (skip-worktree — a dev's local LAN IP must
+        // NOT leak into a distribution build) or env vars.
         return URL(string: "https://zgifmvjnggmgzvtnosnu.supabase.co")
         #endif
     }()
@@ -44,6 +47,7 @@ enum AppConfig {
     /// Publishable / anon keys are designed to be shipped in client
     /// apps; safe to embed.
     static let supabaseAnonKey: String? = {
+        #if DEBUG
         if let override = LocalAppConfig.supabaseAnonKey, !override.isEmpty {
             return override
         }
@@ -51,12 +55,12 @@ enum AppConfig {
            !raw.isEmpty {
             return raw
         }
-        #if DEBUG
         // Local Supabase publishable key, deterministic per supabase-cli
         // version. Refresh via `supabase status -o env | grep
         // PUBLISHABLE_KEY` if a CLI upgrade ever changes it.
         return "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH"
         #else
+        // Release: ALWAYS the prod publishable key; ignore any override.
         return "sb_publishable_OsfCMOdEIb5gvhRWDyNivg_7GriAmyP"
         #endif
     }()
@@ -70,6 +74,7 @@ enum AppConfig {
     /// `LocalAppConfig.backendURL` or `NEMARA_BACKEND_URL` env. Release
     /// builds default to the Railway production deployment.
     static let backendURL: URL = {
+        #if DEBUG
         if let override = LocalAppConfig.backendURL {
             return override
         }
@@ -77,12 +82,15 @@ enum AppConfig {
             .flatMap(URL.init) {
             return fromEnv
         }
-        #if DEBUG
         // Bonjour/mDNS hostname for Sunny's Mac. If you're another dev,
         // set `LocalAppConfig.backendURL` to your own (e.g. an ngrok
         // URL that publishes your local uvicorn).
         return URL(string: "http://sunnys-macbook-air.local:8002")!
         #else
+        // Release / Archive / TestFlight / App Store: ALWAYS the Railway
+        // prod backend. Never consult LocalAppConfig (skip-worktree — a
+        // dev's local LAN IP / ngrok must NOT leak into a distribution
+        // build) or the env var.
         return URL(string: "https://nemara-backend-production.up.railway.app")!
         #endif
     }()
