@@ -34,6 +34,11 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
     /// field is decoded so the Codable round-trip is exhaustive
     /// and a future "preload thumbnails" flow can use it.
     var clipStorageKey: String?
+    /// True when the clip was intentionally NOT recorded because the
+    /// patient was in privacy mode. Distinguishes "no clip, never coming"
+    /// from "clip still processing" so the detail view can say which.
+    /// Defaults false so older payloads (pre-column) decode cleanly.
+    var clipSuppressed: Bool = false
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -55,6 +60,7 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
         case reviewNotes = "review_notes"
         case reviewedAt = "reviewed_at"
         case clipStorageKey = "clip_storage_key"
+        case clipSuppressed = "clip_suppressed"
         case createdAt = "created_at"
     }
 

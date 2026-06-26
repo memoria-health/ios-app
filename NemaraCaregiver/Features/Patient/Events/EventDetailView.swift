@@ -65,6 +65,9 @@ struct EventDetailView: View {
         }
         .background(NemaraColor.paper)
         .task(id: event.id) {
+            // Privacy mode suppressed the clip — there's nothing to poll
+            // for; clipView shows the privacy placard instead.
+            if event.clipSuppressed { return }
             // Archive runs ~25-45s after the event fires (post-15s
             // buffer + per-frame annotation + upload). Poll the clip
             // URL endpoint until it's ready so the placeholder swaps
@@ -145,9 +148,15 @@ struct EventDetailView: View {
     @ViewBuilder
     private var clipView: some View {
         ZStack {
-            switch clipResolutionState {
-            case .pending:
-                clipPlaceholder(label: "Loading clip…")
+            if event.clipSuppressed {
+                // Privacy mode was on when this fired — the clip was never
+                // recorded and never will be. Say so, instead of an endless
+                // "Generating clip…".
+                clipSuppressedPlacard
+            } else {
+                switch clipResolutionState {
+                case .pending:
+                    clipPlaceholder(label: "Loading clip…")
             case .generating:
                 clipPlaceholder(label: "Generating clip…")
             case .notReady:
@@ -162,6 +171,7 @@ struct EventDetailView: View {
                         .accessibilityLabel("Event clip from \(event.location)")
                 } else {
                     clipPlaceholder(label: "Loading clip…")
+                }
                 }
             }
         }
@@ -192,6 +202,28 @@ struct EventDetailView: View {
                     .padding(.vertical, 3)
                     .background(NemaraColor.ink.opacity(0.55))
                     .clipShape(Capsule(style: .continuous))
+            }
+        }
+    }
+
+    /// Shown in place of the clip when Privacy mode was on at the time of
+    /// the event: there is no clip and never will be. Dignity-first — a
+    /// clear, final statement, not a spinner.
+    private var clipSuppressedPlacard: some View {
+        ZStack {
+            NemaraColor.ink
+            VStack(spacing: 8) {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
+                Text("No clip — Privacy mode was on")
+                    .font(NemaraFont.bodySmall.weight(.semibold))
+                    .foregroundStyle(NemaraColor.terraInk)
+                Text("The insight was still captured. No video was recorded.")
+                    .font(NemaraFont.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.75))
+                    .padding(.horizontal, 20)
             }
         }
     }
