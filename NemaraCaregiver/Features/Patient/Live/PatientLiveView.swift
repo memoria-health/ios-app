@@ -166,6 +166,15 @@ struct PatientLiveView: View {
             }
         }
         .onChange(of: privacyOn) { oldValue, newValue in
+            // Privacy ACTIVATED → if a call is live, tear it down. The
+            // backend severs the caregiver's publish grant at the SFU, but
+            // the local call state and the backend `/talk` is_active flag
+            // would otherwise dangle — the wall phone keeps showing "on
+            // air". endCall() sends `/talk/end` and resets local UI state.
+            if oldValue == false, newValue == true {
+                if callState == .active { Task { await endCall() } }
+                return
+            }
             // Privacy CLEARED → the caregiver is still holding a token
             // minted with can_subscribe=false (that's what kept the feed
             // severed across reconnects). The SDK reuses that token, so we
