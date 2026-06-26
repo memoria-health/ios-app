@@ -22,11 +22,13 @@ struct PatientLiveView: View {
     /// both video display and call-routing target.
     @State private var selectedCameraId: UUID?
 
-    /// TEMPORARY: the two-way "talk" (push-to-talk) feature is hidden for the
-    /// initial App Store release while it's being hardened. Flip to `true` to
-    /// restore the on-tile Call button — no underlying call code was removed,
-    /// it's just not reachable from the UI. (Gates `CallButton` below.)
-    private static let talkEnabled = false
+    /// Master switch for the two-way "talk" (push-to-talk) feature. Kept as a
+    /// kill-switch after the Phase-3 hardening — speakerphone audio routing
+    /// (force `.speaker` on mic publish) + removal of the per-call room
+    /// reconnect (we now hold broadcaster grants for the whole session and just
+    /// toggle the mic). Set to `false` to hide the on-tile Call button without
+    /// removing any call code. (Gates `CallButton` below.)
+    private static let talkEnabled = true
 
     /// Lifecycle state of the call. `.idle` means no call in flight;
     /// `.connecting` covers token-mint + mic-publish + first
@@ -76,6 +78,7 @@ struct PatientLiveView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
+                if privacyOn { privacyBanner }
                 // The Live grid follows the cameras' ACTUAL live state, never
                 // the patient-level pause flag. "Disconnect all" / "Reconnect
                 // all" are just bulk desired_state toggles — they must not own
@@ -162,6 +165,31 @@ struct PatientLiveView: View {
                 }
             }
         }
+        .onChange(of: privacyOn) { oldValue, newValue in
+            // Privacy ACTIVATED → if a call is live, tear it down. The
+            // backend severs the caregiver's publish grant at the SFU, but
+            // the local call state and the backend `/talk` is_active flag
+            // would otherwise dangle — the wall phone keeps showing "on
+            // air". endCall() sends `/talk/end` and resets local UI state.
+            if oldValue == false, newValue == true {
+                if callState == .active { Task { await endCall() } }
+                return
+            }
+            // Privacy CLEARED → the caregiver is still holding a token
+            // minted with can_subscribe=false (that's what kept the feed
+            // severed across reconnects). The SDK reuses that token, so we
+            // must force a fresh room.connect() with a re-minted,
+            // now-unblocked token before video/audio can return. Same
+            // force-rejoin loop as the unpause path.
+            guard oldValue == true, newValue == false else { return }
+            Task {
+                for attempt in 0..<6 {
+                    await bootstrap(force: attempt % 2 == 0)
+                    if !onlineCameras.isEmpty { break }
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
+        }
         .onDisappear { Task { await tabAwayCleanup() } }
         .onReceive(timer) { now in
             clockTick = now
@@ -174,6 +202,21 @@ struct PatientLiveView: View {
             // target), so we don't need an `/end` between transfers.
             guard callState == .active, let newValue else { return }
             Task { await transferCall(to: newValue) }
+        }
+        .onChange(of: onlineCameras.map(\.id)) { _, ids in
+            // Make the Call (dial-in) button appear the instant a sensor goes
+            // live. When the FIRST camera comes online while we're already
+            // sitting on the Live tab, `bootstrap` had already run against an
+            // empty roster (→ selectedCameraId == nil) and nothing re-resolves
+            // it: SwiftUI's paged TabView won't write back a selection on its
+            // own. With no selection, no tile is the call target
+            // (`isThisCallTarget`), so the button stayed hidden until you tabbed
+            // away and back (which re-ran bootstrap → resolveSelectedCamera).
+            // Resolve here the moment the live set changes. Keep a still-valid
+            // selection (don't yank the user mid-swipe / mid-call); otherwise
+            // fall to the first online camera.
+            if let current = selectedCameraId, ids.contains(current) { return }
+            selectedCameraId = ids.first
         }
         .fullScreenCover(item: Binding(
             get: { fullScreenCameraId.map(IdentifiableUUID.init) },
@@ -204,7 +247,9 @@ struct PatientLiveView: View {
                     // close-X and room label are both right-side-up over
                     // the video, matching every iOS video player.
                     ZStack {
-                        if let track {
+                        if privacyOn {
+                            privacyPlacard
+                        } else if let track {
                             LiveKitVideoView(track: track, identity: identity)
                         } else {
                             NemaraCamFeedPlaceholder(hue: 30, loading: true)
@@ -301,7 +346,14 @@ struct PatientLiveView: View {
         }
 
         do {
-            let tok = try await env.api.mintViewerToken(forPatient: patientId)
+            // Connect with BROADCASTER grants up front (canPublish=true) even
+            // for plain viewing. We never publish the mic until the caregiver
+            // taps Call, but holding the publish grant means start/end of a
+            // call is just a mic toggle — NO room reconnect, so the video tiles
+            // never blink. The wall phone still won't play our audio outside a
+            // call: it gates on the backend's set_talk_active packet, not on
+            // our grant.
+            let tok = try await env.api.mintBroadcasterToken(forPatient: patientId)
             await env.liveKit.connect(
                 url: tok.url,
                 token: tok.token,
@@ -421,14 +473,9 @@ struct PatientLiveView: View {
             .livekitIdentity
         callState = .connecting
         do {
-            // Broadcaster grants over the same room; LiveKitClient
-            // disconnects + reconnects to upgrade publish capabilities.
-            let tok = try await env.api.mintBroadcasterToken(forPatient: patientId)
-            await env.liveKit.connect(
-                url: tok.url,
-                token: tok.token,
-                room: "patient_\(patientId.uuidString.lowercased())",
-            )
+            // The room is already connected with broadcaster grants (see
+            // bootstrap), so starting a call is just enabling the mic — NO
+            // room reconnect, so the video tiles stay up the whole time.
             try await env.liveKit.publishMicrophone(enable: true)
             // Unmute the target camera's remote audio so the caregiver
             // hears the wall phone, and so the combined audio renderer
@@ -479,22 +526,12 @@ struct PatientLiveView: View {
             lkError = "End call failed: \(error.localizedDescription)"
         }
 
-        // Guaranteed mic-off: reconnect with the VIEWER token. The
-        // broadcaster grant we connected with is what gives this
-        // session canPublish=true; once we re-mint as viewer the SDK
-        // physically can't publish audio even if some prior call
-        // somehow left a track active. ~1-2s video gap during
-        // reconnect — acceptable for a call-end transition.
-        do {
-            let tok = try await env.api.mintViewerToken(forPatient: patientId)
-            await env.liveKit.connect(
-                url: tok.url,
-                token: tok.token,
-                room: "patient_\(patientId.uuidString.lowercased())",
-            )
-        } catch {
-            NSLog("[endCall] re-connect as viewer failed: %@", "\(error)")
-        }
+        // No reconnect on hang-up — we stay in the room as broadcaster so the
+        // video never blinks. The mic is already unpublished above, and the
+        // wall phone stops playing our audio the instant endTalk broadcasts
+        // set_talk_active=false. That packet is the real playback gate, so even
+        // a lingering local mic track (there shouldn't be one) is inaudible in
+        // the room regardless of our publish grant.
     }
 
     private func transferCall(to cameraId: UUID) async {
@@ -571,7 +608,8 @@ struct PatientLiveView: View {
                     // active Talk camera is always audible regardless of
                     // this toggle; the toggle controls the non-Talk
                     // default mute state for each tile.
-                    if let id = identity {
+                    // Hidden under privacy: there's no audio to listen to.
+                    if !privacyOn, let id = identity {
                         Button {
                             _ = env.liveKit.toggleAudio(forIdentity: id)
                         } label: {
@@ -634,7 +672,7 @@ struct PatientLiveView: View {
 
                 Spacer()
 
-                if isThisCallTarget, let err = lkError {
+                if !privacyOn, isThisCallTarget, let err = lkError {
                     Text(err)
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.terraInk)
@@ -663,7 +701,13 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
         .background {
             ZStack {
-                if let track = videoTrack {
+                if privacyOn {
+                    // Privacy mode: the live feed is severed server-side, so
+                    // never render video even if a stale track lingers. Show
+                    // the dignity placard instead — insights still flow in
+                    // the rest of the app.
+                    privacyPlacard
+                } else if let track = videoTrack {
                     LiveKitVideoView(track: track, identity: identity)
                         .background(NemaraColor.ink)
                 } else {
@@ -696,9 +740,57 @@ struct PatientLiveView: View {
                 .strokeBorder(NemaraColor.line, lineWidth: 1)
         )
         .overlay(alignment: .bottom) {
-            if Self.talkEnabled && isThisCallTarget {
+            // No Talk under privacy: the caregiver token is minted
+            // can_publish=false, so tapping Call only yields a
+            // "does not have permission to publish" error. Hide it.
+            if Self.talkEnabled && isThisCallTarget && !privacyOn {
                 CallButton(state: callState, onTap: handleCallButtonTap)
                     .offset(y: -10)
+            }
+        }
+    }
+
+    /// Top-of-Live-tab indicator that Privacy mode is active for this
+    /// patient. Pairs with the per-tile placard so the state is obvious
+    /// from anywhere on the screen.
+    private var privacyBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(NemaraColor.action)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Privacy mode is on")
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.ink)
+                Text("Live view and audio are hidden. Insights are still active.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(NemaraColor.actionSoft)
+        .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
+    }
+
+    /// Fills a tile when the patient is in Privacy mode. Dignity-first:
+    /// no feed, no spinner — just a clear statement that the live view is
+    /// intentionally hidden while insights keep arriving elsewhere.
+    private var privacyPlacard: some View {
+        ZStack {
+            NemaraColor.ink
+            VStack(spacing: 8) {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
+                Text("Privacy mode")
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.terraInk)
+                Text("Live video and audio are hidden.\nInsights still arrive on your phone.")
+                    .font(NemaraFont.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.75))
+                    .padding(.horizontal, 16)
             }
         }
     }
@@ -1215,6 +1307,10 @@ struct PatientLiveView: View {
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
     }
+    /// Privacy mode for this patient. While on, the backend severs the
+    /// caregiver's LiveKit media at the SFU (no track ever arrives), so
+    /// every tile renders the privacy placard instead of a feed.
+    private var privacyOn: Bool { patient?.privacyModeEnabled ?? false }
     private var allCameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
     }

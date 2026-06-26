@@ -128,6 +128,21 @@ final class LiveKitClient {
     /// subscribe-muted default below, only happens during a call.
     private let combinedRemoteTap: _AudioLevelTap
 
+    /// Tap on the LOCAL mic buffer — the caregiver's OUTGOING audio (before
+    /// transmission). Mirrors `combinedRemoteTap`; its peaks feed the same
+    /// waveform so the visualizer reflects the caregiver's own voice as they
+    /// talk. Unlike the SDK's flaky remote renderer, the local path renders
+    /// reliably whenever the mic is published (i.e. during a call), so the
+    /// waveform stays alive even if the remote tap never fires.
+    private let combinedLocalTap: _AudioLevelTap
+
+    /// Most-recent peak from each source. The waveform appends max(local,
+    /// remote) so it tracks whoever is louder, rather than the two
+    /// independent render callbacks combing tall/short bars against each
+    /// other. Reset to 0 when a call ends.
+    private var lastLocalPeak: Float = 0
+    private var lastRemotePeak: Float = 0
+
     init() {
         self.room = Room()
         // The combined-tap closure needs a path back to `self` to push
@@ -137,15 +152,21 @@ final class LiveKitClient {
         // that without creating a retain cycle (closure -> box ->
         // weak LiveKitClient).
         let box = _LiveKitClientWeakBox()
-        self.combinedRemoteTap = _AudioLevelTap(identity: "_combined_") { _, peak in
+        self.combinedRemoteTap = _AudioLevelTap(identity: "_remote_") { _, peak in
             Task { @MainActor in
-                box.ref?.pushAudioLevelToActiveCall(peak: peak)
+                box.ref?.pushAudioLevel(peak: peak, fromLocal: false)
+            }
+        }
+        self.combinedLocalTap = _AudioLevelTap(identity: "_local_") { _, peak in
+            Task { @MainActor in
+                box.ref?.pushAudioLevel(peak: peak, fromLocal: true)
             }
         }
         box.ref = self
         AudioManager.shared.add(remoteAudioRenderer: combinedRemoteTap)
+        AudioManager.shared.add(localAudioRenderer: combinedLocalTap)
         #if DEBUG
-        print("[LiveKit] combinedRemoteTap registered with AudioManager.shared.add(remoteAudioRenderer:)")
+        print("[LiveKit] remote + local audio taps registered with AudioManager.shared")
         #endif
         // Delegate set in init so we capture every event from
         // construction onward — no race against the first `connect`.
@@ -310,7 +331,10 @@ final class LiveKitClient {
             // flat the instant the caregiver taps end — no waiting on
             // the next render that won't come.
             audioLevels = [:]
+            lastLocalPeak = 0
+            lastRemotePeak = 0
         }
+
         applyAudioGate()
         #if DEBUG
         print("[LiveKit] setRemoteAudioPlayback active=\(identity ?? "nil"), tracks=\(remoteAudioTracksByIdentity.count)")
@@ -370,6 +394,15 @@ final class LiveKitClient {
         }
         try await room.localParticipant.setMicrophone(enabled: enable)
         isMicrophonePublished = enable
+        if enable {
+            // Publishing the mic flips the SDK's AVAudioSession to
+            // .playAndRecord/.voiceChat (LiveKit 2.14), which defaults output
+            // to the EARPIECE. Force the loudspeaker so the caregiver hears the
+            // patient across the room instead of having to hold the phone to
+            // their ear. Stays in effect until the session is reconfigured
+            // (i.e. when the mic is disabled and the SDK reverts to .playback).
+            try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        }
     }
 
     // MARK: - Internal: track lifecycle (called from delegate hop)
@@ -414,20 +447,25 @@ final class LiveKitClient {
         audioLevels.removeValue(forKey: identity)
     }
 
-    private func pushAudioLevelToActiveCall(peak: Float) {
+    private func pushAudioLevel(peak: Float, fromLocal: Bool) {
+        // Track the latest peak per source; the waveform shows the louder of
+        // the two so it reflects whoever is speaking (caregiver mic OR patient
+        // audio) without the two render callbacks combing against each other.
+        if fromLocal { lastLocalPeak = peak } else { lastRemotePeak = peak }
         guard let identity = activeCallIdentity else {
             #if DEBUG
             // No active call — render fired but waveform shouldn't move
             // anyway. Throttled: only every 256th would-be push.
             droppedPushCount &+= 1
             if droppedPushCount % 256 == 1 {
-                print("[LiveKit] pushAudioLevel DROPPED (no activeCallIdentity), peak=\(peak), dropped#=\(droppedPushCount)")
+                print("[LiveKit] pushAudioLevel DROPPED (no activeCallIdentity), dropped#=\(droppedPushCount)")
             }
             #endif
             return
         }
+        let level = max(lastLocalPeak, lastRemotePeak)
         var samples = audioLevels[identity] ?? []
-        samples.append(peak)
+        samples.append(level)
         if samples.count > audioLevelCapacity {
             samples.removeFirst(samples.count - audioLevelCapacity)
         }
@@ -435,7 +473,7 @@ final class LiveKitClient {
         #if DEBUG
         acceptedPushCount &+= 1
         if acceptedPushCount <= 5 || acceptedPushCount % 256 == 0 {
-            print("[LiveKit] pushAudioLevel id=\(identity), peak=\(peak), levels.count=\(samples.count), accepted#=\(acceptedPushCount)")
+            print("[LiveKit] pushAudioLevel id=\(identity) level=\(level) local=\(lastLocalPeak) remote=\(lastRemotePeak) accepted#=\(acceptedPushCount)")
         }
         #endif
     }
@@ -589,21 +627,45 @@ private final class _AudioLevelTap: NSObject, AudioRenderer, @unchecked Sendable
     }
 
     func render(pcmBuffer: AVAudioPCMBuffer) {
-        guard let channelData = pcmBuffer.floatChannelData else { return }
         let frameLength = Int(pcmBuffer.frameLength)
         guard frameLength > 0 else { return }
-        // Mix all channels into a single peak so a stereo track
-        // doesn't visually double itself. In practice the wall phone
-        // publishes mono, so this is a one-channel loop.
+        let channelCount = max(Int(pcmBuffer.format.channelCount), 1)
+
+        // The LiveKit APM hands these renderers Int16, non-interleaved PCM
+        // buffers — `LKAudioBuffer.toAVAudioPCMBuffer()` builds them as
+        // `.pcmFormatInt16`, not float. Reading `floatChannelData` on an Int16
+        // buffer returns nil, so the old `guard let … floatChannelData` bailed
+        // on EVERY buffer before computing a peak. That's the bug that made the
+        // waveform sit dead flat even though the renderer fired continuously and
+        // audio flowed both ways. Handle both layouts: prefer float when present
+        // (defensive — some SDK paths can deliver it), else normalize the Int16
+        // samples by full-scale magnitude. Mix all channels into a single peak so
+        // a stereo track doesn't visually double itself (the wall phone is mono).
         var peak: Float = 0
-        let channelCount = Int(pcmBuffer.format.channelCount)
-        for ch in 0..<channelCount {
-            let ptr = channelData[ch]
-            for i in 0..<frameLength {
-                let v = abs(ptr[i])
-                if v > peak { peak = v }
+        if let floatData = pcmBuffer.floatChannelData {
+            for ch in 0..<channelCount {
+                let ptr = floatData[ch]
+                for i in 0..<frameLength {
+                    let v = abs(ptr[i])
+                    if v > peak { peak = v }
+                }
             }
+        } else if let int16Data = pcmBuffer.int16ChannelData {
+            for ch in 0..<channelCount {
+                let ptr = int16Data[ch]
+                var maxMag: Int32 = 0
+                for i in 0..<frameLength {
+                    // Widen to Int32 before abs — abs(Int16.min) overflows Int16.
+                    let mag = abs(Int32(ptr[i]))
+                    if mag > maxMag { maxMag = mag }
+                }
+                let channelPeak = Float(maxMag) / Float(Int16.max)
+                if channelPeak > peak { peak = channelPeak }
+            }
+        } else {
+            return
         }
+
         let clamped = min(peak, 1.0)
         callback(identity, clamped)
         #if DEBUG

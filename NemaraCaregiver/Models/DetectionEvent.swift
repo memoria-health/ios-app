@@ -34,6 +34,11 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
     /// field is decoded so the Codable round-trip is exhaustive
     /// and a future "preload thumbnails" flow can use it.
     var clipStorageKey: String?
+    /// True when the clip was intentionally NOT recorded because the
+    /// patient was in privacy mode. Distinguishes "no clip, never coming"
+    /// from "clip still processing" so the detail view can say which.
+    /// Defaults false so older payloads (pre-column) decode cleanly.
+    var clipSuppressed: Bool = false
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -55,6 +60,7 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
         case reviewNotes = "review_notes"
         case reviewedAt = "reviewed_at"
         case clipStorageKey = "clip_storage_key"
+        case clipSuppressed = "clip_suppressed"
         case createdAt = "created_at"
     }
 
@@ -89,6 +95,40 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
         let hours = mins / 60
         if hours < 24 { return "\(hours)h ago" }
         return "\(hours / 24)d ago"
+    }
+}
+
+extension DetectionEvent {
+    /// Custom decode so a payload that OMITS `clip_suppressed` decodes
+    /// cleanly (→ false) instead of throwing `keyNotFound` and silently
+    /// dropping the whole event. The synthesized `init(from:)` calls
+    /// `decode` (not `decodeIfPresent`) for a non-optional stored
+    /// property, so a stored-property default (`= false`) does NOT cover
+    /// the Codable path. Lives in an extension so the memberwise init the
+    /// previews use is preserved. Every other field decodes exactly as the
+    /// synthesized init would (required vs. optional unchanged).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        patientId = try c.decode(UUID.self, forKey: .patientId)
+        detectorId = try c.decodeIfPresent(UUID.self, forKey: .detectorId)
+        cameraId = try c.decodeIfPresent(UUID.self, forKey: .cameraId)
+        category = try c.decode(Detector.Category.self, forKey: .category)
+        source = try c.decode(Detector.Source.self, forKey: .source)
+        iconName = try c.decode(String.self, forKey: .iconName)
+        title = try c.decode(String.self, forKey: .title)
+        location = try c.decode(String.self, forKey: .location)
+        occurredAt = try c.decode(Date.self, forKey: .occurredAt)
+        hasClip = try c.decode(Bool.self, forKey: .hasClip)
+        narrative = try c.decode(String.self, forKey: .narrative)
+        opened = try c.decode(Bool.self, forKey: .opened)
+        reviewed = try c.decode(Bool.self, forKey: .reviewed)
+        reviewChoice = try c.decodeIfPresent(ReviewChoice.self, forKey: .reviewChoice)
+        reviewNotes = try c.decodeIfPresent(String.self, forKey: .reviewNotes)
+        reviewedAt = try c.decodeIfPresent(Date.self, forKey: .reviewedAt)
+        clipStorageKey = try c.decodeIfPresent(String.self, forKey: .clipStorageKey)
+        clipSuppressed = try c.decodeIfPresent(Bool.self, forKey: .clipSuppressed) ?? false
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
     }
 }
 

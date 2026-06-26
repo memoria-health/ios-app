@@ -1,12 +1,18 @@
-// Default build settings for NemaraCaregiver.
-// Per-developer overrides go in Local.xcconfig (gitignored).
-#include? "Local.xcconfig"
+// Default build settings for NemaraCaregiver. These are the PRODUCTION
+// signing values used by CI and by release archives — a fresh checkout
+// has no Local.xcconfig, so only these apply. Per-developer overrides
+// (e.g. a personal team for local device builds) go in Local.xcconfig
+// (gitignored), which is #include?-d at the BOTTOM so it wins over these
+// defaults on a dev's machine without ever shipping.
 
 PRODUCT_BUNDLE_IDENTIFIER = co.sunny.nemara.caregiver
 PRODUCT_NAME = Nemara
 
-// Signing — pinned to the org team "Darda and Cui, Inc" so both
-// founders build/sign without swapping. Per-developer overrides still
-// go in Local.xcconfig (gitignored) if ever needed.
+// Signing — org team "Darda and Cui, Inc" (Sunny). Automatic signing
+// resolves the App Store distribution profile from this team.
 CODE_SIGN_STYLE = Automatic
 DEVELOPMENT_TEAM = 2RM3SKJN35
+
+// Per-developer overrides (personal team + bundle id for local device
+// builds) win over the prod defaults above. Absent on CI / release.
+#include? "Local.xcconfig"
