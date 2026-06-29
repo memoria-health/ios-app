@@ -67,7 +67,8 @@ struct PatientRow: View {
                             NemaraPulse(color: NemaraColor.terra, size: 6)
                         }
                         Text(isPaused ? "Monitoring paused" : statusText)
-                            .font(NemaraFont.bodyLarge.weight(unopenedCount > 0 ? .semibold : .regular))
+                            .font(NemaraFont.monoSmall)
+                            .tracking(0.4)
                             .foregroundStyle(statusColor)
                             .lineLimit(1)
                     }
@@ -86,7 +87,7 @@ struct PatientRow: View {
     /// the count of unopened events, or "All quiet" when there are none.
     private var statusText: String {
         if unopenedCount == 0 { return "All quiet" }
-        return "\(unopenedCount) NEW EVENT" + (unopenedCount == 1 ? "" : "S")
+        return "\(unopenedCount) New event" + (unopenedCount == 1 ? "" : "s")
     }
     private var statusColor: Color {
         if isPaused || unopenedCount == 0 { return NemaraColor.ink3 }
