@@ -21,6 +21,50 @@ struct AddDetectorView: View {
         "exclamationmark.triangle", "heart", "person", "cup.and.saucer",
         "moon", "sun.max", "clock", "bell", "car",
     ]
+
+    // Human-friendly labels for the icon picker. The raw SF Symbol names
+    // (e.g. "figure.walk.motion") are developer strings and read as
+    // gibberish to caregivers, so the picker shows these instead while
+    // still storing/sending the symbol name. Any inferred icon outside
+    // this curated set falls back to `prettifyIconName`.
+    private static let iconLabels: [String: String] = [
+        "eye": "Watching",
+        "figure.fall": "Fall",
+        "figure.walk.motion": "Walking",
+        "door.left.hand.open": "Door",
+        "pills": "Medication",
+        "fork.knife": "Eating",
+        "bed.double": "Bed / Sleep",
+        "shower": "Shower",
+        "tv": "TV",
+        "drop": "Water",
+        "flame": "Stove / Fire",
+        "exclamationmark.triangle": "Warning",
+        "heart": "Health",
+        "person": "Person",
+        "cup.and.saucer": "Drink",
+        "moon": "Night",
+        "sun.max": "Daytime",
+        "clock": "Time",
+        "bell": "Alert",
+        "car": "Outing",
+    ]
+
+    /// Friendly display name for an SF Symbol. Falls back to stripping
+    /// common prefixes/suffixes and Title-Casing so even an inferred icon
+    /// that isn't in `iconLabels` never shows raw dotted developer text.
+    private func iconLabel(_ symbol: String) -> String {
+        if let friendly = Self.iconLabels[symbol] { return friendly }
+        let cleaned = symbol
+            .replacingOccurrences(of: "figure.", with: "")
+            .replacingOccurrences(of: "person.", with: "")
+            .replacingOccurrences(of: ".fill", with: "")
+            .replacingOccurrences(of: ".", with: " ")
+        let words = cleaned.split(separator: " ").map {
+            $0.prefix(1).uppercased() + $0.dropFirst()
+        }
+        return words.isEmpty ? symbol : words.joined(separator: " ")
+    }
     private let dayLabels = ["M", "T", "W", "T", "F", "S", "S"] // 0=Mon..6=Sun
 
     @State private var stage: Stage = .entry
@@ -191,13 +235,13 @@ struct AddDetectorView: View {
                 Menu {
                     ForEach(iconOptions, id: \.self) { ic in
                         Button { icon = ic } label: {
-                            Label(ic, systemImage: ic)
+                            Label(iconLabel(ic), systemImage: ic)
                         }
                     }
                 } label: {
                     HStack {
                         Image(systemName: icon).foregroundStyle(NemaraColor.ink2)
-                        Text(icon).font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
+                        Text(iconLabel(icon)).font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 12)).foregroundStyle(NemaraColor.ink3)
