@@ -165,16 +165,6 @@ final class LiveKitClient {
         box.ref = self
         AudioManager.shared.add(remoteAudioRenderer: combinedRemoteTap)
         AudioManager.shared.add(localAudioRenderer: combinedLocalTap)
-        // Pin the SDK's audio session to PLAYBACK-ONLY by default. A view-only
-        // connection — and the track-set change when a camera disconnects —
-        // would otherwise let the SDK auto-configure a .playAndRecord session,
-        // which makes iOS prompt for the microphone even though the caregiver is
-        // only watching (the reported "mic permission on first disconnect" bug).
-        // `sessionConfiguration` is a fixed override, so it suppresses that
-        // dynamic record-mode switch. We flip to .playAndRecord explicitly in
-        // `publishMicrophone(enable:)` when the caregiver starts Talk — the only
-        // place the mic prompt should appear.
-        AudioManager.shared.sessionConfiguration = .playback
         #if DEBUG
         print("[LiveKit] remote + local audio taps registered with AudioManager.shared")
         #endif
@@ -402,24 +392,16 @@ final class LiveKitClient {
         guard state == .connected || state == .reconnecting else {
             throw LiveKitClientError.notConnected
         }
-        if enable {
-            // The session is pinned to .playback by default (see init) so
-            // viewing never prompts for the mic. Talk must record, so switch to
-            // a playAndRecord (speaker / videoChat) config BEFORE enabling the
-            // mic — this is where the iOS mic prompt should, and now does, fire.
-            AudioManager.shared.sessionConfiguration = .playAndRecordSpeaker
-        }
         try await room.localParticipant.setMicrophone(enabled: enable)
         isMicrophonePublished = enable
         if enable {
-            // .playAndRecordSpeaker (mode .videoChat) routes to the loudspeaker
-            // so the caregiver hears the patient across the room; keep the
-            // explicit override as belt-and-suspenders against route changes.
+            // Publishing the mic flips the SDK's AVAudioSession to
+            // .playAndRecord/.voiceChat (LiveKit 2.14), which defaults output
+            // to the EARPIECE. Force the loudspeaker so the caregiver hears the
+            // patient across the room instead of having to hold the phone to
+            // their ear. Stays in effect until the session is reconfigured
+            // (i.e. when the mic is disabled and the SDK reverts to .playback).
             try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
-        } else {
-            // Talk ended — revert to playback-only so the mic is released and a
-            // later view-only session never re-triggers the permission prompt.
-            AudioManager.shared.sessionConfiguration = .playback
         }
     }
 
