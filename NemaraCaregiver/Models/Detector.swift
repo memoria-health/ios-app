@@ -21,8 +21,8 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// `detector_shape` enum; `displayName` is the all-caps text used in
     /// the detector row.
     enum Shape: String, Sendable, Codable {
-        case pointInTime = "point_in_time"
-        case state       = "state"       // legacy preset (agitation); not offered in UI
+        case pointInTime = "point_in_time"  // momentary — fires the moment it's seen
+        case state       = "state"       // continuous/ongoing activity — one event per session
         case scheduled   = "scheduled"   // absence detector — fires if signal absent in window
 
         var displayName: String {
@@ -90,6 +90,8 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     var identifier: String?
     /// Null for reactive detectors; the evaluation window for `scheduled`.
     var scheduleConfig: ScheduleConfig?
+    /// Null unless `shape == .state`; the rising-edge episode gap (seconds).
+    var episodeGapSeconds: Int?
     var createdAt: Date
     var updatedAt: Date
 
@@ -109,6 +111,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case customPrompt = "custom_prompt"
         case identifier
         case scheduleConfig = "schedule_config"
+        case episodeGapSeconds = "episode_gap_seconds"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -129,6 +132,8 @@ struct CreateDetectorRequest: Encodable, Sendable {
     var whenScope: String = "ALWAYS"
     var sensitivity: Detector.Sensitivity = .standard
     var scheduleConfig: Detector.ScheduleConfig? = nil
+    /// Set only when `shape == .state`; the rising-edge episode gap (seconds).
+    var episodeGapSeconds: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -141,6 +146,7 @@ struct CreateDetectorRequest: Encodable, Sendable {
         case whenScope = "when_scope"
         case sensitivity
         case scheduleConfig = "schedule_config"
+        case episodeGapSeconds = "episode_gap_seconds"
     }
 }
 
@@ -159,6 +165,8 @@ struct InferDetectorResponse: Decodable, Sendable {
     var iconName: String
     var sensitivity: Detector.Sensitivity
     var scheduleConfig: Detector.ScheduleConfig?
+    /// Set when the model classified the activity as `.state`; nil otherwise.
+    var episodeGapSeconds: Int?
 
     enum CodingKeys: String, CodingKey {
         case shape
@@ -166,6 +174,7 @@ struct InferDetectorResponse: Decodable, Sendable {
         case iconName = "icon_name"
         case sensitivity
         case scheduleConfig = "schedule_config"
+        case episodeGapSeconds = "episode_gap_seconds"
     }
 }
 

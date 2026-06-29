@@ -21,6 +21,50 @@ struct AddDetectorView: View {
         "exclamationmark.triangle", "heart", "person", "cup.and.saucer",
         "moon", "sun.max", "clock", "bell", "car",
     ]
+
+    // Human-friendly labels for the icon picker. The raw SF Symbol names
+    // (e.g. "figure.walk.motion") are developer strings and read as
+    // gibberish to caregivers, so the picker shows these instead while
+    // still storing/sending the symbol name. Any inferred icon outside
+    // this curated set falls back to `prettifyIconName`.
+    private static let iconLabels: [String: String] = [
+        "eye": "Watching",
+        "figure.fall": "Fall",
+        "figure.walk.motion": "Walking",
+        "door.left.hand.open": "Door",
+        "pills": "Medication",
+        "fork.knife": "Eating",
+        "bed.double": "Bed / Sleep",
+        "shower": "Shower",
+        "tv": "TV",
+        "drop": "Water",
+        "flame": "Stove / Fire",
+        "exclamationmark.triangle": "Warning",
+        "heart": "Health",
+        "person": "Person",
+        "cup.and.saucer": "Drink",
+        "moon": "Night",
+        "sun.max": "Daytime",
+        "clock": "Time",
+        "bell": "Alert",
+        "car": "Outing",
+    ]
+
+    /// Friendly display name for an SF Symbol. Falls back to stripping
+    /// common prefixes/suffixes and Title-Casing so even an inferred icon
+    /// that isn't in `iconLabels` never shows raw dotted developer text.
+    private func iconLabel(_ symbol: String) -> String {
+        if let friendly = Self.iconLabels[symbol] { return friendly }
+        let cleaned = symbol
+            .replacingOccurrences(of: "figure.", with: "")
+            .replacingOccurrences(of: "person.", with: "")
+            .replacingOccurrences(of: ".fill", with: "")
+            .replacingOccurrences(of: ".", with: " ")
+        let words = cleaned.split(separator: " ").map {
+            $0.prefix(1).uppercased() + $0.dropFirst()
+        }
+        return words.isEmpty ? symbol : words.joined(separator: " ")
+    }
     private let dayLabels = ["M", "T", "W", "T", "F", "S", "S"] // 0=Mon..6=Sun
 
     @State private var stage: Stage = .entry
@@ -36,6 +80,10 @@ struct AddDetectorView: View {
     @State private var shape: Detector.Shape = .pointInTime
     @State private var category: Detector.Category = .safety
     @State private var icon = "eye"
+    // Inferred only for `.state` (continuous) detectors — the rising-edge
+    // episode gap in seconds. Sent on create so the backend collapses an
+    // ongoing activity ("watching TV") into one event instead of one per tick.
+    @State private var episodeGapSeconds: Int? = nil
     @State private var sensitivity: Detector.Sensitivity = .standard
     @State private var cadence: Detector.ScheduleConfig.Cadence = .daily
     @State private var days: Set<Int> = []
@@ -170,10 +218,12 @@ struct AddDetectorView: View {
             // Type
             VStack(alignment: .leading, spacing: 8) {
                 NemaraEyebrow("TYPE")
-                typeCard(isScheduled: true, title: "Scheduled check",
-                         sub: "alerts if it DOESN'T happen in a window")
-                typeCard(isScheduled: false, title: "Live detection",
+                typeCard(.pointInTime, title: "Live detection",
                          sub: "fires the moment it's seen")
+                typeCard(.state, title: "Ongoing activity",
+                         sub: "one alert per session, not every moment")
+                typeCard(.scheduled, title: "Scheduled check",
+                         sub: "alerts if it DOESN'T happen in a window")
             }
 
             if shape == .scheduled { scheduleEditor }
@@ -191,13 +241,13 @@ struct AddDetectorView: View {
                 Menu {
                     ForEach(iconOptions, id: \.self) { ic in
                         Button { icon = ic } label: {
-                            Label(ic, systemImage: ic)
+                            Label(iconLabel(ic), systemImage: ic)
                         }
                     }
                 } label: {
                     HStack {
                         Image(systemName: icon).foregroundStyle(NemaraColor.ink2)
-                        Text(icon).font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
+                        Text(iconLabel(icon)).font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 12)).foregroundStyle(NemaraColor.ink3)
@@ -305,7 +355,8 @@ struct AddDetectorView: View {
             let inf = try await env.api.inferDetector(
                 InferDetectorRequest(name: trimmedName.isEmpty ? nil : trimmedName, prompt: p)
             )
-            shape = inf.shape == .state ? .pointInTime : inf.shape
+            shape = inf.shape
+            episodeGapSeconds = inf.episodeGapSeconds
             category = inf.category
             icon = inf.iconName
             sensitivity = inf.sensitivity
@@ -349,6 +400,7 @@ struct AddDetectorView: View {
             iconName: icon,
             sensitivity: sensitivity,
             scheduleConfig: scheduleConfig,
+            episodeGapSeconds: shape == .state ? episodeGapSeconds : nil,
         )
         do {
             _ = try await env.api.createCustomDetector(forPatient: patientId, body)
@@ -375,9 +427,9 @@ struct AddDetectorView: View {
             .onSubmit { Self.resignFirstResponder() }
     }
 
-    private func typeCard(isScheduled: Bool, title: String, sub: String) -> some View {
-        let on = (shape == .scheduled) == isScheduled
-        return Button { shape = isScheduled ? .scheduled : .pointInTime } label: {
+    private func typeCard(_ kind: Detector.Shape, title: String, sub: String) -> some View {
+        let on = shape == kind
+        return Button { shape = kind } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: on ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(on ? NemaraColor.terra : NemaraColor.ink3)

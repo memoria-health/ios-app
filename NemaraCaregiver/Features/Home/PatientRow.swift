@@ -17,15 +17,25 @@ struct PatientRow: View {
     /// the normal state without restructuring the row.
     private var isPaused: Bool { false }
 
-    private var unopenedCount: Int {
-        env.api.eventsByPatient[patient.id]?.filter { !$0.opened }.count ?? 0
+    private var unopenedEvents: [DetectionEvent] {
+        env.api.eventsByPatient[patient.id]?.filter { !$0.opened } ?? []
+    }
+    private var unopenedCount: Int { unopenedEvents.count }
+
+    /// Only an unopened SAFETY event escalates the card to the red
+    /// attention treatment. Routine (blue) events still show the NEW count
+    /// but never paint the card red. `patient.state` / `statusLine` /
+    /// `lastEventAt` are not server-maintained yet, so we derive everything
+    /// the card shows from the events the app already has.
+    private var hasUnopenedSafety: Bool {
+        !isPaused && unopenedEvents.contains { $0.category == .safety }
     }
 
     var body: some View {
         NemaraCard(
-            tone: isPaused ? .alt : (patient.state == .critical ? .terra : .default),
+            tone: isPaused ? .alt : (hasUnopenedSafety ? .terra : .default),
             padding: 14,
-            borderColor: isPaused ? NemaraColor.line : (patient.state == .critical ? NemaraColor.terra : NemaraColor.line)
+            borderColor: hasUnopenedSafety ? NemaraColor.terra : NemaraColor.line
         ) {
             HStack(spacing: 12) {
                 PatientAvatar(patient: patient, size: 48)
@@ -53,56 +63,34 @@ struct PatientRow: View {
                         }
                     }
                     HStack(spacing: 6) {
-                        if !isPaused && patient.state == .critical {
+                        if hasUnopenedSafety {
                             NemaraPulse(color: NemaraColor.terra, size: 6)
                         }
-                        Text(isPaused ? "Monitoring paused" : patient.statusLine)
-                            .font(NemaraFont.bodySmall.weight(!isPaused && patient.state == .critical ? .semibold : .medium))
+                        Text(isPaused ? "Monitoring paused" : statusText)
+                            .font(NemaraFont.bodyLarge.weight(unopenedCount > 0 ? .semibold : .regular))
                             .foregroundStyle(statusColor)
-                            .lineLimit(2)
+                            .lineLimit(1)
                     }
-                    HStack(spacing: 8) {
-                        Text(lastEventLabel)
-                            .font(NemaraFont.monoSmall)
-                            .tracking(0.5)
-                            .foregroundStyle(NemaraColor.ink3)
-                        if !isPaused, unopenedCount > 0 {
-                            Text("·").foregroundStyle(NemaraColor.line)
-                            Text("\(unopenedCount) NEW")
-                                .font(NemaraFont.monoSmall)
-                                .tracking(0.5)
-                                .foregroundStyle(NemaraColor.terra)
-                        }
-                    }
-                    .opacity(isPaused ? 0.55 : 1)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(!isPaused && patient.state == .critical ? NemaraColor.terra : NemaraColor.ink3)
+                    .foregroundStyle(hasUnopenedSafety ? NemaraColor.terra : NemaraColor.ink3)
             }
         }
     }
 
-    private var statusColor: Color {
-        if isPaused { return NemaraColor.ink3 }
-        switch patient.state {
-        case .critical: return NemaraColor.terra
-        case .offline:  return NemaraColor.ink3
-        case .calm:     return NemaraColor.ink
-        }
+    /// The prominent line where the (unwired) status summary used to be:
+    /// the count of unopened events, or "All quiet" when there are none.
+    private var statusText: String {
+        if unopenedCount == 0 { return "All quiet" }
+        return "\(unopenedCount) NEW EVENT" + (unopenedCount == 1 ? "" : "S")
     }
-    private var lastEventLabel: String {
-        guard let when = patient.lastEventAt else { return "" }
-        let now = Date()
-        let minutes = Int(now.timeIntervalSince(when) / 60)
-        if minutes < 1 { return "JUST NOW" }
-        if minutes < 60 { return "\(minutes) MIN AGO" }
-        let hours = minutes / 60
-        if hours < 24 { return "\(hours) H AGO" }
-        return "YESTERDAY"
+    private var statusColor: Color {
+        if isPaused || unopenedCount == 0 { return NemaraColor.ink3 }
+        return hasUnopenedSafety ? NemaraColor.terra : NemaraColor.sky
     }
 }
 
