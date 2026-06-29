@@ -80,6 +80,10 @@ struct AddDetectorView: View {
     @State private var shape: Detector.Shape = .pointInTime
     @State private var category: Detector.Category = .safety
     @State private var icon = "eye"
+    // Inferred only for `.state` (continuous) detectors — the rising-edge
+    // episode gap in seconds. Sent on create so the backend collapses an
+    // ongoing activity ("watching TV") into one event instead of one per tick.
+    @State private var episodeGapSeconds: Int? = nil
     @State private var sensitivity: Detector.Sensitivity = .standard
     @State private var cadence: Detector.ScheduleConfig.Cadence = .daily
     @State private var days: Set<Int> = []
@@ -214,10 +218,12 @@ struct AddDetectorView: View {
             // Type
             VStack(alignment: .leading, spacing: 8) {
                 NemaraEyebrow("TYPE")
-                typeCard(isScheduled: true, title: "Scheduled check",
-                         sub: "alerts if it DOESN'T happen in a window")
-                typeCard(isScheduled: false, title: "Live detection",
+                typeCard(.pointInTime, title: "Live detection",
                          sub: "fires the moment it's seen")
+                typeCard(.state, title: "Ongoing activity",
+                         sub: "one alert per session, not every moment")
+                typeCard(.scheduled, title: "Scheduled check",
+                         sub: "alerts if it DOESN'T happen in a window")
             }
 
             if shape == .scheduled { scheduleEditor }
@@ -349,7 +355,8 @@ struct AddDetectorView: View {
             let inf = try await env.api.inferDetector(
                 InferDetectorRequest(name: trimmedName.isEmpty ? nil : trimmedName, prompt: p)
             )
-            shape = inf.shape == .state ? .pointInTime : inf.shape
+            shape = inf.shape
+            episodeGapSeconds = inf.episodeGapSeconds
             category = inf.category
             icon = inf.iconName
             sensitivity = inf.sensitivity
@@ -393,6 +400,7 @@ struct AddDetectorView: View {
             iconName: icon,
             sensitivity: sensitivity,
             scheduleConfig: scheduleConfig,
+            episodeGapSeconds: shape == .state ? episodeGapSeconds : nil,
         )
         do {
             _ = try await env.api.createCustomDetector(forPatient: patientId, body)
@@ -419,9 +427,9 @@ struct AddDetectorView: View {
             .onSubmit { Self.resignFirstResponder() }
     }
 
-    private func typeCard(isScheduled: Bool, title: String, sub: String) -> some View {
-        let on = (shape == .scheduled) == isScheduled
-        return Button { shape = isScheduled ? .scheduled : .pointInTime } label: {
+    private func typeCard(_ kind: Detector.Shape, title: String, sub: String) -> some View {
+        let on = shape == kind
+        return Button { shape = kind } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: on ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(on ? NemaraColor.terra : NemaraColor.ink3)
