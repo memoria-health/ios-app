@@ -22,7 +22,7 @@ struct RearEnrollmentView: View {
     var body: some View {
         Group {
             if coverage.isComplete {
-                EnrollmentCompleteView(frames: coverage.allFrames())
+                EnrollmentCompleteView()
                     .background(NemaraColor.paper)
             } else {
                 capturing

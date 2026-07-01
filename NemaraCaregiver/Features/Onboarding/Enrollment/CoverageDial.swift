@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// The coverage ring shared by both enrollment UIs.
 ///
@@ -88,48 +87,17 @@ struct EnrollmentCompleteBadge: View {
     }
 }
 
-/// Locked completion state: the green tick plus a review strip of exactly
-/// the frames we're about to upload, so the caregiver can see the angles
-/// that were captured before committing.
+/// Locked completion state: green tick + confirmation. Capturing has
+/// stopped, the camera toggle is disabled, and only Done remains.
 struct EnrollmentCompleteView: View {
-    let frames: [Data]
-
     var body: some View {
         VStack(spacing: 20) {
             EnrollmentCompleteBadge(diameter: 240)
             Text("Enrollment complete")
                 .font(NemaraFont.title3)
                 .foregroundStyle(NemaraColor.success)
-            CaptureReviewStrip(frames: frames)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 16)
-    }
-}
-
-/// Horizontally scrolling thumbnails of the captured frames.
-struct CaptureReviewStrip: View {
-    let frames: [Data]
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Text("Captured angles")
-                .font(NemaraFont.caption)
-                .foregroundStyle(NemaraColor.ink3)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(frames.enumerated()), id: \.offset) { _, data in
-                        if let ui = UIImage(data: data) {
-                            Image(uiImage: ui)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 56, height: 56)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-        }
     }
 }

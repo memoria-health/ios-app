@@ -23,7 +23,7 @@ struct FrontEnrollmentView: View {
     var body: some View {
         Group {
             if coverage.isComplete {
-                EnrollmentCompleteView(frames: coverage.allFrames())
+                EnrollmentCompleteView()
             } else {
                 capturing
             }
