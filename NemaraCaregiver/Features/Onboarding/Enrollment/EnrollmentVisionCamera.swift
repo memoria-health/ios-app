@@ -28,9 +28,10 @@ final class EnrollmentVisionCamera: ObservableObject, @unchecked Sendable {
     // sign here — nothing else needs to change.
     /// Vision yaw sign so a left/right turn maps to the arc the user
     /// expects. The front preview is mirrored, so its sign is flipped vs
-    /// the rear. (Verified on-device: nose-right must fill the right arc.)
-    private var yawSign: Double { facing == .front ? 1 : -1 }
+    /// the rear. (Device-verified: front -1 gives nose-left → left arc.)
+    private var yawSign: Double { facing == .front ? -1 : 1 }
     /// Vision pitch sign so up/down maps to the top/bottom arcs.
+    /// (Device-verified good at -1.)
     private var pitchSign: Double { -1 }
     /// Process at ~this rate (Vision every frame is wasteful at 30 fps).
     private let targetHz: Double = 15

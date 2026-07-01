@@ -104,10 +104,21 @@ struct PatientSettingsView: View {
     /// Best-effort: a transient failure leaves the card in its
     /// previous state.
     private func loadEnrollmentSummary() async {
-        do {
-            enrollmentSummary = try await env.api.faceEnrollmentSummary(patientId)
-        } catch {
-            NSLog("[PatientSettings] enrollment summary load failed: %@", "\(error)")
+        // Poll while the backend is still computing embeddings so the card
+        // flips from "in progress" to "complete" on its own — no need to
+        // leave and re-open the screen. Stops as soon as nothing is
+        // processing, or after ~80s. Cancelled automatically on disappear.
+        for attempt in 0..<40 {
+            do {
+                let summary = try await env.api.faceEnrollmentSummary(patientId)
+                enrollmentSummary = summary
+                if !summary.isProcessing { return }
+            } catch {
+                NSLog("[PatientSettings] enrollment summary load failed: %@", "\(error)")
+            }
+            if attempt < 39 {
+                try? await Task.sleep(for: .seconds(2))
+            }
         }
     }
 
