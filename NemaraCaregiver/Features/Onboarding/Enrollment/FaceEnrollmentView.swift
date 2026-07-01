@@ -62,11 +62,13 @@ struct FaceEnrollmentView: View {
 
     private var picker: some View {
         Picker("Camera", selection: $facing) {
-            Text("Point at them").tag(EnrollmentVisionCamera.Facing.rear)
-            Text("Myself").tag(EnrollmentVisionCamera.Facing.front)
+            Text("Rear camera").tag(EnrollmentVisionCamera.Facing.rear)
+            Text("Front camera").tag(EnrollmentVisionCamera.Facing.front)
         }
         .pickerStyle(.segmented)
         .padding(.horizontal, 20).padding(.vertical, 10)
+        .disabled(coverage.isComplete)   // locked once complete
+        .opacity(coverage.isComplete ? 0.5 : 1)
     }
 
     @ViewBuilder private var child: some View {
@@ -81,22 +83,19 @@ struct FaceEnrollmentView: View {
 
     private var footer: some View {
         VStack(spacing: 8) {
-            ProgressView(value: coverage.progress)
-                .tint(NemaraColor.terra)
-                .padding(.horizontal, 4)
             if let submitError {
                 Text(submitError)
                     .font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.terra)
                     .multilineTextAlignment(.center).frame(maxWidth: .infinity)
             }
             NemaraButton(
-                isSubmitting ? "Submitting…" : "Save \(coverage.allFrames().count) captures",
+                isSubmitting ? "Saving…" : "Done",
                 variant: .primary,
                 block: true,
                 action: submit,
             )
-            .disabled(!coverage.isSubmittable || isSubmitting)
-            .opacity((!coverage.isSubmittable || isSubmitting) ? 0.5 : 1)
+            .disabled(!coverage.isComplete || isSubmitting)
+            .opacity((!coverage.isComplete || isSubmitting) ? 0.5 : 1)
         }
         .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 14)
         .background(NemaraColor.paper)

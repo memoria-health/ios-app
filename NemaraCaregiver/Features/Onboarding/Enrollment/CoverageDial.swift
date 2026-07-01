@@ -1,81 +1,135 @@
 import SwiftUI
+import UIKit
 
-/// The segmented coverage ring shared by both enrollment UIs.
+/// The coverage ring shared by both enrollment UIs.
 ///
-/// Each arc is a pose direction from `FaceCoverageModel`. An arc is faint
-/// when uncovered, `terra` once registered (past `extremeMinDeg`), and
-/// `success` (green) once pushed to the steep `reachTargetDeg` — so the
-/// user can literally watch the extremes fill in. The arc the nose points
-/// at right now glows (`terraSoft`). Optionally shows a pulsing target dot
-/// at the next arc still needing an extreme (front nose-dial).
+/// One idea, one state per arc: an arc is **faint** until captured and
+/// **green** once captured. The single arc your nose points at right now
+/// (`currentSegment`) is the *active* arc — it **charges** (fills from one
+/// edge, `terra`) as you turn further toward it, then snaps to green the
+/// instant it captures. So the direction you point is always the arc that
+/// reacts, and green always means "got it." No counts, no second tier.
 struct CoverageDial: View {
     @ObservedObject var coverage: FaceCoverageModel
-    var lineWidth: CGFloat = 12
-    var showTarget: Bool = false
-
-    @State private var pulse = false
+    var lineWidth: CGFloat = 14
 
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
             let radius = min(size.width, size.height) / 2 - lineWidth
             let centre = CGPoint(x: size.width / 2, y: size.height / 2)
+            let arcSpan = 360.0 / Double(coverage.segmentCount)
+            let gapDeg = 5.0
 
-            ZStack {
-                Canvas { ctx, _ in
-                    let arc = 360.0 / Double(coverage.segmentCount)
-                    let gapDeg = 4.0
-                    for seg in coverage.segments {
-                        let half = arc / 2 - gapDeg / 2
-                        // model: 0°=right, 90°=up (CCW). Screen is y-down,
-                        // so negate to put "up" at the top.
-                        let start = Angle(degrees: -(seg.centreDeg + half))
-                        let end = Angle(degrees: -(seg.centreDeg - half))
-                        var path = Path()
-                        path.addArc(center: centre, radius: radius,
-                                    startAngle: start, endAngle: end,
-                                    clockwise: false)
-                        ctx.stroke(
-                            path,
-                            with: .color(color(for: seg)),
-                            style: StrokeStyle(
-                                lineWidth: seg.covered ? lineWidth : lineWidth * 0.55,
-                                lineCap: .round,
-                            ),
-                        )
+            Canvas { ctx, _ in
+                for seg in coverage.segments {
+                    let half = arcSpan / 2 - gapDeg / 2
+                    // model: 0°=right, 90°=up (CCW). Screen is y-down, so
+                    // negate → "up" renders at the top.
+                    let startDeg = -(seg.centreDeg + half)
+                    let endDeg = -(seg.centreDeg - half)
+
+                    if seg.covered {
+                        stroke(ctx, centre, radius, startDeg, endDeg,
+                               NemaraColor.success, lineWidth)
+                    } else if coverage.currentSegment == seg.id {
+                        // faint base + a charging fill that grows as you turn
+                        stroke(ctx, centre, radius, startDeg, endDeg,
+                               NemaraColor.line, lineWidth * 0.65)
+                        let frac = min(1.0, coverage.currentMag / coverage.extremeMinDeg)
+                        if frac > 0.02 {
+                            let fillEnd = startDeg + (endDeg - startDeg) * frac
+                            stroke(ctx, centre, radius, startDeg, fillEnd,
+                                   NemaraColor.terra, lineWidth)
+                        }
+                    } else {
+                        stroke(ctx, centre, radius, startDeg, endDeg,
+                               NemaraColor.line, lineWidth * 0.55)
                     }
-                }
-
-                if showTarget, let target = nextTarget {
-                    targetDot(centreDeg: target, radius: radius, origin: centre)
                 }
             }
         }
-        .onAppear { pulse = true }
     }
 
-    private func color(for seg: FaceCoverageModel.Segment) -> Color {
-        if seg.fullyReached { return NemaraColor.success }
-        if seg.covered { return NemaraColor.terra }
-        if coverage.currentSegment == seg.id { return NemaraColor.terraSoft }
-        return NemaraColor.line
+    private func stroke(
+        _ ctx: GraphicsContext, _ centre: CGPoint, _ radius: CGFloat,
+        _ startDeg: Double, _ endDeg: Double, _ color: Color, _ width: CGFloat,
+    ) {
+        var path = Path()
+        path.addArc(center: centre, radius: radius,
+                    startAngle: .degrees(startDeg), endAngle: .degrees(endDeg),
+                    clockwise: false)
+        ctx.stroke(path, with: .color(color),
+                   style: StrokeStyle(lineWidth: width, lineCap: .round))
     }
+}
 
-    /// Direction of the next arc still short of the steep target.
-    private var nextTarget: Double? {
-        coverage.segments.first(where: { !$0.fullyReached })?.centreDeg
+/// Big spring-in green tick shown when enrollment completes. Replaces the
+/// live preview so the finished state reads as locked, not still-running.
+struct EnrollmentCompleteBadge: View {
+    var diameter: CGFloat = 300
+    @State private var appear = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(NemaraColor.success.opacity(0.12))
+                .overlay(Circle().strokeBorder(NemaraColor.success, lineWidth: 3))
+            Image(systemName: "checkmark")
+                .font(.system(size: diameter * 0.32, weight: .bold))
+                .foregroundStyle(NemaraColor.success)
+                .scaleEffect(appear ? 1 : 0.4)
+                .opacity(appear ? 1 : 0)
+        }
+        .frame(width: diameter, height: diameter)
+        .onAppear {
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.6)) { appear = true }
+        }
     }
+}
 
-    private func targetDot(centreDeg: Double, radius: CGFloat, origin: CGPoint) -> some View {
-        let rad = CGFloat(-centreDeg * .pi / 180)
-        let p = CGPoint(x: origin.x + radius * cos(rad),
-                        y: origin.y + radius * sin(rad))
-        return Circle()
-            .fill(NemaraColor.terra)
-            .frame(width: 18, height: 18)
-            .scaleEffect(pulse ? 1.25 : 0.85)
-            .opacity(pulse ? 1.0 : 0.6)
-            .position(p)
-            .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
+/// Locked completion state: the green tick plus a review strip of exactly
+/// the frames we're about to upload, so the caregiver can see the angles
+/// that were captured before committing.
+struct EnrollmentCompleteView: View {
+    let frames: [Data]
+
+    var body: some View {
+        VStack(spacing: 20) {
+            EnrollmentCompleteBadge(diameter: 240)
+            Text("Enrollment complete")
+                .font(NemaraFont.title3)
+                .foregroundStyle(NemaraColor.success)
+            CaptureReviewStrip(frames: frames)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 16)
+    }
+}
+
+/// Horizontally scrolling thumbnails of the captured frames.
+struct CaptureReviewStrip: View {
+    let frames: [Data]
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("Captured angles")
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(frames.enumerated()), id: \.offset) { _, data in
+                        if let ui = UIImage(data: data) {
+                            Image(uiImage: ui)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 56, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
     }
 }

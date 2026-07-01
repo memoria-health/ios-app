@@ -24,11 +24,15 @@ final class EnrollmentVisionCamera: ObservableObject, @unchecked Sendable {
     enum Facing { case front, rear }
 
     // ── device-tune constants (verify once on a real device) ──────
-    /// Vision yaw sign so a turn maps to the dial the user expects. The
-    /// front preview is mirrored, so its sign is flipped vs the rear.
+    // If the dial fills OPPOSITE to where you turn, flip the matching
+    // sign here — nothing else needs to change.
+    /// Vision yaw sign so a left/right turn maps to the arc the user
+    /// expects. The front preview is mirrored, so its sign is flipped.
     private var yawSign: Double { facing == .front ? -1 : 1 }
+    /// Vision pitch sign so up/down maps to the top/bottom arcs.
+    private var pitchSign: Double { 1 }
     /// Process at ~this rate (Vision every frame is wasteful at 30 fps).
-    private let targetHz: Double = 12
+    private let targetHz: Double = 15
 
     let session = AVCaptureSession()
     let facing: Facing
@@ -138,7 +142,7 @@ final class EnrollmentVisionCamera: ObservableObject, @unchecked Sendable {
         let q = (qualReq.results ?? [])
             .compactMap { $0.faceCaptureQuality }.max() ?? 0
         let yaw = (face.yaw?.doubleValue ?? 0) * 180 / .pi * yawSign
-        let pitch = (face.pitch?.doubleValue ?? 0) * 180 / .pi
+        let pitch = (face.pitch?.doubleValue ?? 0) * 180 / .pi * pitchSign
         let box = face.boundingBox
 
         // Encode only when the frame is worth keeping (cheap quality gate
