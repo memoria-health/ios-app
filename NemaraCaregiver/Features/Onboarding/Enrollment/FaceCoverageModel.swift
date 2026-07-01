@@ -79,7 +79,7 @@ final class FaceCoverageModel: ObservableObject {
         extremeMinDeg: Double = 22,
         reachTargetDeg: Double = 45,
         minQuality: Float = 0.4,
-        framesPerSegment: Int = 2,
+        framesPerSegment: Int = 2,   // 2 most-extreme frames per arc
         frontalTarget: Int = 2
     ) {
         self.segmentCount = segmentCount

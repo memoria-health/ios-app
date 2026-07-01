@@ -25,6 +25,8 @@ struct FaceEnrollmentView: View {
     @State private var submitError: String?
 
     /// Client-side ceiling; keep in step with the backend cap.
+    // 2 frames/arc + frontal ≈ 26; keep a comfortable guard above that.
+    // Requires the backend cap at ≥ this (feat/enrollment-photo-cap = 40).
     private let maxUpload = 40
 
     private enum AuthState { case unknown, authorized, denied }
