@@ -89,7 +89,7 @@ struct PatientSettingsView: View {
                 .trackScreen("feedback")
         }
         .fullScreenCover(isPresented: $showingReEnrollment) {
-            FaceEnrollmentStepView(patientId: patientId) {
+            FaceEnrollmentView(patientId: patientId) {
                 showingReEnrollment = false
                 Task { await loadEnrollmentSummary() }
             }
