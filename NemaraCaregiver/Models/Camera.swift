@@ -35,8 +35,20 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     enum SourceType: String, Sendable, Codable {
         /// Wall-mounted NemaraCam iPhone (the original path).
         case phone = "iphone"
-        /// Raspberry Pi running the Nemara streaming daemon.
+        /// Any non-iPhone published camera — a Raspberry Pi streaming
+        /// daemon ("pi") or a mini-PC gateway ("gateway"). They behave
+        /// identically in the UI (discovered-list pairing, not the 6-digit
+        /// code), so both wire values decode into this case.
         case sensor = "pi"
+
+        /// Lenient decode: only "iphone" is a phone; every other backend
+        /// `source_type` ("pi", "gateway", and any future relay type) is a
+        /// sensor-style camera. Stops one unrecognized value (as "gateway"
+        /// did) from failing the entire camera-list decode.
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = (raw == "iphone") ? .phone : .sensor
+        }
     }
     var sourceType: SourceType
 
