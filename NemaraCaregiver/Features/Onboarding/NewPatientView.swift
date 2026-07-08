@@ -522,7 +522,7 @@ private struct PostCreateEnrollmentFlow: View {
                 }
             )
         case .faceEnrollment:
-            FaceEnrollmentStepView(patientId: patientId) { onFinish() }
+            FaceEnrollmentView(patientId: patientId) { onFinish() }
                 .environment(env)
         }
     }

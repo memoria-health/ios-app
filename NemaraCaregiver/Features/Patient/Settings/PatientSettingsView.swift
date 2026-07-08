@@ -38,6 +38,9 @@ struct PatientSettingsView: View {
     // dismiss of the re-enrollment cover so the counts stay fresh.
     @State private var enrollmentSummary: FaceEnrollmentSummary?
     @State private var showingReEnrollment = false
+    /// Bumped to re-run the lifecycle-bound enrollment poll (e.g. after
+    /// re-enrollment) instead of spawning a detached, un-cancellable Task.
+    @State private var reloadToken = 0
 
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
@@ -89,14 +92,14 @@ struct PatientSettingsView: View {
                 .trackScreen("feedback")
         }
         .fullScreenCover(isPresented: $showingReEnrollment) {
-            FaceEnrollmentStepView(patientId: patientId) {
+            FaceEnrollmentView(patientId: patientId) {
                 showingReEnrollment = false
-                Task { await loadEnrollmentSummary() }
+                reloadToken += 1   // re-runs the lifecycle-bound poll below
             }
             .environment(env)
             .trackScreen("face_enrollment")
         }
-        .task { await loadEnrollmentSummary() }
+        .task(id: reloadToken) { await loadEnrollmentSummary() }
     }
 
     /// Fetch the patient's face-enrollment status so the identity
@@ -104,10 +107,24 @@ struct PatientSettingsView: View {
     /// Best-effort: a transient failure leaves the card in its
     /// previous state.
     private func loadEnrollmentSummary() async {
-        do {
-            enrollmentSummary = try await env.api.faceEnrollmentSummary(patientId)
-        } catch {
-            NSLog("[PatientSettings] enrollment summary load failed: %@", "\(error)")
+        // Poll while the backend is still computing embeddings so the card
+        // flips from "in progress" to "complete" on its own — no need to
+        // leave and re-open the screen. Stops as soon as nothing is
+        // processing, or after ~80s. Driven by `.task(id: reloadToken)`, so
+        // it's cancelled on disappear and superseded when reloadToken bumps.
+        for attempt in 0..<40 {
+            if Task.isCancelled { return }
+            do {
+                let summary = try await env.api.faceEnrollmentSummary(patientId)
+                enrollmentSummary = summary
+                if !summary.isProcessing { return }
+            } catch {
+                NSLog("[PatientSettings] enrollment summary load failed: %@", "\(error)")
+            }
+            if attempt < 39 {
+                try? await Task.sleep(for: .seconds(2))
+                if Task.isCancelled { return }   // sleep swallows CancellationError
+            }
         }
     }
 
