@@ -1,15 +1,16 @@
-import LiveKit
 import SwiftUI
 
-/// Exit-door picker for the Wandering detector. Grabs a live frame from the
-/// patient's camera, asks the backend VLM to find doorways, highlights them,
-/// and lets the caregiver:
-///   • tap a highlighted door (source = "vlm"), OR
-///   • tap anywhere else to place the door themselves (source = "manual"), OR
-///   • declare "no door leads outside" (turns the detector off).
+/// Exit-door picker for the Wandering detector. Shows a captured camera frame
+/// (cached, so it doesn't re-analyze on every open — use Rescan to refresh),
+/// highlights the doorways the VLM found as tappable dots, and lets the
+/// caregiver:
+///   • tap highlighted doors to select/deselect MULTIPLE exits (source = "vlm"),
+///   • tap empty space to place their own door (source = "manual"), tap it again
+///     to remove it,
+///   • or declare "No door leads outside" (turns the detector off).
 ///
-/// The choice is saved via `POST /v1/patients/{id}/wandering-door`, which
-/// regenerates the wandering prompt so only leaving THROUGH that door counts.
+/// Saved via `POST /v1/patients/{id}/wandering-door`, which regenerates the
+/// wandering prompt so only leaving THROUGH one of the chosen doors counts.
 struct WanderingDoorPickerView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
@@ -20,21 +21,29 @@ struct WanderingDoorPickerView: View {
     private enum Phase: Equatable {
         case loading(String)
         case ready
-        case blocked(String)   // recoverable: no camera / not streaming
+        case blocked(String)
         case failed(String)
         case saving
     }
 
-    @State private var phase: Phase = .loading("Connecting to the camera…")
-    @State private var frame: UIImage?
-    @State private var doors: [DetectedDoor] = []
-    @State private var selectedDoorID: DetectedDoor.ID?
-    @State private var manualBox: [Double]?     // [x,y,w,h] from a tap-override
-    @State private var weConnected = false       // did WE open the room?
+    private struct ManualDoor: Identifiable, Hashable {
+        let id = UUID()
+        var box: [Double]   // [x,y,w,h]
+    }
 
+    @State private var phase: Phase = .loading("Loading the camera view…")
+    @State private var loaded: WanderingDoorCache.Frame?
+    @State private var selectedDoorIDs: Set<DetectedDoor.ID> = []
+    @State private var manualDoors: [ManualDoor] = []
+    @State private var didApplyExisting = false
+
+    private var cache: WanderingDoorCache { .shared }
+
+    // A tap within this many points of a dot hits it (select/remove).
+    private let hitRadius: CGFloat = 30
     // Default size of a tap-placed door box (fractions of the frame).
-    private let manualW = 0.14
-    private let manualH = 0.22
+    private let manualW = 0.12
+    private let manualH = 0.20
 
     var body: some View {
         NavigationStack {
@@ -42,22 +51,31 @@ struct WanderingDoorPickerView: View {
                 NemaraColor.paper.ignoresSafeArea()
                 content
             }
-            .navigationTitle("Exit door")
+            .navigationTitle("Exit doors")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .foregroundStyle(NemaraColor.ink2)
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await load(reload: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .foregroundStyle(NemaraColor.terra)
+                    .disabled(isBusy)
+                }
             }
         }
-        .task { await load() }
-        .onDisappear {
-            if weConnected {
-                let lk = env.liveKit
-                Task { await lk.disconnect() }
-            }
-        }
+        .task { await load(reload: false) }
+    }
+
+    private var isBusy: Bool {
+        if case .loading = phase { return true }
+        if case .saving = phase { return true }
+        return false
     }
 
     @ViewBuilder
@@ -78,6 +96,9 @@ struct WanderingDoorPickerView: View {
 
     // MARK: - Ready (the picker)
 
+    private var doors: [DetectedDoor] { loaded?.doors ?? [] }
+    private var selectionCount: Int { selectedDoorIDs.count + manualDoors.count }
+
     private var readyView: some View {
         VStack(spacing: 0) {
             instructions
@@ -89,10 +110,10 @@ struct WanderingDoorPickerView: View {
 
     private var instructions: some View {
         VStack(spacing: 6) {
-            NemaraEyebrow(doors.isEmpty ? "NO DOORS DETECTED · TAP TO PLACE" : "TAP THE EXIT DOOR")
+            NemaraEyebrow(doors.isEmpty ? "NO DOORS DETECTED · TAP TO PLACE" : "TAP EACH EXIT DOOR")
             Text(doors.isEmpty
-                 ? "Tap the spot on the camera view where the door your loved one would leave through is."
-                 : "Tap the highlighted door your loved one would use to leave home. Tap anywhere else to place it yourself.")
+                 ? "Tap the spots where doors your loved one could leave through are. Tap a marker again to remove it."
+                 : "Tap every door that leads outside — tap again to deselect. Tap anywhere else to add one yourself.")
                 .font(NemaraFont.bodySmall)
                 .foregroundStyle(NemaraColor.ink2)
                 .multilineTextAlignment(.center)
@@ -106,46 +127,27 @@ struct WanderingDoorPickerView: View {
 
     private var frameCanvas: some View {
         GeometryReader { geo in
-            let fit = fittedRect(imageSize: frame?.size ?? geo.size, in: geo.size)
+            let fit = fittedRect(imageSize: loaded?.image.size ?? geo.size, in: geo.size)
             ZStack(alignment: .topLeading) {
-                if let frame {
-                    Image(uiImage: frame)
+                if let image = loaded?.image {
+                    Image(uiImage: image)
                         .resizable()
                         .frame(width: fit.width, height: fit.height)
                         .offset(x: fit.minX, y: fit.minY)
                         .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
                 }
-                // VLM-detected doors
+                // VLM-detected doors (selectable dots)
                 ForEach(doors) { door in
-                    let r = boxRect(door.box, in: fit)
-                    let on = selectedDoorID == door.id
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(on ? NemaraColor.terra : Color.white.opacity(0.9),
-                                lineWidth: on ? 3 : 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(NemaraColor.terra.opacity(on ? 0.28 : 0.10))
-                        )
-                        .frame(width: r.width, height: r.height)
-                        .offset(x: r.minX, y: r.minY)
+                    let c = center(door.box, in: fit)
+                    doorDot(selected: selectedDoorIDs.contains(door.id), manual: false)
+                        .position(x: c.x, y: c.y)
                         .allowsHitTesting(false)
                 }
-                // Manual tap-override marker
-                if let manualBox {
-                    let r = boxRect(manualBox, in: fit)
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(NemaraColor.terra, lineWidth: 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(NemaraColor.terra.opacity(0.28))
-                        )
-                        .overlay(
-                            Image(systemName: "figure.walk.motion")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                        )
-                        .frame(width: r.width, height: r.height)
-                        .offset(x: r.minX, y: r.minY)
+                // Manual (tap-placed) doors
+                ForEach(manualDoors) { m in
+                    let c = center(m.box, in: fit)
+                    doorDot(selected: true, manual: true)
+                        .position(x: c.x, y: c.y)
                         .allowsHitTesting(false)
                 }
             }
@@ -156,16 +158,32 @@ struct WanderingDoorPickerView: View {
         .aspectRatio(frameAspect, contentMode: .fit)
     }
 
+    @ViewBuilder
+    private func doorDot(selected: Bool, manual: Bool) -> some View {
+        ZStack {
+            Circle()
+                .fill(selected ? NemaraColor.terra : NemaraColor.terra.opacity(0.35))
+                .frame(width: selected ? 30 : 24, height: selected ? 30 : 24)
+                .overlay(Circle().stroke(.white, lineWidth: selected ? 2.5 : 2))
+                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+            if selected {
+                Image(systemName: manual ? "figure.walk" : "checkmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
     private var controls: some View {
         VStack(spacing: 10) {
             NemaraButton(
-                "Set exit door",
+                setButtonTitle,
                 variant: .terra,
                 block: true,
                 systemImage: "checkmark",
             ) { Task { await saveSelection() } }
-            .disabled(!hasSelection)
-            .opacity(hasSelection ? 1 : 0.5)
+            .disabled(selectionCount == 0)
+            .opacity(selectionCount == 0 ? 0.5 : 1)
 
             NemaraButton(
                 "No door leads outside",
@@ -174,6 +192,14 @@ struct WanderingDoorPickerView: View {
             ) { Task { await saveNoExitDoor() } }
         }
         .padding(16)
+    }
+
+    private var setButtonTitle: String {
+        switch selectionCount {
+        case 0: return "Set exit doors"
+        case 1: return "Set 1 exit door"
+        default: return "Set \(selectionCount) exit doors"
+        }
     }
 
     private func statusView(_ msg: String, spinner: Bool, retry: Bool = false) -> some View {
@@ -194,65 +220,74 @@ struct WanderingDoorPickerView: View {
                 .padding(.horizontal, 32)
             if retry {
                 NemaraButton("Try again", variant: .secondary) {
-                    Task { await load() }
+                    Task { await load(reload: true) }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Selection
-
-    private var hasSelection: Bool { selectedDoorID != nil || manualBox != nil }
+    // MARK: - Tap handling (select / deselect / place / remove)
 
     private func handleTap(_ location: CGPoint, fit: CGRect) {
-        // A tap inside a detected door selects it; anywhere else places a
-        // manual door box centered on the tap.
-        if let hit = doors.first(where: { boxRect($0.box, in: fit).contains(location) }) {
-            selectedDoorID = hit.id
-            manualBox = nil
+        // 1) hit an existing VLM dot -> toggle selection
+        if let door = nearest(doors.map { ($0.id, center($0.box, in: fit)) },
+                              to: location, within: hitRadius) {
+            if selectedDoorIDs.contains(door) { selectedDoorIDs.remove(door) }
+            else { selectedDoorIDs.insert(door) }
             return
         }
+        // 2) hit an existing manual dot -> remove it
+        if let mid = nearest(manualDoors.map { ($0.id, center($0.box, in: fit)) },
+                             to: location, within: hitRadius) {
+            manualDoors.removeAll { $0.id == mid }
+            return
+        }
+        // 3) empty space -> place a new manual door
         guard let n = normalizedPoint(location, in: fit) else { return }
         let x = min(max(n.x - manualW / 2, 0), 1 - manualW)
         let y = min(max(n.y - manualH / 2, 0), 1 - manualH)
-        manualBox = [x, y, manualW, manualH]
-        selectedDoorID = nil
+        manualDoors.append(ManualDoor(box: [x, y, manualW, manualH]))
     }
 
-    private func saveSelection() async {
-        let box: [Double]
-        let label: String?
-        let source: String
-        if let id = selectedDoorID, let door = doors.first(where: { $0.id == id }) {
-            box = door.box
-            label = door.label
-            source = "vlm"
-        } else if let manualBox {
-            box = manualBox
-            label = nil
-            source = "manual"
-        } else {
-            return
+    private func nearest<ID: Hashable>(
+        _ items: [(ID, CGPoint)], to loc: CGPoint, within radius: CGFloat,
+    ) -> ID? {
+        var best: (ID, CGFloat)?
+        for (id, c) in items {
+            let d = hypot(c.x - loc.x, c.y - loc.y)
+            if d <= radius, best == nil || d < best!.1 { best = (id, d) }
         }
+        return best?.0
+    }
+
+    // MARK: - Save
+
+    private func saveSelection() async {
+        var payload: [WanderingDoorInput] = []
+        for door in doors where selectedDoorIDs.contains(door.id) {
+            payload.append(WanderingDoorInput(box: door.box, label: door.label, source: "vlm"))
+        }
+        for m in manualDoors {
+            payload.append(WanderingDoorInput(box: m.box, label: nil, source: "manual"))
+        }
+        guard !payload.isEmpty else { return }
         phase = .saving
         do {
-            _ = try await env.api.setWanderingDoor(
-                forPatient: patientId, box: box, label: label,
-                source: source, noExitDoor: false,
+            _ = try await env.api.setWanderingDoors(
+                forPatient: patientId, doors: payload, noExitDoor: false,
             )
             dismiss()
         } catch {
-            phase = .failed("Couldn't save the exit door. Please try again.")
+            phase = .failed("Couldn't save the exit doors. Please try again.")
         }
     }
 
     private func saveNoExitDoor() async {
         phase = .saving
         do {
-            _ = try await env.api.setWanderingDoor(
-                forPatient: patientId, box: nil, label: nil,
-                source: "manual", noExitDoor: true,
+            _ = try await env.api.setWanderingDoors(
+                forPatient: patientId, doors: [], noExitDoor: true,
             )
             dismiss()
         } catch {
@@ -260,85 +295,48 @@ struct WanderingDoorPickerView: View {
         }
     }
 
-    // MARK: - Load pipeline
+    // MARK: - Load (cache-backed)
 
-    private func load() async {
-        phase = .loading("Connecting to the camera…")
-        frame = nil
-        doors = []
-        selectedDoorID = nil
-        manualBox = nil
-
-        let cams = env.api.camerasByPatient[patientId] ?? []
-        let target = cams.first(where: { $0.livekitIdentity != nil && $0.online && !$0.disabled })
-            ?? cams.first(where: { $0.livekitIdentity != nil })
-        guard let identity = target?.livekitIdentity else {
-            phase = .blocked("This patient doesn't have a paired camera yet. Pair one first, then set the exit door.")
-            return
+    private func load(reload: Bool) async {
+        phase = .loading(reload ? "Rescanning the room…" : "Loading the camera view…")
+        let outcome = reload
+            ? await cache.reload(patientId, api: env.api, liveKit: env.liveKit)
+            : await cache.ensureLoaded(patientId, api: env.api, liveKit: env.liveKit)
+        switch outcome {
+        case .ok:
+            loaded = cache.cached(patientId)
+            applyExistingSelectionIfNeeded()
+            phase = .ready
+        case .blocked(let m):
+            phase = .blocked(m)
+        case .failed(let m):
+            phase = .failed(m)
         }
+    }
 
-        let room = "patient_\(patientId.uuidString.lowercased())"
-        if env.liveKit.currentRoom == room, env.liveKit.state == .connected {
-            weConnected = false
-        } else {
-            do {
-                let tok = try await env.api.mintViewerToken(forPatient: patientId)
-                await env.liveKit.connect(url: tok.url, token: tok.token, room: room)
-                weConnected = true
-            } catch {
-                phase = .failed("Couldn't connect to the camera. Check your connection and try again.")
-                return
-            }
-        }
-
-        // Wait for the camera's video track (up to ~6s).
-        var track: VideoTrack?
-        for _ in 0..<30 {
-            if let t = env.liveKit.videoTracksByIdentity[identity] {
-                track = t
-                break
-            }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-        }
-        guard let track else {
-            phase = .blocked("The camera isn't streaming right now. Open the Live tab to wake it, then try again.")
-            return
-        }
-
-        phase = .loading("Capturing the room…")
-        guard let jpeg = await LiveKitFrameCapture.jpeg(from: track),
-              let img = UIImage(data: jpeg) else {
-            phase = .failed("Couldn't capture a frame from the camera. Please try again.")
-            return
-        }
-        frame = img
-
-        phase = .loading("Looking for doors…")
-        do {
-            doors = try await env.api.detectDoors(imageBase64: jpeg.base64EncodedString())
-        } catch {
-            doors = []   // fall back to tap-to-place; not fatal
-        }
-
-        // Pre-highlight a prior selection.
-        if let dc = detector.doorConfig, !dc.noExitDoor, let box = dc.box, box.count == 4 {
+    /// Pre-select the doors already saved on the detector, once, so the picker
+    /// opens reflecting the current configuration.
+    private func applyExistingSelectionIfNeeded() {
+        guard !didApplyExisting else { return }
+        didApplyExisting = true
+        guard let dc = detector.doorConfig, !dc.noExitDoor else { return }
+        for stored in dc.doors {
+            guard let box = stored.box, box.count == 4 else { continue }
             if let match = doors.first(where: { iou($0.box, box) > 0.5 }) {
-                selectedDoorID = match.id
+                selectedDoorIDs.insert(match.id)
             } else {
-                manualBox = box
+                manualDoors.append(ManualDoor(box: box))
             }
         }
-        phase = .ready
     }
 
     // MARK: - Geometry
 
     private var frameAspect: CGFloat {
-        guard let s = frame?.size, s.height > 0 else { return 16.0 / 9.0 }
+        guard let s = loaded?.image.size, s.height > 0 else { return 16.0 / 9.0 }
         return s.width / s.height
     }
 
-    /// Aspect-fit `imageSize` inside `container`, centered.
     private func fittedRect(imageSize: CGSize, in container: CGSize) -> CGRect {
         guard imageSize.width > 0, imageSize.height > 0 else {
             return CGRect(origin: .zero, size: container)
@@ -349,13 +347,12 @@ struct WanderingDoorPickerView: View {
         return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
     }
 
-    private func boxRect(_ box: [Double], in fit: CGRect) -> CGRect {
-        guard box.count == 4 else { return .zero }
-        return CGRect(
-            x: fit.minX + CGFloat(box[0]) * fit.width,
-            y: fit.minY + CGFloat(box[1]) * fit.height,
-            width: CGFloat(box[2]) * fit.width,
-            height: CGFloat(box[3]) * fit.height,
+    /// Center of a normalized [x,y,w,h] box in view coordinates.
+    private func center(_ box: [Double], in fit: CGRect) -> CGPoint {
+        guard box.count == 4 else { return CGPoint(x: fit.midX, y: fit.midY) }
+        return CGPoint(
+            x: fit.minX + CGFloat(box[0] + box[2] / 2) * fit.width,
+            y: fit.minY + CGFloat(box[1] + box[3] / 2) * fit.height,
         )
     }
 

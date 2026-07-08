@@ -792,22 +792,18 @@ final class NemaraAPIClient {
         return resp.doors
     }
 
-    /// Save the caregiver's exit-door choice for a patient's wandering detector.
-    /// The backend regenerates the wandering prompt from it; `noExitDoor` turns
-    /// the detector off. Updates the local detector in place.
-    func setWanderingDoor(
+    /// Save the caregiver's exit-door choice(s) for a patient's wandering
+    /// detector. The backend regenerates the wandering prompt from them;
+    /// `noExitDoor` turns the detector off. Updates the local detector in place.
+    func setWanderingDoors(
         forPatient pid: UUID,
-        box: [Double]?,
-        label: String?,
-        source: String,
+        doors: [WanderingDoorInput],
         noExitDoor: Bool,
     ) async throws -> Detector {
         let updated: Detector = try await sendJSON(
             method: "POST",
             path: "/v1/patients/\(pid.uuidString.lowercased())/wandering-door",
-            body: SetWanderingDoorRequest(
-                box: box, label: label, source: source, noExitDoor: noExitDoor,
-            ),
+            body: SetWanderingDoorRequest(doors: doors, noExitDoor: noExitDoor),
         )
         if var arr = detectorsByPatient[updated.patientId],
            let idx = arr.firstIndex(where: { $0.id == updated.id }) {

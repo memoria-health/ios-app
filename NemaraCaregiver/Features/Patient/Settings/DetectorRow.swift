@@ -118,7 +118,20 @@ struct DetectorRow: View {
         .sheet(isPresented: $showDoorPicker) {
             WanderingDoorPickerView(patientId: patientId, detector: detector)
         }
+        // Pre-warm the exit-door frame + detection in the background so opening
+        // the picker is instant (cached; Rescan refreshes). Runs once — the
+        // cache dedupes and only re-captures on explicit reload.
+        .task(id: prefetchKey) {
+            if isWandering, detector.isOn {
+                _ = await WanderingDoorCache.shared.ensureLoaded(
+                    patientId, api: env.api, liveKit: env.liveKit,
+                )
+            }
+        }
     }
+
+    /// Re-run the prefetch when the wandering detector is toggled on.
+    private var prefetchKey: String { "\(detector.id)-\(detector.isOn)" }
 
     /// Exit-door affordance shown under the wandering detector. Tapping it opens
     /// the picker where the caregiver highlights the door that leads outside.
@@ -130,7 +143,7 @@ struct DetectorRow: View {
                     .foregroundStyle(NemaraColor.terra)
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Exit door")
+                    Text("Exit doors")
                         .font(NemaraFont.bodySmallStrong)
                         .foregroundStyle(NemaraColor.ink)
                     Text(doorStatusText)
@@ -140,7 +153,7 @@ struct DetectorRow: View {
                         .truncationMode(.tail)
                 }
                 Spacer()
-                Text(detector.doorConfig?.box != nil ? "Change" : "Set")
+                Text(hasDoorSelection ? "Change" : "Set")
                     .font(NemaraFont.mono(size: 10, weight: .semibold))
                     .tracking(0.5)
                     .foregroundStyle(NemaraColor.terra)
@@ -157,14 +170,27 @@ struct DetectorRow: View {
         .padding(.leading, 44)
     }
 
+    private var hasDoorSelection: Bool {
+        guard let dc = detector.doorConfig else { return false }
+        return dc.noExitDoor || !dc.doors.isEmpty
+    }
+
     private var doorStatusText: String {
         guard let dc = detector.doorConfig else {
             return "Not set · any doorway counts as leaving"
         }
         if dc.noExitDoor { return "No door leads outside" }
-        if let label = dc.label, !label.isEmpty { return "Set · \(label)" }
-        if dc.box != nil { return "Exit door set" }
-        return "Not set · any doorway counts as leaving"
+        switch dc.doors.count {
+        case 0:
+            return "Not set · any doorway counts as leaving"
+        case 1:
+            if let label = dc.doors.first?.label, !label.isEmpty {
+                return "1 exit door · \(label)"
+            }
+            return "1 exit door set"
+        default:
+            return "\(dc.doors.count) exit doors set"
+        }
     }
 
     private var fourAxisCaption: some View {

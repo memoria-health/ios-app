@@ -99,34 +99,56 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     var updatedAt: Date
 
     /// The exit-door selection stored on a `wandering` detector. Mirrors the
-    /// backend `door_config` jsonb (see `POST /v1/patients/{id}/wandering-door`).
+    /// backend `door_config` jsonb (see `POST /v1/patients/{id}/wandering-door`):
+    /// `{ doors: [{box,label,source}], no_exit_door }`. A caregiver can pick
+    /// MULTIPLE exit doors.
     struct DoorConfig: Codable, Hashable, Sendable {
-        /// Selected door as `[x, y, w, h]` fractions of the frame (0-1). Nil
-        /// when `noExitDoor` is true.
-        var box: [Double]?
-        var label: String?
-        /// `"vlm"` (tapped a highlighted box) or `"manual"` (tap-override).
-        var source: String?
+        var doors: [Door]
         /// True => no door leads outside; the detector is turned off.
         var noExitDoor: Bool
 
-        enum CodingKeys: String, CodingKey {
-            case box, label, source
-            case noExitDoor = "no_exit_door"
+        /// One selected exit door.
+        struct Door: Codable, Hashable, Sendable {
+            /// `[x, y, w, h]` fractions of the frame (0-1).
+            var box: [Double]?
+            var label: String?
+            /// `"vlm"` (tapped a highlighted box) or `"manual"` (tap-override).
+            var source: String?
         }
 
-        init(box: [Double]? = nil, label: String? = nil,
-             source: String? = nil, noExitDoor: Bool = false) {
-            self.box = box; self.label = label
-            self.source = source; self.noExitDoor = noExitDoor
+        enum CodingKeys: String, CodingKey {
+            case doors
+            case noExitDoor = "no_exit_door"
+            // Legacy single-door keys (rows saved before multi-door shipped).
+            case box, label, source
+        }
+
+        init(doors: [Door] = [], noExitDoor: Bool = false) {
+            self.doors = doors
+            self.noExitDoor = noExitDoor
         }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            box = try c.decodeIfPresent([Double].self, forKey: .box)
-            label = try c.decodeIfPresent(String.self, forKey: .label)
-            source = try c.decodeIfPresent(String.self, forKey: .source)
             noExitDoor = try c.decodeIfPresent(Bool.self, forKey: .noExitDoor) ?? false
+            if let arr = try c.decodeIfPresent([Door].self, forKey: .doors) {
+                doors = arr
+            } else if let box = try c.decodeIfPresent([Double].self, forKey: .box) {
+                // Back-compat: fold a legacy single-door row into the array.
+                doors = [Door(
+                    box: box,
+                    label: try c.decodeIfPresent(String.self, forKey: .label),
+                    source: try c.decodeIfPresent(String.self, forKey: .source),
+                )]
+            } else {
+                doors = []
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(doors, forKey: .doors)
+            try c.encode(noExitDoor, forKey: .noExitDoor)
         }
     }
 
@@ -177,17 +199,22 @@ struct DetectDoorsResponse: Decodable, Sendable {
     var doors: [DetectedDoor]
 }
 
-/// Body of `POST /v1/patients/{id}/wandering-door` — the caregiver's exit-door
-/// choice. `box`/`label`/`source` when a door is chosen; `noExitDoor` when no
-/// door leads outside (turns the detector off).
-struct SetWanderingDoorRequest: Encodable, Sendable {
-    var box: [Double]?
+/// One chosen exit door in a `SetWanderingDoorRequest`.
+struct WanderingDoorInput: Encodable, Sendable {
+    var box: [Double]
     var label: String?
-    var source: String
+    var source: String   // "vlm" | "manual"
+}
+
+/// Body of `POST /v1/patients/{id}/wandering-door` — the caregiver's exit-door
+/// choice. One or more `doors` when doors are chosen; `noExitDoor` when no door
+/// leads outside (turns the detector off).
+struct SetWanderingDoorRequest: Encodable, Sendable {
+    var doors: [WanderingDoorInput]
     var noExitDoor: Bool
 
     enum CodingKeys: String, CodingKey {
-        case box, label, source
+        case doors
         case noExitDoor = "no_exit_door"
     }
 }
