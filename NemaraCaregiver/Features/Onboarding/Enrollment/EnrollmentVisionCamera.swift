@@ -139,6 +139,7 @@ final class EnrollmentVisionCamera: ObservableObject, @unchecked Sendable {
         guard let face = (rectReq.results ?? [])
             .max(by: { $0.boundingBox.area < $1.boundingBox.area }) else {
             publish(box: nil, quality: 0, visible: false)
+            DispatchQueue.main.async { [coverage] in coverage.noteFaceLost() }
             return
         }
         let q = (qualReq.results ?? [])
@@ -146,16 +147,86 @@ final class EnrollmentVisionCamera: ObservableObject, @unchecked Sendable {
         let yaw = (face.yaw?.doubleValue ?? 0) * 180 / .pi * yawSign
         let pitch = (face.pitch?.doubleValue ?? 0) * 180 / .pi * pitchSign
         let box = face.boundingBox
+        let mag = (yaw * yaw + pitch * pitch).squareRoot()
+        let floor = coverage.qualityFloor(forMag: mag)
+        let framed = wellFramed(box)
 
-        // Encode only when the frame is worth keeping (cheap quality gate
-        // eliminates most frames before we pay the JPEG cost).
-        let jpeg: Data? = q >= coverage.minQuality
-            ? encodeJPEG(pixelBuffer) : nil
+        // Encode only when the frame is worth keeping — framed AND clearing
+        // the angle-aware quality floor (profiles held to a lower bar). An
+        // unframed face never produces a JPEG, so a half-cut face can't green.
+        let jpeg: Data? = (framed && q >= floor) ? encodeJPEG(pixelBuffer) : nil
+
+        // Scene brightness is only needed to EXPLAIN a low-quality frame, so
+        // compute it just then (cheap subsample, skipped on good frames).
+        let brightness: Float = q < floor ? sceneLuma(pixelBuffer) : 1.0
 
         publish(box: box, quality: q, visible: true)
         DispatchQueue.main.async { [coverage] in
-            coverage.ingest(yawDeg: yaw, pitchDeg: pitch, quality: q, jpeg: jpeg)
+            coverage.ingest(
+                yawDeg: yaw, pitchDeg: pitch, quality: q, framed: framed,
+                brightness: brightness, faceHeight: Double(box.height), jpeg: jpeg,
+            )
         }
+    }
+
+    /// Cheap average scene luma (0…1) over a coarse subsample of the BGRA
+    /// buffer — enough to tell "the room is dark" from "the frame is blurry"
+    /// so the low-quality coach can say *why*. Only called on low-quality
+    /// frames, so the per-frame cost is negligible.
+    private func sceneLuma(_ pixelBuffer: CVPixelBuffer) -> Float {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return 1 }
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let ptr = base.assumingMemoryBound(to: UInt8.self)
+        let stepX = max(1, width / 24)
+        let stepY = max(1, height / 24)
+        var sum = 0.0
+        var count = 0
+        var y = 0
+        while y < height {
+            let row = y * rowBytes
+            var x = 0
+            while x < width {
+                let i = row + x * 4   // BGRA
+                let b = Double(ptr[i]), g = Double(ptr[i + 1]), r = Double(ptr[i + 2])
+                sum += 0.114 * b + 0.587 * g + 0.299 * r
+                count += 1
+                x += stepX
+            }
+            y += stepY
+        }
+        return count > 0 ? Float(sum / Double(count) / 255.0) : 1
+    }
+
+    /// Framing verdict for a Vision face rect (normalised, origin
+    /// bottom-left, in the upright portrait buffer). "Keep your whole face in
+    /// the ring": the face must not spill past the visible ring and must be
+    /// big enough. No CENTERING gate (that made profiles slow to land) — this
+    /// is about clipping, not centre. When it goes false, the front view
+    /// shows the recenter hint.
+    ///
+    /// The two cameras have different geometry, so the boundary differs:
+    /// - FRONT: the round preview aspect-fills the tall sensor into the
+    ///   circle, cropping top/bottom — so the visible ring is only the middle
+    ///   ~[0.22, 0.78] of the sensor vertically. Gate on THAT, or a face
+    ///   spilling out of the ring (too close / too high, chin cut off) reads
+    ///   as "fine" because it's still on the rectangular sensor.
+    /// - REAR: full-bleed preview with a face-tracking ring, so the whole
+    ///   sensor frame is visible — gate on the frame edge.
+    private func wellFramed(_ box: CGRect) -> Bool {
+        guard box.height >= 0.16 else { return false }
+        if facing == .front {
+            // vertical band ≈ the ring (a hair looser than the [0.22,0.78]
+            // crop); horizontal ~full width. Aggressive on top/bottom spill.
+            return box.minX >= 0.04 && box.maxX <= 0.96
+                && box.minY >= 0.20 && box.maxY <= 0.80
+        }
+        let edge: CGFloat = 0.02
+        return box.minX >= edge && box.maxX <= 1 - edge
+            && box.minY >= edge && box.maxY <= 1 - edge
     }
 
     private func publish(box: CGRect?, quality: Float, visible: Bool) {

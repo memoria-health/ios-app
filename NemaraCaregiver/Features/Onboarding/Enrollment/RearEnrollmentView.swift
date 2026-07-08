@@ -31,7 +31,15 @@ struct RearEnrollmentView: View {
         .onAppear { if authorized { camera.configure(); camera.start() } }
         .onDisappear { camera.stop() }
         .onChange(of: authorized) { _, ok in if ok { camera.configure(); camera.start() } }
-        .onChange(of: coverage.isComplete) { _, done in if done { camera.stop() } }
+        .onChange(of: coverage.coveredCount) { old, new in
+            if new > old { EnrollmentHaptics.arcCaptured() }
+        }
+        .onChange(of: coverage.frontalCount) { old, new in
+            if new > old { EnrollmentHaptics.arcCaptured() }
+        }
+        .onChange(of: coverage.isComplete) { _, done in
+            if done { camera.stop(); EnrollmentHaptics.completed() }
+        }
     }
 
     private var capturing: some View {
@@ -60,27 +68,18 @@ struct RearEnrollmentView: View {
             VStack {
                 hintBanner
                 Spacer()
-                if !camera.faceVisible && camera.isConfigured {
-                    Text("Point the camera at the resident's face")
-                        .font(NemaraFont.bodyLarge.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(.black.opacity(0.45), in: Capsule())
-                        .padding(.bottom, 28)
-                }
             }
         }
     }
 
+    // Fixed instruction + a calm, debounced caption. The live guidance is
+    // the tracked pose needle on the dial, not text.
     private var hintBanner: some View {
-        Text(coverage.nextHint(style: .cameraOrbits))
-            .font(NemaraFont.title3)
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-            .animation(.default, value: coverage.currentSegment)
-            .padding(.horizontal, 18).padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            .background(.black.opacity(0.4))
+        EnrollmentGuidanceBanner(
+            headline: "Slowly move around to every side of them",
+            caption: FaceCoverageModel.caption(for: coverage.guidance, style: .cameraOrbits),
+            onDark: true,
+        )
     }
 
     @ViewBuilder private var placeholder: some View {

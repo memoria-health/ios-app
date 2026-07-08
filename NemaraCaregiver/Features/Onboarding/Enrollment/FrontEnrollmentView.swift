@@ -31,7 +31,15 @@ struct FrontEnrollmentView: View {
         .onAppear { if authorized { camera.configure(); camera.start() } }
         .onDisappear { camera.stop() }
         .onChange(of: authorized) { _, ok in if ok { camera.configure(); camera.start() } }
-        .onChange(of: coverage.isComplete) { _, done in if done { camera.stop() } }
+        .onChange(of: coverage.coveredCount) { old, new in
+            if new > old { EnrollmentHaptics.arcCaptured() }
+        }
+        .onChange(of: coverage.frontalCount) { old, new in
+            if new > old { EnrollmentHaptics.arcCaptured() }
+        }
+        .onChange(of: coverage.isComplete) { _, done in
+            if done { camera.stop(); EnrollmentHaptics.completed() }
+        }
     }
 
     private var capturing: some View {
@@ -51,11 +59,11 @@ struct FrontEnrollmentView: View {
             }
             .frame(maxWidth: .infinity)
 
-            Text("Slowly roll your head so your nose fills the ring")
-                .font(NemaraFont.title3)
-                .foregroundStyle(NemaraColor.ink)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
+            EnrollmentGuidanceBanner(
+                headline: "Slowly turn your head in every direction",
+                caption: FaceCoverageModel.caption(for: coverage.guidance, style: .subjectTurns),
+            )
+            .padding(.horizontal, 20)
         }
         .padding(.top, 16)
     }
