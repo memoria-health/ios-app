@@ -16,6 +16,7 @@ struct FaceEnrollmentView: View {
     let onComplete: () -> Void
 
     @Environment(AppEnvironment.self) private var env
+    @Environment(\.scenePhase) private var scenePhase
 
     /// One shared coverage model across camera switches.
     @StateObject private var coverage = FaceCoverageModel()
@@ -41,6 +42,11 @@ struct FaceEnrollmentView: View {
         }
         .background(NemaraColor.paper)
         .onAppear(perform: requestAccess)
+        // Re-check on foreground so granting access in Settings (via the
+        // placeholder's deep-link) re-enables the camera without a restart.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { requestAccess() }
+        }
     }
 
     // MARK: sections

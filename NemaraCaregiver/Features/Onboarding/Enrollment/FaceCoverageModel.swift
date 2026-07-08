@@ -49,16 +49,9 @@ final class FaceCoverageModel: ObservableObject {
         let id: Int
         /// centre direction of this arc, degrees (0 = right, 90 = up)
         let centreDeg: Double
-        /// magnitude (deg) at which this arc is considered fully captured —
-        /// deliberately steeper than FaceID so we get near-profile views
-        let reachTargetDeg: Double
         /// kept frames, most-extreme first: (jpeg, magnitude, quality)
         fileprivate(set) var frames: [(data: Data, mag: Double, q: Float)] = []
         var covered: Bool { !frames.isEmpty }
-        /// best (largest) magnitude captured here — drives a "reach" tint
-        var reachedDeg: Double { frames.map(\.mag).max() ?? 0 }
-        /// reached a genuinely extreme angle (past the FaceID-ish range)
-        var fullyReached: Bool { reachedDeg >= reachTargetDeg }
     }
 
     // ── tuning ────────────────────────────────────────────────────
@@ -67,10 +60,10 @@ final class FaceCoverageModel: ObservableObject {
     let frontalMaxDeg: Double
     /// a directional capture must clear this magnitude to REGISTER an arc
     let extremeMinDeg: Double
-    /// magnitude an arc must reach to count as fully/extremely covered —
-    /// steeper than FaceID (which barely leaves near-frontal). Vision's
-    /// yaw estimate degrades near true profile (~±70°), so this is the
-    /// practical extreme ceiling, tune on device.
+    /// the "full extreme" angle — the magnitude at which the angle-aware
+    /// quality floor bottoms out at `minQualityFloor` (see `qualityFloor`).
+    /// Vision's yaw estimate degrades near true profile (~±70°), so this is
+    /// the practical extreme ceiling; tune on device.
     let reachTargetDeg: Double
     /// Vision faceCaptureQuality floor for a FRONTAL frame — kept strict so
     /// the most-used pose is high quality. Profiles are relaxed toward
@@ -163,8 +156,7 @@ final class FaceCoverageModel: ObservableObject {
         self.guidanceDwell = guidanceDwell
         let arc = 360.0 / Double(segmentCount)
         self.segments = (0..<segmentCount).map {
-            Segment(id: $0, centreDeg: (Double($0) + 0.5) * arc,
-                    reachTargetDeg: reachTargetDeg)
+            Segment(id: $0, centreDeg: (Double($0) + 0.5) * arc)
         }
     }
 
@@ -259,14 +251,10 @@ final class FaceCoverageModel: ObservableObject {
     // ── queries the dials + upload use ────────────────────────────
 
     var coveredCount: Int { segments.filter(\.covered).count }
-    /// arcs pushed all the way to the extreme target — the real goal
-    var fullyReachedCount: Int { segments.filter(\.fullyReached).count }
     var progress: Double { Double(coveredCount) / Double(segmentCount) }
     var hasFrontal: Bool { frontalCount > 0 }
     /// every arc touched at least to the minimum extreme
     var isComplete: Bool { hasFrontal && coveredCount == segmentCount }
-    /// every arc pushed to the steep target — best-case coverage
-    var isFullyExtreme: Bool { hasFrontal && fullyReachedCount == segmentCount }
     /// enough to submit usefully (frontal + a majority of the cone)
     var isSubmittable: Bool {
         hasFrontal && coveredCount >= Int(ceil(Double(segmentCount) * 0.5))
