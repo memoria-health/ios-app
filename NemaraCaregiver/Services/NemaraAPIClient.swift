@@ -780,6 +780,43 @@ final class NemaraAPIClient {
         }
     }
 
+    // MARK: - Wandering exit-door picker
+
+    /// Send a camera frame (base64 JPEG) to the VLM; returns the doorways it
+    /// found so the picker can highlight them.
+    func detectDoors(imageBase64: String) async throws -> [DetectedDoor] {
+        let resp: DetectDoorsResponse = try await sendJSON(
+            method: "POST", path: "/v1/detect-doors",
+            body: DetectDoorsRequest(imageBase64: imageBase64),
+        )
+        return resp.doors
+    }
+
+    /// Save the caregiver's exit-door choice for a patient's wandering detector.
+    /// The backend regenerates the wandering prompt from it; `noExitDoor` turns
+    /// the detector off. Updates the local detector in place.
+    func setWanderingDoor(
+        forPatient pid: UUID,
+        box: [Double]?,
+        label: String?,
+        source: String,
+        noExitDoor: Bool,
+    ) async throws -> Detector {
+        let updated: Detector = try await sendJSON(
+            method: "POST",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/wandering-door",
+            body: SetWanderingDoorRequest(
+                box: box, label: label, source: source, noExitDoor: noExitDoor,
+            ),
+        )
+        if var arr = detectorsByPatient[updated.patientId],
+           let idx = arr.firstIndex(where: { $0.id == updated.id }) {
+            arr[idx] = updated
+            detectorsByPatient[updated.patientId] = arr
+        }
+        return updated
+    }
+
     /// The detection library for this patient's cohort — the prebuilt detectors
     /// they can add. `alreadyAdded` is set for ones the patient already has.
     func fetchDetectorLibrary(forPatient pid: UUID) async throws -> [DetectorLibraryEntry] {

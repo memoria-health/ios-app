@@ -92,8 +92,43 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     var scheduleConfig: ScheduleConfig?
     /// Null unless `shape == .state`; the rising-edge episode gap (seconds).
     var episodeGapSeconds: Int?
+    /// Wandering only: the caregiver's saved exit-door choice, so the picker
+    /// can pre-highlight it. Nil until the caregiver runs the door picker.
+    var doorConfig: DoorConfig?
     var createdAt: Date
     var updatedAt: Date
+
+    /// The exit-door selection stored on a `wandering` detector. Mirrors the
+    /// backend `door_config` jsonb (see `POST /v1/patients/{id}/wandering-door`).
+    struct DoorConfig: Codable, Hashable, Sendable {
+        /// Selected door as `[x, y, w, h]` fractions of the frame (0-1). Nil
+        /// when `noExitDoor` is true.
+        var box: [Double]?
+        var label: String?
+        /// `"vlm"` (tapped a highlighted box) or `"manual"` (tap-override).
+        var source: String?
+        /// True => no door leads outside; the detector is turned off.
+        var noExitDoor: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case box, label, source
+            case noExitDoor = "no_exit_door"
+        }
+
+        init(box: [Double]? = nil, label: String? = nil,
+             source: String? = nil, noExitDoor: Bool = false) {
+            self.box = box; self.label = label
+            self.source = source; self.noExitDoor = noExitDoor
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            box = try c.decodeIfPresent([Double].self, forKey: .box)
+            label = try c.decodeIfPresent(String.self, forKey: .label)
+            source = try c.decodeIfPresent(String.self, forKey: .source)
+            noExitDoor = try c.decodeIfPresent(Bool.self, forKey: .noExitDoor) ?? false
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -112,8 +147,48 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case identifier
         case scheduleConfig = "schedule_config"
         case episodeGapSeconds = "episode_gap_seconds"
+        case doorConfig = "door_config"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - Wandering exit-door picker wire types
+
+/// Body of `POST /v1/detect-doors` — one camera frame (base64 JPEG) the VLM
+/// scans for doorways to highlight in the exit-door picker.
+struct DetectDoorsRequest: Encodable, Sendable {
+    var imageBase64: String
+
+    enum CodingKeys: String, CodingKey {
+        case imageBase64 = "image_base64"
+    }
+}
+
+/// One doorway the VLM found. `box` is `[x, y, w, h]` as fractions of the
+/// frame (0-1), top-left origin.
+struct DetectedDoor: Decodable, Hashable, Sendable, Identifiable {
+    var box: [Double]
+    var label: String
+    var id: String { "\(label)-\(box.map { String(format: "%.3f", $0) }.joined(separator: ","))" }
+}
+
+struct DetectDoorsResponse: Decodable, Sendable {
+    var doors: [DetectedDoor]
+}
+
+/// Body of `POST /v1/patients/{id}/wandering-door` — the caregiver's exit-door
+/// choice. `box`/`label`/`source` when a door is chosen; `noExitDoor` when no
+/// door leads outside (turns the detector off).
+struct SetWanderingDoorRequest: Encodable, Sendable {
+    var box: [Double]?
+    var label: String?
+    var source: String
+    var noExitDoor: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case box, label, source
+        case noExitDoor = "no_exit_door"
     }
 }
 

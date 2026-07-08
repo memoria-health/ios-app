@@ -14,6 +14,10 @@ struct DetectorRow: View {
     @State private var confirmingDelete = false
     @State private var deleting = false
     @State private var showSensitivityInfo = false
+    @State private var showDoorPicker = false
+
+    /// The wandering detector gets an extra "exit door" affordance.
+    private var isWandering: Bool { detector.identifier == "wandering" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,13 +102,69 @@ struct DetectorRow: View {
             if detector.isOn {
                 sensitivityPicker
                     .padding(.horizontal, 14)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, isWandering ? 8 : 12)
+
+                if isWandering {
+                    wanderingDoorRow
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                }
             }
 
             if !isLast {
                 NemaraColor.line.frame(height: 1)
             }
         }
+        .sheet(isPresented: $showDoorPicker) {
+            WanderingDoorPickerView(patientId: patientId, detector: detector)
+        }
+    }
+
+    /// Exit-door affordance shown under the wandering detector. Tapping it opens
+    /// the picker where the caregiver highlights the door that leads outside.
+    private var wanderingDoorRow: some View {
+        Button { showDoorPicker = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "door.left.hand.open")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(NemaraColor.terra)
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Exit door")
+                        .font(NemaraFont.bodySmallStrong)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text(doorStatusText)
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.ink3)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer()
+                Text(detector.doorConfig?.box != nil ? "Change" : "Set")
+                    .font(NemaraFont.mono(size: 10, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(NemaraColor.terra)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            .padding(12)
+            .background(NemaraColor.paperDim)
+            .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 44)
+    }
+
+    private var doorStatusText: String {
+        guard let dc = detector.doorConfig else {
+            return "Not set · any doorway counts as leaving"
+        }
+        if dc.noExitDoor { return "No door leads outside" }
+        if let label = dc.label, !label.isEmpty { return "Set · \(label)" }
+        if dc.box != nil { return "Exit door set" }
+        return "Not set · any doorway counts as leaving"
     }
 
     private var fourAxisCaption: some View {
