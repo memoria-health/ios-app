@@ -72,7 +72,7 @@ targets:
         # HIGHER marketing version — 1.2.3 > 1.2.2 satisfies that. Flip back to
         # 0.1.0 with the next build number before archiving pilot builds again.
         CFBundleShortVersionString: "1.2.7"
-        CFBundleVersion: "32"
+        CFBundleVersion: "33"
         UILaunchScreen:
           UIColorName: Colors/Paper
         UIApplicationSceneManifest:
