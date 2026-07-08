@@ -28,20 +28,7 @@ struct FrontEnrollmentView: View {
                 capturing
             }
         }
-        .onAppear { if authorized { camera.configure(); camera.start() } }
-        .onDisappear { camera.stop() }
-        .onChange(of: authorized) { _, ok in if ok { camera.configure(); camera.start() } }
-        .onChange(of: coverage.coveredCount) { old, new in
-            // suppress the arc buzz when this capture also completes —
-            // the completion haptic below is the sole cue for that moment
-            if new > old && !coverage.isComplete { EnrollmentHaptics.arcCaptured() }
-        }
-        .onChange(of: coverage.frontalCount) { old, new in
-            if new > old && !coverage.isComplete { EnrollmentHaptics.arcCaptured() }
-        }
-        .onChange(of: coverage.isComplete) { _, done in
-            if done { camera.stop(); EnrollmentHaptics.completed() }
-        }
+        .enrollmentCameraLifecycle(camera: camera, coverage: coverage, authorized: authorized)
     }
 
     private var capturing: some View {
@@ -54,7 +41,9 @@ struct FrontEnrollmentView: View {
                 } else {
                     Circle().fill(NemaraColor.card)
                         .frame(width: previewSize, height: previewSize)
-                        .overlay(placeholder)
+                        .overlay(EnrollmentPlaceholder(
+                            authorized: authorized, error: camera.setupError,
+                        ))
                 }
                 CoverageDial(coverage: coverage, lineWidth: 14)
                     .frame(width: previewSize + 38, height: previewSize + 38)
@@ -68,21 +57,5 @@ struct FrontEnrollmentView: View {
             .padding(.horizontal, 20)
         }
         .padding(.top, 16)
-    }
-
-    @ViewBuilder private var placeholder: some View {
-        if !authorized {
-            VStack(spacing: 8) {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 30)).foregroundStyle(NemaraColor.ink3)
-                Text("Camera access needed")
-                    .font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink3)
-            }
-        } else if let err = camera.setupError {
-            Text(err).font(NemaraFont.caption).foregroundStyle(NemaraColor.terra)
-                .multilineTextAlignment(.center).padding(24)
-        } else {
-            ProgressView()
-        }
     }
 }

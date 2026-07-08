@@ -43,6 +43,79 @@ struct EnrollmentGuidanceBanner: View {
     }
 }
 
+/// Shared no-camera placeholder for both enrollment dials. Prompts for
+/// access and — when access was DENIED — offers a deep-link into Settings
+/// so the caregiver can recover without abandoning the flow. Paired with
+/// the scene-phase re-check in `FaceEnrollmentView`, granting access in
+/// Settings and returning re-enables the camera automatically.
+struct EnrollmentPlaceholder: View {
+    let authorized: Bool
+    let error: String?
+
+    var body: some View {
+        if !authorized {
+            VStack(spacing: 12) {
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 30)).foregroundStyle(NemaraColor.ink3)
+                Text("Camera access needed")
+                    .font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink3)
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .font(NemaraFont.bodySmall.weight(.semibold))
+                .foregroundStyle(NemaraColor.terra)
+            }
+        } else if let error {
+            Text(error).font(NemaraFont.caption).foregroundStyle(NemaraColor.terra)
+                .multilineTextAlignment(.center).padding(24)
+        } else {
+            ProgressView()
+        }
+    }
+}
+
+/// Camera start/stop + milestone-haptics wiring shared by the front and rear
+/// dials (previously duplicated byte-for-byte in both). Starts on appear /
+/// when access is granted, stops on disappear + completion, and fires the
+/// capture / completion haptics — the arc buzz suppressed on the capture that
+/// also completes, so completion is a single clean cue.
+private struct EnrollmentCameraLifecycle: ViewModifier {
+    let camera: EnrollmentVisionCamera
+    @ObservedObject var coverage: FaceCoverageModel
+    let authorized: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { if authorized { camera.configure(); camera.start() } }
+            .onDisappear { camera.stop() }
+            .onChange(of: authorized) { _, ok in if ok { camera.configure(); camera.start() } }
+            .onChange(of: coverage.coveredCount) { old, new in
+                if new > old && !coverage.isComplete { EnrollmentHaptics.arcCaptured() }
+            }
+            .onChange(of: coverage.frontalCount) { old, new in
+                if new > old && !coverage.isComplete { EnrollmentHaptics.arcCaptured() }
+            }
+            .onChange(of: coverage.isComplete) { _, done in
+                if done { camera.stop(); EnrollmentHaptics.completed() }
+            }
+    }
+}
+
+extension View {
+    /// Attach the shared enrollment camera lifecycle + milestone haptics.
+    func enrollmentCameraLifecycle(
+        camera: EnrollmentVisionCamera,
+        coverage: FaceCoverageModel,
+        authorized: Bool,
+    ) -> some View {
+        modifier(EnrollmentCameraLifecycle(
+            camera: camera, coverage: coverage, authorized: authorized,
+        ))
+    }
+}
+
 /// Light haptic feedback for enrollment milestones. Kept out of the pure,
 /// UI-free `FaceCoverageModel` so the model stays testable and headless.
 enum EnrollmentHaptics {
