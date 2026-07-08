@@ -32,10 +32,12 @@ struct RearEnrollmentView: View {
         .onDisappear { camera.stop() }
         .onChange(of: authorized) { _, ok in if ok { camera.configure(); camera.start() } }
         .onChange(of: coverage.coveredCount) { old, new in
-            if new > old { EnrollmentHaptics.arcCaptured() }
+            // suppress the arc buzz when this capture also completes —
+            // the completion haptic below is the sole cue for that moment
+            if new > old && !coverage.isComplete { EnrollmentHaptics.arcCaptured() }
         }
         .onChange(of: coverage.frontalCount) { old, new in
-            if new > old { EnrollmentHaptics.arcCaptured() }
+            if new > old && !coverage.isComplete { EnrollmentHaptics.arcCaptured() }
         }
         .onChange(of: coverage.isComplete) { _, done in
             if done { camera.stop(); EnrollmentHaptics.completed() }

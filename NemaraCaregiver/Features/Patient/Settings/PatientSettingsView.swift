@@ -38,6 +38,9 @@ struct PatientSettingsView: View {
     // dismiss of the re-enrollment cover so the counts stay fresh.
     @State private var enrollmentSummary: FaceEnrollmentSummary?
     @State private var showingReEnrollment = false
+    /// Bumped to re-run the lifecycle-bound enrollment poll (e.g. after
+    /// re-enrollment) instead of spawning a detached, un-cancellable Task.
+    @State private var reloadToken = 0
 
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
@@ -91,12 +94,12 @@ struct PatientSettingsView: View {
         .fullScreenCover(isPresented: $showingReEnrollment) {
             FaceEnrollmentView(patientId: patientId) {
                 showingReEnrollment = false
-                Task { await loadEnrollmentSummary() }
+                reloadToken += 1   // re-runs the lifecycle-bound poll below
             }
             .environment(env)
             .trackScreen("face_enrollment")
         }
-        .task { await loadEnrollmentSummary() }
+        .task(id: reloadToken) { await loadEnrollmentSummary() }
     }
 
     /// Fetch the patient's face-enrollment status so the identity
@@ -107,8 +110,10 @@ struct PatientSettingsView: View {
         // Poll while the backend is still computing embeddings so the card
         // flips from "in progress" to "complete" on its own — no need to
         // leave and re-open the screen. Stops as soon as nothing is
-        // processing, or after ~80s. Cancelled automatically on disappear.
+        // processing, or after ~80s. Driven by `.task(id: reloadToken)`, so
+        // it's cancelled on disappear and superseded when reloadToken bumps.
         for attempt in 0..<40 {
+            if Task.isCancelled { return }
             do {
                 let summary = try await env.api.faceEnrollmentSummary(patientId)
                 enrollmentSummary = summary
@@ -118,6 +123,7 @@ struct PatientSettingsView: View {
             }
             if attempt < 39 {
                 try? await Task.sleep(for: .seconds(2))
+                if Task.isCancelled { return }   // sleep swallows CancellationError
             }
         }
     }

@@ -93,9 +93,10 @@ final class FaceCoverageModel: ObservableObject {
     // ── published state the dials observe ─────────────────────────
     @Published private(set) var segments: [Segment]
     @Published private(set) var frontalCount: Int = 0
-    /// arc the (smoothed) nose currently points at; nil when frontal.
+    /// arc the nose currently points at; nil when frontal.
     @Published private(set) var currentSegment: Int?
-    /// live SMOOTHED magnitude (deg) — drives the active arc's charge fill.
+    /// live RAW magnitude (deg). Feeds the capture threshold + guidance; the
+    /// dial's charge fill uses `needleFrac` (the smoothed value), not this.
     @Published private(set) var currentMag: Double = 0
     /// live Vision capture quality of the current face (0…1).
     @Published private(set) var currentQuality: Float = 0
@@ -118,9 +119,11 @@ final class FaceCoverageModel: ObservableObject {
     private var frontal: [Data] = []
 
     // guidance-debounce state (jitter is calmed HERE, in the text — not by
-    // smoothing the capture signal, which only made capture slow)
+    // smoothing the capture signal, which only made capture slow). Timed on
+    // MONOTONIC uptime, not wall-clock Date(), so an NTP/clock jump mid-
+    // enrollment can't freeze or strobe the caption.
     private var guidanceCandidate: Guidance = .searching
-    private var guidanceCandidateSince = Date()
+    private var guidanceCandidateSince = ProcessInfo.processInfo.systemUptime
 
     // needle-RENDERING-only pose smoothing (see ingest). Purely cosmetic —
     // capture reads the raw pose, so this adds zero capture lag.
@@ -290,29 +293,37 @@ final class FaceCoverageModel: ObservableObject {
     private func instantGuidance() -> Guidance {
         if isComplete { return .done }
         if !faceVisible || !wellFramed { return .searching }
-        // all arcs done, only the straight-ahead (hub) frame is missing
-        if coveredCount == segmentCount && !hasFrontal { return .frontalNeeded }
-        // aligned into an uncovered arc but the frame quality is below the
-        // (angle-aware) floor — name the likely FIXABLE cause, not just "hold".
-        if let s = currentSegment, !segments[s].covered,
-           currentMag >= extremeMinDeg, currentQuality < qualityFloor(forMag: currentMag) {
+
+        // Quality below the (angle-aware) floor blocks capture — name the
+        // likely FIXABLE cause instead of a bare "hold". This must cover the
+        // straight-ahead frame too: in a dim room the frontal capture can't
+        // clear the strict 0.4 floor, and without this it would silently
+        // stall on "look straight ahead to finish" with no reason given.
+        let onUncoveredArc = (currentSegment.map { !segments[$0].covered } ?? false)
+            && currentMag >= extremeMinDeg
+        let seekingFrontal = !hasFrontal && currentMag < frontalMaxDeg
+        if onUncoveredArc || seekingFrontal,
+           currentQuality < qualityFloor(forMag: currentMag) {
             if lastFaceHeight < tooFarHeight { return .tooFar }
             if lastBrightness < darkLuma { return .tooDark }
-            return .holdStill   // quality's low but distance + light are fine → motion/blur
+            return .holdStill   // distance + light are fine → motion/blur
         }
+
+        // all arcs done, only the straight-ahead (hub) frame is missing
+        if coveredCount == segmentCount && !hasFrontal { return .frontalNeeded }
         return .active
     }
 
     /// Only let the caption change once a new state has persisted for
     /// `guidanceDwell` (completion snaps immediately).
     private func commitGuidance(_ instant: Guidance) {
+        let now = ProcessInfo.processInfo.systemUptime
         if instant != guidanceCandidate {
             guidanceCandidate = instant
-            guidanceCandidateSince = Date()
+            guidanceCandidateSince = now
         }
         guard guidance != guidanceCandidate else { return }
-        if guidanceCandidate == .done
-            || Date().timeIntervalSince(guidanceCandidateSince) >= guidanceDwell {
+        if guidanceCandidate == .done || now - guidanceCandidateSince >= guidanceDwell {
             guidance = guidanceCandidate
         }
     }
