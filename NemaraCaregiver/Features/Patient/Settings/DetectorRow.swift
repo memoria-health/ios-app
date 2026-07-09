@@ -135,10 +135,15 @@ struct DetectorRow: View {
             await loadDoorConfigs()
             for cam in patientCameras where cam.online && !cam.disabled {
                 if let identity = cam.livekitIdentity {
-                    _ = await WanderingDoorCache.shared.ensureLoaded(
+                    let out = await WanderingDoorCache.shared.ensureFrame(
                         cameraId: cam.id, patientId: patientId, identity: identity,
                         api: env.api, liveKit: env.liveKit,
                     )
+                    if out == .ok {
+                        _ = await WanderingDoorCache.shared.ensureDoors(
+                            cameraId: cam.id, api: env.api,
+                        )
+                    }
                 }
             }
         }

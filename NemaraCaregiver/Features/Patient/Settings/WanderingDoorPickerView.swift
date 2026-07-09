@@ -38,6 +38,8 @@ struct WanderingDoorPickerView: View {
 
     @State private var phase: Phase = .loading("Loading the camera view…")
     @State private var loaded: WanderingDoorCache.Frame?
+    @State private var detectedDoors: [DetectedDoor] = []
+    @State private var detectingDoors = false
     @State private var selectedDoorIDs: Set<DetectedDoor.ID> = []
     @State private var manualDoors: [ManualDoor] = []
     @State private var didApplyExisting = false
@@ -101,7 +103,7 @@ struct WanderingDoorPickerView: View {
 
     // MARK: - Ready (the picker)
 
-    private var doors: [DetectedDoor] { loaded?.doors ?? [] }
+    private var doors: [DetectedDoor] { detectedDoors }
     private var selectionCount: Int { selectedDoorIDs.count + manualDoors.count }
 
     private var readyView: some View {
@@ -115,10 +117,11 @@ struct WanderingDoorPickerView: View {
 
     private var instructions: some View {
         VStack(spacing: 6) {
-            NemaraEyebrow(doors.isEmpty ? "NO DOORS DETECTED · TAP TO PLACE" : "TAP EACH EXIT DOOR")
-            Text(doors.isEmpty
-                 ? "Tap the spots where doors your loved one could leave through are. Tap a marker again to remove it."
-                 : "Tap every door that leads outside — tap again to deselect. Tap anywhere else to add one yourself.")
+            NemaraEyebrow(
+                detectingDoors ? "TAP EACH EXIT DOOR · FINDING DOORS…"
+                : doors.isEmpty ? "TAP EACH EXIT DOOR"
+                : "TAP EACH EXIT DOOR")
+            Text("Tap every door that leads outside. Tap anywhere else to place one yourself; tap a marker again to remove it.")
                 .font(NemaraFont.bodySmall)
                 .foregroundStyle(NemaraColor.ink2)
                 .multilineTextAlignment(.center)
@@ -305,22 +308,39 @@ struct WanderingDoorPickerView: View {
     // MARK: - Load (cache-backed)
 
     private func load(reload: Bool) async {
-        phase = .loading(reload ? "Rescanning the room…" : "Loading the camera view…")
+        phase = .loading(reload ? "Getting a fresh view…" : "Loading the camera view…")
+        // FRAME first — fast, no LLM. The picker becomes usable immediately.
         let outcome = reload
-            ? await cache.reload(cameraId: cameraId, patientId: patientId,
-                                 identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
-            : await cache.ensureLoaded(cameraId: cameraId, patientId: patientId,
-                                       identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
+            ? await cache.reloadFrame(cameraId: cameraId, patientId: patientId,
+                                      identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
+            : await cache.ensureFrame(cameraId: cameraId, patientId: patientId,
+                                      identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
         switch outcome {
         case .ok:
-            loaded = cache.cached(cameraId)
+            loaded = cache.cachedFrame(cameraId)
+            detectedDoors = cache.cachedDoors(cameraId) ?? []
             applyExistingSelectionIfNeeded()
             phase = .ready
+            await detectDoorsInBackground()
         case .blocked(let m):
             phase = .blocked(m)
         case .failed(let m):
             phase = .failed(m)
         }
+    }
+
+    /// Run the single door-detection call WITHOUT blocking the view. Dots appear
+    /// when it returns; the caregiver can tap-place in the meantime.
+    private func detectDoorsInBackground() async {
+        guard detectedDoors.isEmpty else { return }
+        detectingDoors = true
+        let found = await cache.ensureDoors(cameraId: cameraId, api: env.api)
+        // Drop any detected door that's basically on top of a door the caregiver
+        // already placed/selected, so we don't stack two dots.
+        detectedDoors = found.filter { d in
+            !manualDoors.contains { iou($0.box, d.box) > 0.4 }
+        }
+        detectingDoors = false
     }
 
     /// Pre-select the doors already saved for THIS camera, once, so the picker

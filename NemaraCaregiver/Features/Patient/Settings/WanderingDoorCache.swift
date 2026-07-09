@@ -8,11 +8,11 @@ enum DoorLoadOutcome: Sendable, Equatable {
     case failed(String)        // connect / capture error
 }
 
-/// Process-wide cache of the captured camera frame + detected doors, keyed by
-/// CAMERA. The exit door is per-sensor, so each camera caches its own frame.
-/// This is what makes the picker NOT re-analyze every open: the first open (or
-/// an explicit Reload) grabs a frame + runs door detection once; later opens
-/// read the cached result instantly. Also used to pre-warm.
+/// Process-wide cache for the exit-door picker, keyed by CAMERA. Two separate
+/// concerns so the UI never blocks on the LLM:
+///   • FRAME  — connect + grab one still; shown immediately, tap-place enabled.
+///   • DOORS  — a single background VLM call; dots overlay when/if it returns.
+/// The first open (or Reload) captures once; later opens read the cache.
 @MainActor
 @Observable
 final class WanderingDoorCache {
@@ -22,54 +22,79 @@ final class WanderingDoorCache {
     struct Frame {
         let jpeg: Data
         let image: UIImage
-        let doors: [DetectedDoor]
         let capturedAt: Date
     }
 
-    private var frames: [UUID: Frame] = [:]                 // keyed by cameraId
-    private var inFlight: [UUID: Task<DoorLoadOutcome, Never>] = [:]
+    private var frames: [UUID: Frame] = [:]
+    private var doors: [UUID: [DetectedDoor]] = [:]
+    private var frameTasks: [UUID: Task<DoorLoadOutcome, Never>] = [:]
+    private var doorTasks: [UUID: Task<[DetectedDoor], Never>] = [:]
 
-    func cached(_ cameraId: UUID) -> Frame? { frames[cameraId] }
+    func cachedFrame(_ cameraId: UUID) -> Frame? { frames[cameraId] }
+    func cachedDoors(_ cameraId: UUID) -> [DetectedDoor]? { doors[cameraId] }
 
-    /// Return immediately if a frame is cached for this camera; otherwise load
-    /// one (deduped so concurrent callers share a single capture + detection).
-    func ensureLoaded(
+    // MARK: - Frame (fast; no LLM)
+
+    /// Grab (or return the cached) still frame for this camera. No detection —
+    /// this is what the picker awaits so the view appears fast.
+    func ensureFrame(
         cameraId: UUID, patientId: UUID, identity: String,
         api: NemaraAPIClient, liveKit: LiveKitClient,
     ) async -> DoorLoadOutcome {
         if frames[cameraId] != nil { return .ok }
-        if let task = inFlight[cameraId] { return await task.value }
+        if let task = frameTasks[cameraId] { return await task.value }
         let task = Task {
-            await self.run(cameraId: cameraId, patientId: patientId,
-                           identity: identity, api: api, liveKit: liveKit)
+            await self.grab(cameraId: cameraId, patientId: patientId,
+                            identity: identity, api: api, liveKit: liveKit)
         }
-        inFlight[cameraId] = task
+        frameTasks[cameraId] = task
         let outcome = await task.value
-        inFlight[cameraId] = nil
+        frameTasks[cameraId] = nil
         return outcome
     }
 
-    /// Force a fresh capture + detection for this camera (the Reload button).
-    func reload(
+    /// Force a fresh capture (+ drop stale doors) — the Reload button.
+    func reloadFrame(
         cameraId: UUID, patientId: UUID, identity: String,
         api: NemaraAPIClient, liveKit: LiveKitClient,
     ) async -> DoorLoadOutcome {
-        inFlight[cameraId]?.cancel()
-        inFlight[cameraId] = nil
+        frameTasks[cameraId]?.cancel(); frameTasks[cameraId] = nil
+        doorTasks[cameraId]?.cancel(); doorTasks[cameraId] = nil
         frames[cameraId] = nil
-        return await ensureLoaded(cameraId: cameraId, patientId: patientId,
-                                  identity: identity, api: api, liveKit: liveKit)
+        doors[cameraId] = nil
+        return await ensureFrame(cameraId: cameraId, patientId: patientId,
+                                 identity: identity, api: api, liveKit: liveKit)
     }
 
-    // MARK: - Load pipeline
+    // MARK: - Doors (single background VLM call)
 
-    private func run(
+    /// Detect doors on the already-captured frame (cached). Returns [] if there's
+    /// no frame yet or detection fails — the caregiver just tap-places instead.
+    func ensureDoors(cameraId: UUID, api: NemaraAPIClient) async -> [DetectedDoor] {
+        if let cached = doors[cameraId] { return cached }
+        guard let frame = frames[cameraId] else { return [] }
+        if let task = doorTasks[cameraId] { return await task.value }
+        let task = Task { () -> [DetectedDoor] in
+            let found = (try? await api.detectDoors(
+                imageBase64: frame.jpeg.base64EncodedString())) ?? []
+            self.doors[cameraId] = found
+            return found
+        }
+        doorTasks[cameraId] = task
+        let result = await task.value
+        doorTasks[cameraId] = nil
+        return result
+    }
+
+    // MARK: - Capture pipeline
+
+    private func grab(
         cameraId: UUID, patientId: UUID, identity: String,
         api: NemaraAPIClient, liveKit: LiveKitClient,
     ) async -> DoorLoadOutcome {
         // Reuse an already-connected room (e.g. the Live tab); otherwise open one
-        // ourselves and tear it back down after grabbing the frame so we never
-        // leave a dangling connection or disturb an active Live view.
+        // ourselves and tear it down after grabbing so we never leave a dangling
+        // connection or disturb an active Live view.
         let room = "patient_\(patientId.uuidString.lowercased())"
         var weConnected = false
         if liveKit.currentRoom != room || liveKit.state != .connected {
@@ -93,18 +118,11 @@ final class WanderingDoorCache {
         }
 
         let jpeg = await LiveKitFrameCapture.jpeg(from: track)
-        if weConnected { await liveKit.disconnect() }   // done with LiveKit
+        if weConnected { await liveKit.disconnect() }
         guard let jpeg, let image = UIImage(data: jpeg) else {
             return .failed("Couldn't capture a frame from the camera. Please try again.")
         }
-
-        var doors: [DetectedDoor] = []
-        do {
-            doors = try await api.detectDoors(imageBase64: jpeg.base64EncodedString())
-        } catch {
-            doors = []   // fall back to tap-to-place; not fatal
-        }
-        frames[cameraId] = Frame(jpeg: jpeg, image: image, doors: doors, capturedAt: Date())
+        frames[cameraId] = Frame(jpeg: jpeg, image: image, capturedAt: Date())
         return .ok
     }
 }
