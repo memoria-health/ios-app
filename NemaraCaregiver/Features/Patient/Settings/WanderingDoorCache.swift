@@ -4,15 +4,15 @@ import SwiftUI
 /// Result of trying to load a door-picker frame.
 enum DoorLoadOutcome: Sendable, Equatable {
     case ok                    // a frame is now in the cache
-    case blocked(String)       // recoverable: no camera / not streaming
+    case blocked(String)       // recoverable: not streaming
     case failed(String)        // connect / capture error
 }
 
 /// Process-wide cache of the captured camera frame + detected doors, keyed by
-/// patient. This is what makes the exit-door picker NOT re-analyze every time
-/// it opens: the first open (or an explicit Reload) grabs a frame and runs door
-/// detection once; subsequent opens read the cached result instantly. Also used
-/// to pre-warm the frame when the wandering detector row appears.
+/// CAMERA. The exit door is per-sensor, so each camera caches its own frame.
+/// This is what makes the picker NOT re-analyze every open: the first open (or
+/// an explicit Reload) grabs a frame + runs door detection once; later opens
+/// read the cached result instantly. Also used to pre-warm.
 @MainActor
 @Observable
 final class WanderingDoorCache {
@@ -26,55 +26,55 @@ final class WanderingDoorCache {
         let capturedAt: Date
     }
 
-    private var frames: [UUID: Frame] = [:]
+    private var frames: [UUID: Frame] = [:]                 // keyed by cameraId
     private var inFlight: [UUID: Task<DoorLoadOutcome, Never>] = [:]
 
-    func cached(_ pid: UUID) -> Frame? { frames[pid] }
+    func cached(_ cameraId: UUID) -> Frame? { frames[cameraId] }
 
-    /// Return immediately if a frame is cached; otherwise load one (deduped so
-    /// concurrent callers share a single capture + detection).
+    /// Return immediately if a frame is cached for this camera; otherwise load
+    /// one (deduped so concurrent callers share a single capture + detection).
     func ensureLoaded(
-        _ pid: UUID, api: NemaraAPIClient, liveKit: LiveKitClient,
+        cameraId: UUID, patientId: UUID, identity: String,
+        api: NemaraAPIClient, liveKit: LiveKitClient,
     ) async -> DoorLoadOutcome {
-        if frames[pid] != nil { return .ok }
-        if let task = inFlight[pid] { return await task.value }
-        let task = Task { await self.run(pid, api: api, liveKit: liveKit) }
-        inFlight[pid] = task
+        if frames[cameraId] != nil { return .ok }
+        if let task = inFlight[cameraId] { return await task.value }
+        let task = Task {
+            await self.run(cameraId: cameraId, patientId: patientId,
+                           identity: identity, api: api, liveKit: liveKit)
+        }
+        inFlight[cameraId] = task
         let outcome = await task.value
-        inFlight[pid] = nil
+        inFlight[cameraId] = nil
         return outcome
     }
 
-    /// Force a fresh capture + detection (the Reload button).
+    /// Force a fresh capture + detection for this camera (the Reload button).
     func reload(
-        _ pid: UUID, api: NemaraAPIClient, liveKit: LiveKitClient,
+        cameraId: UUID, patientId: UUID, identity: String,
+        api: NemaraAPIClient, liveKit: LiveKitClient,
     ) async -> DoorLoadOutcome {
-        inFlight[pid]?.cancel()
-        inFlight[pid] = nil
-        frames[pid] = nil
-        return await ensureLoaded(pid, api: api, liveKit: liveKit)
+        inFlight[cameraId]?.cancel()
+        inFlight[cameraId] = nil
+        frames[cameraId] = nil
+        return await ensureLoaded(cameraId: cameraId, patientId: patientId,
+                                  identity: identity, api: api, liveKit: liveKit)
     }
 
     // MARK: - Load pipeline
 
     private func run(
-        _ pid: UUID, api: NemaraAPIClient, liveKit: LiveKitClient,
+        cameraId: UUID, patientId: UUID, identity: String,
+        api: NemaraAPIClient, liveKit: LiveKitClient,
     ) async -> DoorLoadOutcome {
-        let cams = api.camerasByPatient[pid] ?? []
-        let target = cams.first { $0.livekitIdentity != nil && $0.online && !$0.disabled }
-            ?? cams.first { $0.livekitIdentity != nil }
-        guard let identity = target?.livekitIdentity else {
-            return .blocked("This patient doesn't have a paired camera yet. Pair one first, then set the exit door.")
-        }
-
         // Reuse an already-connected room (e.g. the Live tab); otherwise open one
         // ourselves and tear it back down after grabbing the frame so we never
         // leave a dangling connection or disturb an active Live view.
-        let room = "patient_\(pid.uuidString.lowercased())"
+        let room = "patient_\(patientId.uuidString.lowercased())"
         var weConnected = false
         if liveKit.currentRoom != room || liveKit.state != .connected {
             do {
-                let tok = try await api.mintViewerToken(forPatient: pid)
+                let tok = try await api.mintViewerToken(forPatient: patientId)
                 await liveKit.connect(url: tok.url, token: tok.token, room: room)
                 weConnected = true
             } catch {
@@ -89,7 +89,7 @@ final class WanderingDoorCache {
         }
         guard let track else {
             if weConnected { await liveKit.disconnect() }
-            return .blocked("The camera isn't streaming right now. Open the Live tab to wake it, then try again.")
+            return .blocked("This sensor isn't streaming right now. Open its Live view to wake it, then try again.")
         }
 
         let jpeg = await LiveKitFrameCapture.jpeg(from: track)
@@ -104,7 +104,7 @@ final class WanderingDoorCache {
         } catch {
             doors = []   // fall back to tap-to-place; not fatal
         }
-        frames[pid] = Frame(jpeg: jpeg, image: image, doors: doors, capturedAt: Date())
+        frames[cameraId] = Frame(jpeg: jpeg, image: image, doors: doors, capturedAt: Date())
         return .ok
     }
 }

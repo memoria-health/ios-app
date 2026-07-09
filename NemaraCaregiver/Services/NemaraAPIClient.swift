@@ -792,25 +792,29 @@ final class NemaraAPIClient {
         return resp.doors
     }
 
-    /// Save the caregiver's exit-door choice(s) for a patient's wandering
-    /// detector. The backend regenerates the wandering prompt from them;
-    /// `noExitDoor` turns the detector off. Updates the local detector in place.
-    func setWanderingDoors(
-        forPatient pid: UUID,
+    /// Per-sensor wandering exit-door config for a patient — one entry per camera
+    /// that has a wandering assignment.
+    func wanderingDoors(forPatient pid: UUID) async throws -> [CameraWanderingDoor] {
+        try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(pid.uuidString.lowercased())/wandering-doors",
+        )
+    }
+
+    /// Save the exit-door choice for ONE camera (sensor). The backend builds that
+    /// camera's wandering prompt from it; `noExitDoor` means the camera watches
+    /// no exit (wandering skipped there).
+    @discardableResult
+    func setCameraWanderingDoors(
+        cameraId: UUID,
         doors: [WanderingDoorInput],
         noExitDoor: Bool,
-    ) async throws -> Detector {
-        let updated: Detector = try await sendJSON(
+    ) async throws -> CameraWanderingDoor {
+        try await sendJSON(
             method: "POST",
-            path: "/v1/patients/\(pid.uuidString.lowercased())/wandering-door",
+            path: "/v1/cameras/\(cameraId.uuidString.lowercased())/wandering-door",
             body: SetWanderingDoorRequest(doors: doors, noExitDoor: noExitDoor),
         )
-        if var arr = detectorsByPatient[updated.patientId],
-           let idx = arr.firstIndex(where: { $0.id == updated.id }) {
-            arr[idx] = updated
-            detectorsByPatient[updated.patientId] = arr
-        }
-        return updated
     }
 
     /// The detection library for this patient's cohort — the prebuilt detectors

@@ -16,7 +16,12 @@ struct WanderingDoorPickerView: View {
     @Environment(\.dismiss) private var dismiss
 
     let patientId: UUID
-    let detector: Detector
+    let cameraId: UUID
+    let cameraIdentity: String
+    let cameraName: String
+    let existingConfig: Detector.DoorConfig?
+    /// Called after a successful save so the parent can refresh its status.
+    var onSaved: () -> Void = {}
 
     private enum Phase: Equatable {
         case loading(String)
@@ -51,7 +56,7 @@ struct WanderingDoorPickerView: View {
                 NemaraColor.paper.ignoresSafeArea()
                 content
             }
-            .navigationTitle("Exit doors")
+            .navigationTitle(cameraName.isEmpty ? "Exit doors" : "\(cameraName) · exit doors")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -274,9 +279,10 @@ struct WanderingDoorPickerView: View {
         guard !payload.isEmpty else { return }
         phase = .saving
         do {
-            _ = try await env.api.setWanderingDoors(
-                forPatient: patientId, doors: payload, noExitDoor: false,
+            try await env.api.setCameraWanderingDoors(
+                cameraId: cameraId, doors: payload, noExitDoor: false,
             )
+            onSaved()
             dismiss()
         } catch {
             phase = .failed("Couldn't save the exit doors. Please try again.")
@@ -286,9 +292,10 @@ struct WanderingDoorPickerView: View {
     private func saveNoExitDoor() async {
         phase = .saving
         do {
-            _ = try await env.api.setWanderingDoors(
-                forPatient: patientId, doors: [], noExitDoor: true,
+            try await env.api.setCameraWanderingDoors(
+                cameraId: cameraId, doors: [], noExitDoor: true,
             )
+            onSaved()
             dismiss()
         } catch {
             phase = .failed("Couldn't save. Please try again.")
@@ -300,11 +307,13 @@ struct WanderingDoorPickerView: View {
     private func load(reload: Bool) async {
         phase = .loading(reload ? "Rescanning the room…" : "Loading the camera view…")
         let outcome = reload
-            ? await cache.reload(patientId, api: env.api, liveKit: env.liveKit)
-            : await cache.ensureLoaded(patientId, api: env.api, liveKit: env.liveKit)
+            ? await cache.reload(cameraId: cameraId, patientId: patientId,
+                                 identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
+            : await cache.ensureLoaded(cameraId: cameraId, patientId: patientId,
+                                       identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
         switch outcome {
         case .ok:
-            loaded = cache.cached(patientId)
+            loaded = cache.cached(cameraId)
             applyExistingSelectionIfNeeded()
             phase = .ready
         case .blocked(let m):
@@ -314,12 +323,12 @@ struct WanderingDoorPickerView: View {
         }
     }
 
-    /// Pre-select the doors already saved on the detector, once, so the picker
+    /// Pre-select the doors already saved for THIS camera, once, so the picker
     /// opens reflecting the current configuration.
     private func applyExistingSelectionIfNeeded() {
         guard !didApplyExisting else { return }
         didApplyExisting = true
-        guard let dc = detector.doorConfig, !dc.noExitDoor else { return }
+        guard let dc = existingConfig, !dc.noExitDoor else { return }
         for stored in dc.doors {
             guard let box = stored.box, box.count == 4 else { continue }
             if let match = doors.first(where: { iou($0.box, box) > 0.5 }) {

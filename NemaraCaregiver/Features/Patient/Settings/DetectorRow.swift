@@ -14,9 +14,12 @@ struct DetectorRow: View {
     @State private var confirmingDelete = false
     @State private var deleting = false
     @State private var showSensitivityInfo = false
-    @State private var showDoorPicker = false
+    /// The camera whose exit-door picker is open (nil = closed).
+    @State private var pickerCamera: Camera?
+    /// Per-sensor exit-door config, keyed by camera id (from the backend).
+    @State private var doorConfigs: [UUID: Detector.DoorConfig] = [:]
 
-    /// The wandering detector gets an extra "exit door" affordance.
+    /// The wandering detector gets the per-sensor "exit doors" affordance.
     private var isWandering: Bool { detector.identifier == "wandering" }
 
     var body: some View {
@@ -105,7 +108,7 @@ struct DetectorRow: View {
                     .padding(.bottom, isWandering ? 8 : 12)
 
                 if isWandering {
-                    wanderingDoorRow
+                    wanderingDoorSection
                         .padding(.horizontal, 14)
                         .padding(.bottom, 12)
                 }
@@ -115,51 +118,102 @@ struct DetectorRow: View {
                 NemaraColor.line.frame(height: 1)
             }
         }
-        .sheet(isPresented: $showDoorPicker) {
-            WanderingDoorPickerView(patientId: patientId, detector: detector)
+        .sheet(item: $pickerCamera) { cam in
+            WanderingDoorPickerView(
+                patientId: patientId,
+                cameraId: cam.id,
+                cameraIdentity: cam.livekitIdentity ?? "",
+                cameraName: cam.room,
+                existingConfig: doorConfigs[cam.id],
+                onSaved: { Task { await loadDoorConfigs() } },
+            )
         }
-        // Pre-warm the exit-door frame + detection in the background so opening
-        // the picker is instant (cached; Rescan refreshes). Runs once — the
-        // cache dedupes and only re-captures on explicit reload.
+        // Load per-sensor status + pre-warm each online sensor's frame in the
+        // background so opening a picker is instant (cached; Rescan refreshes).
         .task(id: prefetchKey) {
-            if isWandering, detector.isOn {
-                _ = await WanderingDoorCache.shared.ensureLoaded(
-                    patientId, api: env.api, liveKit: env.liveKit,
-                )
+            guard isWandering, detector.isOn else { return }
+            await loadDoorConfigs()
+            for cam in patientCameras where cam.online && !cam.disabled {
+                if let identity = cam.livekitIdentity {
+                    _ = await WanderingDoorCache.shared.ensureLoaded(
+                        cameraId: cam.id, patientId: patientId, identity: identity,
+                        api: env.api, liveKit: env.liveKit,
+                    )
+                }
             }
         }
     }
 
-    /// Re-run the prefetch when the wandering detector is toggled on.
     private var prefetchKey: String { "\(detector.id)-\(detector.isOn)" }
 
-    /// Exit-door affordance shown under the wandering detector. Tapping it opens
-    /// the picker where the caregiver highlights the door that leads outside.
-    private var wanderingDoorRow: some View {
-        Button { showDoorPicker = true } label: {
-            HStack(spacing: 10) {
+    private var patientCameras: [Camera] { env.api.camerasByPatient[patientId] ?? [] }
+
+    private func loadDoorConfigs() async {
+        guard let list = try? await env.api.wanderingDoors(forPatient: patientId) else { return }
+        var m: [UUID: Detector.DoorConfig] = [:]
+        for entry in list {
+            if let dc = entry.doorConfig { m[entry.cameraId] = dc }
+        }
+        doorConfigs = m
+    }
+
+    /// Exit doors are PER SENSOR — each camera sees a different scene — so this
+    /// lists the patient's cameras, each with its own exit-door status + picker.
+    private var wanderingDoorSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: "door.left.hand.open")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(NemaraColor.terra)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(NemaraColor.ink3)
+                Text("EXIT DOORS · PER SENSOR")
+                    .font(NemaraFont.mono(size: 10, weight: .semibold))
+                    .tracking(0.3)
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            if patientCameras.isEmpty {
+                Text("No sensors paired yet — pair a sensor to set the doors it should watch.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(patientCameras) { cam in
+                    cameraDoorRow(cam)
+                }
+            }
+        }
+        .padding(.leading, 44)
+    }
+
+    private func cameraDoorRow(_ cam: Camera) -> some View {
+        let paired = cam.livekitIdentity != nil
+        return Button {
+            if paired { pickerCamera = cam }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: cam.iconName.isEmpty ? "video" : cam.iconName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(paired ? NemaraColor.terra : NemaraColor.ink3)
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Exit doors")
+                    Text(cam.room.isEmpty ? "Sensor" : cam.room)
                         .font(NemaraFont.bodySmallStrong)
                         .foregroundStyle(NemaraColor.ink)
-                    Text(doorStatusText)
+                    Text(paired ? doorStatusText(cam) : "Not paired yet")
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.ink3)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
                 Spacer()
-                Text(hasDoorSelection ? "Change" : "Set")
-                    .font(NemaraFont.mono(size: 10, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundStyle(NemaraColor.terra)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(NemaraColor.ink3)
+                if paired {
+                    Text(doorConfigs[cam.id] != nil ? "Change" : "Set")
+                        .font(NemaraFont.mono(size: 10, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundStyle(NemaraColor.terra)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(NemaraColor.ink3)
+                }
             }
             .padding(12)
             .background(NemaraColor.paperDim)
@@ -167,19 +221,14 @@ struct DetectorRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.leading, 44)
+        .disabled(!paired)
     }
 
-    private var hasDoorSelection: Bool {
-        guard let dc = detector.doorConfig else { return false }
-        return dc.noExitDoor || !dc.doors.isEmpty
-    }
-
-    private var doorStatusText: String {
-        guard let dc = detector.doorConfig else {
+    private func doorStatusText(_ cam: Camera) -> String {
+        guard let dc = doorConfigs[cam.id] else {
             return "Not set · any doorway counts as leaving"
         }
-        if dc.noExitDoor { return "No door leads outside" }
+        if dc.noExitDoor { return "No door leads outside · off here" }
         switch dc.doors.count {
         case 0:
             return "Not set · any doorway counts as leaving"

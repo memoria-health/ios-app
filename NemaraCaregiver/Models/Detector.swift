@@ -206,9 +206,9 @@ struct WanderingDoorInput: Encodable, Sendable {
     var source: String   // "vlm" | "manual"
 }
 
-/// Body of `POST /v1/patients/{id}/wandering-door` — the caregiver's exit-door
-/// choice. One or more `doors` when doors are chosen; `noExitDoor` when no door
-/// leads outside (turns the detector off).
+/// Body of `POST /v1/cameras/{camera_id}/wandering-door` — the caregiver's
+/// exit-door choice FOR ONE SENSOR. One or more `doors`, or `noExitDoor` when
+/// this camera watches no exit (wandering skipped there).
 struct SetWanderingDoorRequest: Encodable, Sendable {
     var doors: [WanderingDoorInput]
     var noExitDoor: Bool
@@ -216,6 +216,21 @@ struct SetWanderingDoorRequest: Encodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case doors
         case noExitDoor = "no_exit_door"
+    }
+}
+
+/// Per-sensor wandering exit-door config, from
+/// `GET /v1/patients/{id}/wandering-doors` (and the POST response). The exit
+/// door is per camera — each sensor sees a different scene.
+struct CameraWanderingDoor: Decodable, Hashable, Sendable, Identifiable {
+    var cameraId: UUID
+    var doorConfig: Detector.DoorConfig?
+
+    var id: UUID { cameraId }
+
+    enum CodingKeys: String, CodingKey {
+        case cameraId = "camera_id"
+        case doorConfig = "door_config"
     }
 }
 
