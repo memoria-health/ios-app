@@ -44,6 +44,10 @@ struct CameraDetailView: View {
     @State private var unpairing = false
     @State private var showingPairingCode = false
 
+    /// This sensor's wandering exit-door config + picker.
+    @State private var doorConfig: Detector.DoorConfig?
+    @State private var showDoorPicker = false
+
     @Environment(\.dismiss) private var dismiss
 
     private var camera: Camera? {
@@ -51,6 +55,20 @@ struct CameraDetailView: View {
     }
     private var detectors: [Detector] {
         env.api.detectorsByPatient[patientId] ?? []
+    }
+    /// Detectors shown as simple on/off toggles here. Wandering is excluded —
+    /// it's controlled by the exit-doors section (it's only active once its
+    /// doors are set), so a plain toggle would be a dead switch.
+    private var togglableDetectors: [Detector] {
+        detectors.filter { $0.identifier != "wandering" }
+    }
+    /// The patient's wandering detector (if any) — gates the exit-door section.
+    private var wanderingDetector: Detector? {
+        detectors.first { $0.identifier == "wandering" }
+    }
+    private var isWanderingActiveHere: Bool {
+        guard let dc = doorConfig else { return false }
+        return !dc.noExitDoor && !dc.doors.isEmpty
     }
 
     var body: some View {
@@ -67,6 +85,10 @@ struct CameraDetailView: View {
                     }
                     stateControls(cam)
                     detectorsSection
+                    // Exit doors are configured PER SENSOR — this is that sensor.
+                    if let wd = wanderingDetector, wd.isOn, cam.livekitIdentity != nil {
+                        exitDoorsSection(cam)
+                    }
                     // Unpair returns a paired phone camera to the UNPAIRED
                     // state (re-pairable) without deleting it. Shown only
                     // while paired; once unpaired, the pairing-code section
@@ -88,7 +110,23 @@ struct CameraDetailView: View {
         .background(NemaraColor.paper)
         .navigationTitle(camera?.room ?? "Sensor")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: cameraId) { await loadAssignments() }
+        .task(id: cameraId) {
+            await loadAssignments()
+            await loadDoorConfig()
+            await prewarmDoorFrame()
+        }
+        .sheet(isPresented: $showDoorPicker) {
+            if let cam = camera, let identity = cam.livekitIdentity {
+                WanderingDoorPickerView(
+                    patientId: patientId,
+                    cameraId: cam.id,
+                    cameraIdentity: identity,
+                    cameraName: cam.room,
+                    existingConfig: doorConfig,
+                    onSaved: { Task { await loadDoorConfig() } },
+                )
+            }
+        }
         .alert(
             "Unpair this sensor?",
             isPresented: $showingUnpairConfirm,
@@ -341,15 +379,15 @@ struct CameraDetailView: View {
 
             NemaraCard(padding: 0) {
                 VStack(spacing: 0) {
-                    ForEach(detectors.indices, id: \.self) { i in
-                        let det = detectors[i]
+                    ForEach(togglableDetectors.indices, id: \.self) { i in
+                        let det = togglableDetectors[i]
                         DetectorAssignmentRow(
                             detector: det,
                             isAssigned: assignedDetectorIds.contains(det.id),
                             isBusy: togglingDetectorId == det.id,
                             onToggle: { Task { await toggleDetector(det) } },
                         )
-                        if i < detectors.count - 1 {
+                        if i < togglableDetectors.count - 1 {
                             NemaraColor.line.frame(height: 1)
                         }
                     }
@@ -366,6 +404,106 @@ struct CameraDetailView: View {
             .foregroundStyle(NemaraColor.ink3)
             .padding(.horizontal, 16)
             .padding(.top, 4)
+        }
+    }
+
+    // MARK: - Exit doors (per sensor)
+
+    private func exitDoorsSection(_ cam: Camera) -> some View {
+        let active = isWanderingActiveHere
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                NemaraEyebrow("WANDERING · EXIT DOORS")
+                Spacer()
+                Text(active ? "ACTIVE" : "NOT ACTIVE")
+                    .font(NemaraFont.mono(size: 9, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(active ? NemaraColor.success : NemaraColor.ink3)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background((active ? NemaraColor.success : NemaraColor.ink3).opacity(0.14))
+                    .clipShape(Capsule(style: .continuous))
+            }
+            .padding(.horizontal, 16)
+
+            NemaraCard(padding: 0) {
+                Button { showDoorPicker = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "door.left.hand.open")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(NemaraColor.terra)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Exit doors on this sensor")
+                                .font(NemaraFont.bodySemibold)
+                                .foregroundStyle(NemaraColor.ink)
+                            Text(doorStatusText)
+                                .font(NemaraFont.caption)
+                                .foregroundStyle(NemaraColor.ink3)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        Spacer()
+                        Text(doorConfig != nil ? "Change" : "Set")
+                            .font(NemaraFont.mono(size: 10, weight: .semibold))
+                            .tracking(0.5)
+                            .foregroundStyle(NemaraColor.terra)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(NemaraColor.ink3)
+                    }
+                    .padding(14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+
+            Text(active
+                 ? "Only someone leaving through these doors counts as wandering on this sensor."
+                 : "Wandering is OFF on this sensor until you set its exit doors — pick the door(s) someone would use to leave home in this view.")
+            .font(NemaraFont.caption)
+            .foregroundStyle(NemaraColor.ink3)
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+        }
+    }
+
+    private var doorStatusText: String {
+        guard let dc = doorConfig else {
+            return "Not set · any doorway counts as leaving"
+        }
+        if dc.noExitDoor { return "No door leads outside · wandering off here" }
+        switch dc.doors.count {
+        case 0:
+            return "Not set · any doorway counts as leaving"
+        case 1:
+            if let label = dc.doors.first?.label, !label.isEmpty {
+                return "1 exit door · \(label)"
+            }
+            return "1 exit door set"
+        default:
+            return "\(dc.doors.count) exit doors set"
+        }
+    }
+
+    private func loadDoorConfig() async {
+        guard let list = try? await env.api.wanderingDoors(forPatient: patientId) else { return }
+        doorConfig = list.first(where: { $0.cameraId == cameraId })?.doorConfig
+    }
+
+    /// Warm this sensor's frame + door detection in the background so opening
+    /// the picker is instant (cached; Rescan refreshes).
+    private func prewarmDoorFrame() async {
+        guard let wd = wanderingDetector, wd.isOn,
+              let cam = camera, cam.online, !cam.disabled,
+              let identity = cam.livekitIdentity else { return }
+        let out = await WanderingDoorCache.shared.ensureFrame(
+            cameraId: cam.id, patientId: patientId, identity: identity,
+            api: env.api, liveKit: env.liveKit,
+        )
+        if out == .ok {
+            _ = await WanderingDoorCache.shared.ensureDoors(cameraId: cam.id, api: env.api)
         }
     }
 
