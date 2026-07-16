@@ -902,15 +902,24 @@ struct PatientLiveView: View {
     /// which is why resuming AI never has to "turn it back green," it never left.
     private func cameraStatusDot(for cam: Camera) -> some View {
         let color: Color = {
-            // 1) Streaming (backend observes frames) → green. Wins over
-            //    everything; ai_paused / cameras_paused don't stop the feed.
+            // 0) Deliberately disconnected → rust, and it WINS over a lagging
+            //    `online` flag. The backend's stale-online sweeper takes a few
+            //    seconds to write online=false after a sensor leaves, so checking
+            //    `online` first kept the dot GREEN right after a disconnect while
+            //    the header already read "0 ONLINE" (the reported bug).
+            //    desired_state is central/shared, so web + every phone still agree
+            //    — same intent-wins rule PatientCamerasView uses for its OFFLINE
+            //    label.
+            if cam.desiredState == .disconnected { return NemaraColor.danger }
+            // 1) Streaming (backend observes frames) → green. ai_paused /
+            //    cameras_paused don't stop a still-connected feed.
             if cam.online { return NemaraColor.success }
             // 2) iPhone sensor app closed → dark. The one "not reconnectable"
             //    state: a remote Reconnect can't help, the app must be reopened.
             if cam.isAppClosed { return NemaraColor.ink3 }
             // 3) Intent is connected but not online yet → amber "connecting".
             if cam.desiredState == .connected { return NemaraColor.warning }
-            // 4) Deliberately disconnected (reconnectable) → rust.
+            // 4) Fallback (unknown intent) → rust.
             return NemaraColor.danger
         }()
         return Circle().fill(color).frame(width: 7, height: 7)

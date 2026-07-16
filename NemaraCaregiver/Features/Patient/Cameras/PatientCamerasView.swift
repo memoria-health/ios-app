@@ -179,7 +179,13 @@ private struct CameraRow: View {
                 if camera.isAppClosed {
                     NemaraChip("APP CLOSED", tone: .warning)
                 } else if camera.desiredState == .disconnected {
-                    NemaraChip("DISCONNECTED", tone: .terra)
+                    // A small red status dot instead of a "DISCONNECTED" chip —
+                    // the word wrapped to two lines in the row and read as broken.
+                    // The "· OFFLINE" subtitle already carries the wording.
+                    Circle()
+                        .fill(NemaraColor.danger)
+                        .frame(width: 8, height: 8)
+                        .accessibilityLabel("Disconnected")
                 }
                 if camera.disabled {
                     NemaraChip("HIDDEN", tone: .warning)
