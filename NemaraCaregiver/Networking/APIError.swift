@@ -5,7 +5,10 @@ import Foundation
 enum APIError: Error, Equatable, Sendable {
     /// Bad request shape — likely a client-side bug.
     case badRequest(message: String)
-    /// 401 — token missing/expired. Caller should sign out.
+    /// 401 — the backend rejected our token. Usually an expired session,
+    /// but in local/dev it's often the backend failing to verify a valid
+    /// token (e.g. it can't reach Supabase's JWKS) — so the copy avoids
+    /// claiming the user was signed out and points at both causes.
     case unauthorized
     /// 403 — authenticated but forbidden.
     case forbidden
@@ -33,7 +36,7 @@ extension APIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .badRequest(let m):       return "Bad request: \(m)"
-        case .unauthorized:            return "You've been signed out. Please log in again."
+        case .unauthorized:            return "Couldn't verify your session with the server. Check your connection, or sign in again."
         case .forbidden:               return "You don't have access to this."
         case .notFound:                return "That isn't here anymore."
         case .conflict(let r):         return "The server isn't ready yet (\(r))."
