@@ -201,6 +201,15 @@ struct PatientLiveView: View {
             // target and `false` to every sibling (including the old
             // target), so we don't need an `/end` between transfers.
             guard callState == .active, let newValue else { return }
+            // A gateway/Pi camera can't take the call (no speaker) and
+            // its tile shows no Call button, so transferring there would
+            // strand an active call with no way to end it. Swiping to
+            // one hangs up instead.
+            guard allCameras.first(where: { $0.id == newValue })?
+                .sourceType == .phone else {
+                Task { await endCall() }
+                return
+            }
             Task { await transferCall(to: newValue) }
         }
         .onChange(of: onlineCameras.map(\.id)) { _, ids in
@@ -743,7 +752,12 @@ struct PatientLiveView: View {
             // No Talk under privacy: the caregiver token is minted
             // can_publish=false, so tapping Call only yields a
             // "does not have permission to publish" error. Hide it.
-            if Self.talkEnabled && isThisCallTarget && !privacyOn {
+            // Phone sensors only: gateway/Pi cameras have no speaker —
+            // the caregiver's voice plays through the wall phone
+            // (`iphone` source), so Call on an RTSP camera dials into
+            // a room where nothing can answer.
+            if Self.talkEnabled && isThisCallTarget && !privacyOn
+                && cam.sourceType == .phone {
                 CallButton(state: callState, onTap: handleCallButtonTap)
                     .offset(y: -10)
             }
