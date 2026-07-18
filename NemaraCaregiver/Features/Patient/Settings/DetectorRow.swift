@@ -14,6 +14,8 @@ struct DetectorRow: View {
     @State private var confirmingDelete = false
     @State private var deleting = false
     @State private var showSensitivityInfo = false
+    /// Detail sheet: what this detector looks for + plain-words refine.
+    @State private var showingDetail = false
     /// Per-sensor exit-door config, keyed by camera id (from the backend) — used
     /// only to show whether wandering is active on any sensor yet.
     @State private var doorConfigs: [UUID: Detector.DoorConfig] = [:]
@@ -38,6 +40,8 @@ struct DetectorRow: View {
                         Text(detector.name)
                             .font(NemaraFont.bodySmallStrong)
                             .foregroundStyle(NemaraColor.ink)
+                            .contentShape(Rectangle())
+                            .onTapGesture { showingDetail = true }
                         if detector.source == .custom {
                             Text("CUSTOM")
                                 .font(NemaraFont.mono(size: 8.5, weight: .bold))
@@ -85,6 +89,9 @@ struct DetectorRow: View {
                 .disabled(deleting)
             }
             .padding(14)
+            .sheet(isPresented: $showingDetail) {
+                DetectorDetailSheet(patientId: patientId, detector: detector)
+            }
             .alert(
                 "Delete \"\(detector.name)\"?",
                 isPresented: $confirmingDelete,

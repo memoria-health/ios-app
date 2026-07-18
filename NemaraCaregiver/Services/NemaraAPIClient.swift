@@ -770,6 +770,24 @@ final class NemaraAPIClient {
         return updated
     }
 
+    /// One plain-words change request ("don't count eating as choking").
+    /// The backend appends it and rewrites the detector's instructions;
+    /// the fresh summary lands on the row when the rewrite finishes.
+    func refineDetector(_ id: UUID, feedback: String) async throws -> Detector {
+        struct Body: Encodable { let feedback: String }
+        let updated: Detector = try await sendJSON(
+            method: "POST",
+            path: "/v1/detectors/\(id.uuidString.lowercased())/refine",
+            body: Body(feedback: feedback),
+        )
+        if var arr = detectorsByPatient[updated.patientId],
+           let idx = arr.firstIndex(where: { $0.id == updated.id }) {
+            arr[idx] = updated
+            detectorsByPatient[updated.patientId] = arr
+        }
+        return updated
+    }
+
     func deleteDetector(_ id: UUID) async throws {
         try await sendNoBodyVoid(method: "DELETE", path: "/v1/detectors/\(id.uuidString.lowercased())")
         for (pid, arr) in detectorsByPatient {

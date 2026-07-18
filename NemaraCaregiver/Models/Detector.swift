@@ -92,6 +92,12 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     var scheduleConfig: ScheduleConfig?
     /// Null unless `shape == .state`; the rising-edge episode gap (seconds).
     var episodeGapSeconds: Int?
+    /// Caregiver-readable summary of the compiled instructions
+    /// ("Counts: …" / "Doesn't count: …" / "Caution: …"). Nil while
+    /// Memoria is (re)writing them or if summarization failed.
+    var userCriteria: [String]?
+    /// Plain-words change requests the caregiver has submitted, oldest first.
+    var refinements: [String]?
     /// Wandering only: the caregiver's saved exit-door choice, so the picker
     /// can pre-highlight it. Nil until the caregiver runs the door picker.
     var doorConfig: DoorConfig?
@@ -169,6 +175,8 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case identifier
         case scheduleConfig = "schedule_config"
         case episodeGapSeconds = "episode_gap_seconds"
+        case userCriteria = "user_criteria"
+        case refinements
         case doorConfig = "door_config"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
