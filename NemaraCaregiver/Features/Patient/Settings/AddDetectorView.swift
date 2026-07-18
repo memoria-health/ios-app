@@ -376,19 +376,43 @@ struct AddDetectorView: View {
         }
     }
 
+    /// schedule_config dissolution (2026-07-18): when_scope is THE
+    /// windows mechanism. Scheduled shapes serialize their pickers as
+    /// scope text — "MON,WED 8:00 AM - 9:00 AM" — which the backend
+    /// parser reads directly (deadline ≡ window end in the unified
+    /// window(hit|miss) fire rule). schedule_config is no longer sent.
+    private static let dayNames = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+    private static func formatScopeTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        // Fixed locale: the backend grammar requires AM/PM tokens
+        // regardless of the device's 24-hour setting.
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "h:mm a"
+        return f.string(from: date)
+    }
+
+    private static func formatWhenScope(
+        cadence: Detector.ScheduleConfig.Cadence,
+        days: Set<Int>,
+        start: Date,
+        end: Date
+    ) -> String {
+        let window = "\(formatScopeTime(start)) - \(formatScopeTime(end))"
+        guard cadence == .weekly, !days.isEmpty else { return window }
+        let prefix = days.sorted().compactMap { dayNames.indices.contains($0) ? dayNames[$0] : nil }
+            .joined(separator: ",")
+        return prefix.isEmpty ? window : "\(prefix) \(window)"
+    }
+
     private func create() async {
         busy = true; error = nil
         defer { busy = false }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let scheduleConfig: Detector.ScheduleConfig? = shape == .scheduled
-            ? Detector.ScheduleConfig(
-                cadence: cadence,
-                daysOfWeek: cadence == .weekly ? days.sorted() : nil,
-                windowStart: Self.formatHHMM(windowStart),
-                windowEnd: Self.formatHHMM(windowEnd),
-                deadline: Self.formatHHMM(deadline),
-              )
-            : nil
+        let whenScope = shape == .scheduled
+            ? Self.formatWhenScope(cadence: cadence, days: days,
+                                   start: windowStart, end: windowEnd)
+            : "ALWAYS"
         let body = CreateDetectorRequest(
             name: trimmedName.isEmpty ? "Custom detector" : trimmedName,
             customPrompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -398,8 +422,9 @@ struct AddDetectorView: View {
             category: category,
             shape: shape,
             iconName: icon,
+            whenScope: whenScope,
             sensitivity: sensitivity,
-            scheduleConfig: scheduleConfig,
+            scheduleConfig: nil,
             episodeGapSeconds: shape == .state ? episodeGapSeconds : nil,
         )
         do {
