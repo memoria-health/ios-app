@@ -86,6 +86,8 @@ struct AddDetectorView: View {
     @State private var episodeGapSeconds: Int? = nil
     @State private var sensitivity: Detector.Sensitivity = .standard
     @State private var cadence: Detector.ScheduleConfig.Cadence = .daily
+    /// Compiled-behavior preview from /infer (customs visibility).
+    @State private var plan: DetectorPlan?
     @State private var days: Set<Int> = []
     @State private var windowStart = Self.defaultTime(9, 0)
     @State private var windowEnd = Self.defaultTime(17, 0)
@@ -210,10 +212,40 @@ struct AddDetectorView: View {
 
     // MARK: - inferred review
 
+    private func planRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(NemaraColor.ink3)
+                .frame(width: 56, alignment: .leading)
+            Text(value)
+                .font(.system(size: 13))
+                .foregroundStyle(NemaraColor.ink)
+        }
+    }
+
     private var inferredSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             NemaraColor.line.frame(height: 1).padding(.vertical, 2)
             NemaraEyebrow("✦ INFERRED — ADJUST ANYTHING", color: NemaraColor.terra)
+
+            // Compiled-behavior preview (customs visibility): what the
+            // detector will actually be configured to do, in the
+            // caregiver's language — visible before it exists.
+            if let plan {
+                VStack(alignment: .leading, spacing: 8) {
+                    NemaraEyebrow("WHAT THIS WILL DO")
+                    planRow("Watches", plan.watches)
+                    planRow("Sees", plan.media)
+                    planRow("Alerts", plan.fires)
+                    planRow("Checks", plan.checks)
+                    if plan.listens {
+                        planRow("Sound", "Also listens, not just watches")
+                    }
+                }
+                .padding(12)
+                .background(NemaraColor.cardAlt, in: RoundedRectangle(cornerRadius: 10))
+            }
 
             // Type
             VStack(alignment: .leading, spacing: 8) {
@@ -360,6 +392,7 @@ struct AddDetectorView: View {
             category = inf.category
             icon = inf.iconName
             sensitivity = inf.sensitivity
+            plan = inf.plan
             let s = inf.scheduleConfig
             cadence = s?.cadence ?? .daily
             days = Set(s?.daysOfWeek ?? [])

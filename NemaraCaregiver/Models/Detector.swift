@@ -274,6 +274,17 @@ struct InferDetectorRequest: Encodable, Sendable {
     var prompt: String
 }
 
+/// Plain-English preview of the compiled behavior (customs visibility,
+/// 2026-07-18): what the backend deduced from the caregiver's words,
+/// shown on the review screen before the detector exists.
+struct DetectorPlan: Decodable, Sendable {
+    var watches: String
+    var media: String
+    var fires: String
+    var checks: String
+    var listens: Bool
+}
+
 /// LLM-inferred fields for the create review screen. Nulls where the
 /// model couldn't confidently determine a value.
 struct InferDetectorResponse: Decodable, Sendable {
@@ -284,6 +295,8 @@ struct InferDetectorResponse: Decodable, Sendable {
     var scheduleConfig: Detector.ScheduleConfig?
     /// Set when the model classified the activity as `.state`; nil otherwise.
     var episodeGapSeconds: Int?
+    /// Nil only when preview composition failed server-side — hide the card.
+    var plan: DetectorPlan?
 
     enum CodingKeys: String, CodingKey {
         case shape
@@ -292,6 +305,7 @@ struct InferDetectorResponse: Decodable, Sendable {
         case sensitivity
         case scheduleConfig = "schedule_config"
         case episodeGapSeconds = "episode_gap_seconds"
+        case plan
     }
 }
 
