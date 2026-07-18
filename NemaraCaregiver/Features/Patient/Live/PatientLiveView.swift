@@ -17,6 +17,10 @@ import SwiftUI
 struct PatientLiveView: View {
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
+    // Device-local "Blur people" preference; when on, tiles render through
+    // BlurredVideoView instead of LiveKitVideoView. Observed so a Settings flip
+    // swaps the live tiles immediately.
+    @ObservedObject private var blurStore = PeopleBlurStore.shared
 
     /// Which camera tile the carousel is currently showing. Drives
     /// both video display and call-routing target.
@@ -259,7 +263,11 @@ struct PatientLiveView: View {
                         if privacyOn {
                             privacyPlacard
                         } else if let track {
-                            LiveKitVideoView(track: track, identity: identity)
+                            if blurStore.isEnabled(patientId) {
+                                BlurredVideoView(track: track, identity: identity)
+                            } else {
+                                LiveKitVideoView(track: track, identity: identity)
+                            }
                         } else {
                             NemaraCamFeedPlaceholder(hue: 30, loading: true)
                         }
@@ -717,8 +725,14 @@ struct PatientLiveView: View {
                     // the rest of the app.
                     privacyPlacard
                 } else if let track = videoTrack {
-                    LiveKitVideoView(track: track, identity: identity)
-                        .background(NemaraColor.ink)
+                    Group {
+                        if blurStore.isEnabled(patientId) {
+                            BlurredVideoView(track: track, identity: identity)
+                        } else {
+                            LiveKitVideoView(track: track, identity: identity)
+                        }
+                    }
+                    .background(NemaraColor.ink)
                 } else {
                     // No live track yet → loading (we're expected-online, just
                     // waiting on the subscribe). Pure-SwiftUI spinner so it

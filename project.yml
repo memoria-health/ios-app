@@ -71,8 +71,8 @@ targets:
         # already approved/closed trains, so each new App Store build needs a
         # HIGHER marketing version — 1.2.3 > 1.2.2 satisfies that. Flip back to
         # 0.1.0 with the next build number before archiving pilot builds again.
-        CFBundleShortVersionString: "1.2.9"
-        CFBundleVersion: "35"
+        CFBundleShortVersionString: "1.2.10"
+        CFBundleVersion: "36"
         UILaunchScreen:
           UIColorName: Colors/Paper
         UIApplicationSceneManifest:

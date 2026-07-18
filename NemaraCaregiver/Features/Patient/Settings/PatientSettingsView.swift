@@ -53,6 +53,7 @@ struct PatientSettingsView: View {
                 identityCard
                 PatientEmailAlertsCard(patientId: patientId)
                 PrivacyModeCard(patientId: patientId)
+                PeopleBlurCard(patientId: patientId)
                 DataCollectionCard(patientId: patientId)
                 feedbackEntry
 
