@@ -73,6 +73,11 @@ struct NemaraCaregiverApp: App {
                 .task {
                     await Self.requestPushAuthorization()
                 }
+                // Warm the "Blur people" person-detection model at launch so the
+                // first blurred frame isn't slow (no-op if blur is never used).
+                .task {
+                    BlurVideoRenderer.warmUp()
+                }
                 // Re-bind the APNs token to the caregiver who just signed in.
                 // The device token is per-device (globally unique) and the
                 // backend reassigns it to the current caller — but the token
