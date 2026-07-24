@@ -101,8 +101,19 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// Wandering only: the caregiver's saved exit-door choice, so the picker
     /// can pre-highlight it. Nil until the caregiver runs the door picker.
     var doorConfig: DoorConfig?
+    /// True for detectors that read FINE visual detail — small motion
+    /// (seizure/choking) or small objects (medication/stove). Their
+    /// accuracy varies with camera distance, lighting, and angle, so we
+    /// show an expectations notice at enroll + in the detail sheet.
+    /// Server-computed. Optional on the wire (older backends omit it);
+    /// read through `showsAccuracyCaveat` which treats nil as false.
+    var accuracyCaveat: Bool?
     var createdAt: Date
     var updatedAt: Date
+
+    /// Non-optional accessor for the UI. Nil (field absent) reads as
+    /// "no caveat".
+    var showsAccuracyCaveat: Bool { accuracyCaveat ?? false }
 
     /// The exit-door selection stored on a `wandering` detector. Mirrors the
     /// backend `door_config` jsonb (see `POST /v1/patients/{id}/wandering-door`):
@@ -178,6 +189,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case userCriteria = "user_criteria"
         case refinements
         case doorConfig = "door_config"
+        case accuracyCaveat = "accuracy_caveat"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -374,8 +386,13 @@ struct DetectorLibraryEntry: Identifiable, Hashable, Sendable, Decodable {
     var cohort: String          // "child" | "adult" | "both"
     var recommended: Bool
     var alreadyAdded: Bool
+    /// Fine-detail detector → show the accuracy notice in the picker.
+    /// Optional on the wire (older backends omit it); read through
+    /// `showsAccuracyCaveat`.
+    var accuracyCaveat: Bool?
 
     var id: String { key }
+    var showsAccuracyCaveat: Bool { accuracyCaveat ?? false }
 
     enum CodingKeys: String, CodingKey {
         case key
@@ -386,6 +403,7 @@ struct DetectorLibraryEntry: Identifiable, Hashable, Sendable, Decodable {
         case cohort
         case recommended
         case alreadyAdded = "already_added"
+        case accuracyCaveat = "accuracy_caveat"
     }
 }
 

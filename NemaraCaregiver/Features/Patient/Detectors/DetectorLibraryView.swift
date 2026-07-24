@@ -221,6 +221,10 @@ struct DetectorLibraryView: View {
                         .lineSpacing(1)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
+                    if e.showsAccuracyCaveat {
+                        AccuracyCaveatNotice(compact: true)
+                            .padding(.top, 3)
+                    }
                 }
                 Spacer(minLength: 8)
                 trailing(locked: locked, selected: selected)

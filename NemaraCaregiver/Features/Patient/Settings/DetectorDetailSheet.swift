@@ -27,6 +27,9 @@ struct DetectorDetailSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     header
                     if let error { errorBanner(error) }
+                    if detector.showsAccuracyCaveat {
+                        AccuracyCaveatNotice()
+                    }
                     criteriaCard
                     if let refinements = detector.refinements, !refinements.isEmpty {
                         refinementsCard(refinements)
