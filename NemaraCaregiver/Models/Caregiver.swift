@@ -9,6 +9,11 @@ struct Caregiver: Identifiable, Hashable, Sendable, Codable {
     var phone: String?
     var createdAt: Date
     var updatedAt: Date
+    // Terms of Service + Privacy acceptance (mirrors the backend). Null until
+    // the caregiver accepts; iOS gates account creation on acceptance, so a
+    // freshly signed-up account is already stamped.
+    var tosAcceptedAt: Date?
+    var tosVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -17,6 +22,8 @@ struct Caregiver: Identifiable, Hashable, Sendable, Codable {
         case phone
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case tosAcceptedAt = "tos_accepted_at"
+        case tosVersion = "tos_version"
     }
 }
 
@@ -24,10 +31,22 @@ struct Caregiver: Identifiable, Hashable, Sendable, Codable {
 struct CreateCaregiverRequest: Encodable, Sendable {
     var displayName: String
     var phone: String?
+    /// ToS/Privacy version the caregiver accepted at signup. iOS gates account
+    /// creation on acceptance, so this is set and provisioning stamps
+    /// tos_accepted_at server-side. Omitted when nil.
+    var tosVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case displayName = "display_name"
         case phone
+        case tosVersion = "tos_version"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(displayName, forKey: .displayName)
+        try c.encodeIfPresent(phone, forKey: .phone)
+        try c.encodeIfPresent(tosVersion, forKey: .tosVersion)
     }
 }
 

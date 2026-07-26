@@ -75,13 +75,13 @@ final class AppEnvironment {
 
         // Provisioning + bootstrap pipeline. AppEnvironment owns the
         // composition; auth + api stay decoupled.
-        auth.onAuthenticated = { [weak api] signUpDisplayName, signUpPhone in
+        auth.onAuthenticated = { [weak api] signUpDisplayName, signUpPhone, signUpTosVersion in
             guard let api else {
                 throw APIError.other(message: "API client released before bootstrap.")
             }
             let caregiver: Caregiver
             if let dn = signUpDisplayName {
-                caregiver = try await api.provisionMe(displayName: dn, phone: signUpPhone)
+                caregiver = try await api.provisionMe(displayName: dn, phone: signUpPhone, tosVersion: signUpTosVersion)
                 // Brand-new account → the welcome tour auto-starts once the
                 // signed-in UI mounts. Sign-in / restore never set this.
                 TutorialFlags.markNewAccount()

@@ -11,7 +11,8 @@ struct SignUpView: View {
     @State private var email = ""
     @State private var phone = ""
     @State private var password = ""
-    @State private var agreedToTerms = true
+    @State private var agreedToTerms = false
+    @State private var showConsent = false
     @State private var errorMessage: String?
 
     private var passwordValid: Bool {
@@ -110,16 +111,19 @@ struct SignUpView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .trackScreen("auth.signup")
+        .sheet(isPresented: $showConsent) {
+            TermsConsentView { agreedToTerms = true }
+        }
     }
 
     // MARK: - subviews
 
     @ViewBuilder
     private var termsRow: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Button {
-                agreedToTerms.toggle()
-            } label: {
+        Button {
+            showConsent = true
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .fill(agreedToTerms ? NemaraColor.action : .clear)
@@ -134,15 +138,17 @@ struct SignUpView: View {
                             .foregroundStyle(NemaraColor.actionInk)
                     }
                 }
-            }
-            .buttonStyle(.plain)
 
-            Text("I agree to the **Terms** and acknowledge the **Privacy Notice**, including how Memoria handles audio and video.")
-                .font(NemaraFont.caption)
-                .foregroundStyle(NemaraColor.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-                .multilineTextAlignment(.leading)
+                Text(agreedToTerms
+                     ? "You've agreed to the **Terms** and **Privacy Notice**. Tap to review again."
+                     : "Review and agree to the **Terms** and **Privacy Notice** to continue.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: - actions
@@ -151,7 +157,10 @@ struct SignUpView: View {
         Task {
             do {
                 errorMessage = nil
-                try await env.auth.signUp(displayName: name, email: email, password: password, phone: phone)
+                try await env.auth.signUp(
+                    displayName: name, email: email, password: password, phone: phone,
+                    tosVersion: LegalConstants.currentTosVersion,
+                )
             } catch let e as APIError {
                 errorMessage = e.errorDescription
             } catch {
