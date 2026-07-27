@@ -25,6 +25,11 @@ struct NewPatientView: View {
     // column is NOT NULL, so an unselected relationship submits as .other.
     @State private var relation: Patient.Relation? = nil
 
+    // Data-residency region for this patient's data. Defaults to US (matches
+    // the web onboarding default); India onboarding selects India explicitly.
+    // Immutable server-side once created.
+    @State private var region: Patient.Region = .us
+
     // Photo is picked here but uploaded only AFTER createPatient
     // returns the new patient_id — the upload endpoint is keyed by
     // patient_id and we don't have one until then.
@@ -64,6 +69,7 @@ struct NewPatientView: View {
                             .tutorialTarget(fullName.trimmingCharacters(in: .whitespaces).isEmpty ? .nameField : nil)
                         dateOfBirthAndGender
                         relationshipPicker
+                        regionPicker
                         photoRow
                     }
                     .padding(.horizontal, 20)
@@ -227,6 +233,38 @@ struct NewPatientView: View {
         }
     }
 
+    // Data-residency region picker. Same Menu idiom as the gender field.
+    // Region is set once at onboarding and is immutable server-side.
+    private var regionPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            NemaraEyebrow("REGION")
+            Menu {
+                ForEach(Patient.Region.allCases, id: \.self) { r in
+                    Button(r.displayName) { region = r }
+                }
+            } label: {
+                HStack {
+                    Text(region.displayName)
+                        .font(NemaraFont.bodyLarge)
+                        .foregroundStyle(NemaraColor.ink)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(NemaraColor.ink3)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(NemaraColor.card)
+                .overlay(
+                    RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous)
+                        .strokeBorder(NemaraColor.line, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
+            }
+            .tint(NemaraColor.ink)
+        }
+    }
+
     private var photoRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             NemaraEyebrow("A PHOTO (OPTIONAL)")
@@ -326,6 +364,7 @@ struct NewPatientView: View {
             dateOfBirth: dateOfBirth,
             gender: gender.isEmpty ? nil : gender,
             homeAddress: nil,
+            region: region,
         )
 
         Task {

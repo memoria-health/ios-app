@@ -31,6 +31,22 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         }
     }
 
+    /// Data-residency region for this patient's data. The onboarding country
+    /// picker maps to these; the backend routes storage + liftability off it.
+    /// Set at creation, immutable after. Raw values match the wire ('US'/'IN').
+    enum Region: String, CaseIterable, Sendable, Codable {
+        case us = "US"
+        case india = "IN"
+
+        /// Country label shown in the onboarding picker.
+        var displayName: String {
+            switch self {
+            case .us: return "United States"
+            case .india: return "India"
+            }
+        }
+    }
+
     let id: UUID
     var caregiverId: UUID
     var fullName: String
@@ -39,6 +55,9 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     var gender: String?
     var relation: Relation
     var homeAddress: String?
+    /// Data-residency region for this patient's data. Optional for decode
+    /// resilience (the app doesn't switch on it yet); backend always sends it.
+    var region: Region?
     var state: State
     var statusLine: String
     var lastEventAt: Date?
@@ -86,6 +105,7 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case gender
         case relation
         case homeAddress = "home_address"
+        case region
         case state
         case statusLine = "status_line"
         case lastEventAt = "last_event_at"
@@ -121,6 +141,8 @@ struct CreatePatientRequest: Encodable, Sendable {
     var dateOfBirth: Date?
     var gender: String?
     var homeAddress: String?
+    /// Data-residency region ('US'/'IN'). Set at onboarding; immutable after.
+    var region: Patient.Region?
 
     enum CodingKeys: String, CodingKey {
         case fullName = "full_name"
@@ -129,6 +151,7 @@ struct CreatePatientRequest: Encodable, Sendable {
         case dateOfBirth = "date_of_birth"
         case gender
         case homeAddress = "home_address"
+        case region
     }
 
     func encode(to encoder: Encoder) throws {
@@ -145,6 +168,7 @@ struct CreatePatientRequest: Encodable, Sendable {
         }
         try c.encodeIfPresent(gender, forKey: .gender)
         try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
+        try c.encodeIfPresent(region, forKey: .region)
     }
 }
 
