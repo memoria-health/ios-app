@@ -11,6 +11,7 @@ struct SignUpView: View {
     @State private var email = ""
     @State private var phone = ""
     @State private var password = ""
+    @State private var confirmPassword = ""
     @State private var agreedToTerms = false
     @State private var showConsent = false
     @State private var errorMessage: String?
@@ -29,11 +30,16 @@ struct SignUpView: View {
         phone.filter(\.isNumber).count >= 10
     }
 
+    private var passwordsMatch: Bool {
+        !confirmPassword.isEmpty && confirmPassword == password
+    }
+
     private var canSubmit: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && email.contains("@")
             && phoneValid
             && passwordValid
+            && passwordsMatch
             && agreedToTerms
             && !env.auth.isAuthenticating
     }
@@ -60,6 +66,14 @@ struct SignUpView: View {
                     NemaraField("Password", text: $password, placeholder: "8+ chars, mixed case, number, symbol",
                                 isSecure: true)
                     NemaraPasswordChecklist(value: password)
+                    NemaraField("Confirm password", text: $confirmPassword,
+                                placeholder: "Re-enter password", isSecure: true)
+                    if !confirmPassword.isEmpty && confirmPassword != password {
+                        Text("Passwords don't match.")
+                            .font(NemaraFont.caption)
+                            .foregroundStyle(NemaraColor.terra)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 termsRow

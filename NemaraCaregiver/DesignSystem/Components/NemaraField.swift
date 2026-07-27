@@ -121,7 +121,7 @@ struct NemaraPasswordChecklist: View {
                 HStack(spacing: 6) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(rule.pass ? NemaraColor.action : Color.clear)
+                            .fill(rule.pass ? NemaraColor.success : Color.clear)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .strokeBorder(rule.pass ? .clear : NemaraColor.line, lineWidth: 1.5)
@@ -130,7 +130,7 @@ struct NemaraPasswordChecklist: View {
                         if rule.pass {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 8, weight: .black))
-                                .foregroundStyle(NemaraColor.actionInk)
+                                .foregroundStyle(NemaraColor.paper)
                         }
                     }
                     Text(rule.label)
