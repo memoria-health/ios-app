@@ -10,6 +10,7 @@ struct SignUpView: View {
     @State private var name = ""
     @State private var email = ""
     @State private var phone = ""
+    @State private var country = "US"
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var agreedToTerms = false
@@ -63,6 +64,10 @@ struct SignUpView: View {
                                 keyboardType: .emailAddress, autocapitalization: .never)
                     NemaraField("Phone", text: $phone, placeholder: "(555) 123-4567",
                                 keyboardType: .phonePad)
+                    VStack(alignment: .leading, spacing: 6) {
+                        NemaraEyebrow("COUNTRY")
+                        CountryPicker(code: $country)
+                    }
                     NemaraField("Password", text: $password, placeholder: "8+ chars, mixed case, number, symbol",
                                 isSecure: true)
                     NemaraPasswordChecklist(value: password)
@@ -173,7 +178,7 @@ struct SignUpView: View {
                 errorMessage = nil
                 try await env.auth.signUp(
                     displayName: name, email: email, password: password, phone: phone,
-                    tosVersion: LegalConstants.currentTosVersion,
+                    tosVersion: LegalConstants.currentTosVersion, country: country,
                 )
             } catch let e as APIError {
                 errorMessage = e.errorDescription

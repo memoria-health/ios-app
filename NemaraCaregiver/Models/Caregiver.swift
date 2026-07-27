@@ -14,6 +14,10 @@ struct Caregiver: Identifiable, Hashable, Sendable, Codable {
     // freshly signed-up account is already stamped.
     var tosAcceptedAt: Date?
     var tosVersion: String?
+    /// Country picked at signup (ISO alpha-2) + the residency region derived
+    /// from it. Optional for decode resilience; backend always sends them.
+    var country: String?
+    var region: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -24,6 +28,8 @@ struct Caregiver: Identifiable, Hashable, Sendable, Codable {
         case updatedAt = "updated_at"
         case tosAcceptedAt = "tos_accepted_at"
         case tosVersion = "tos_version"
+        case country
+        case region
     }
 }
 
@@ -35,11 +41,15 @@ struct CreateCaregiverRequest: Encodable, Sendable {
     /// creation on acceptance, so this is set and provisioning stamps
     /// tos_accepted_at server-side. Omitted when nil.
     var tosVersion: String?
+    /// Country picked at signup (ISO alpha-2). The residency region is derived
+    /// from it server-side. Omitted when nil (backend defaults to 'US').
+    var country: String?
 
     enum CodingKeys: String, CodingKey {
         case displayName = "display_name"
         case phone
         case tosVersion = "tos_version"
+        case country
     }
 
     func encode(to encoder: Encoder) throws {
@@ -47,6 +57,7 @@ struct CreateCaregiverRequest: Encodable, Sendable {
         try c.encode(displayName, forKey: .displayName)
         try c.encodeIfPresent(phone, forKey: .phone)
         try c.encodeIfPresent(tosVersion, forKey: .tosVersion)
+        try c.encodeIfPresent(country, forKey: .country)
     }
 }
 

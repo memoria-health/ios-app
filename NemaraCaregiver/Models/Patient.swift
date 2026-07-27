@@ -55,8 +55,11 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     var gender: String?
     var relation: Relation
     var homeAddress: String?
-    /// Data-residency region for this patient's data. Optional for decode
-    /// resilience (the app doesn't switch on it yet); backend always sends it.
+    /// Country this home is in (ISO alpha-2), picked at onboarding. Optional for
+    /// decode resilience; backend always sends it.
+    var country: String?
+    /// Data-residency region for this patient's data, DERIVED from `country`.
+    /// Optional for decode resilience (the app doesn't switch on it yet).
     var region: Region?
     var state: State
     var statusLine: String
@@ -105,6 +108,7 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case gender
         case relation
         case homeAddress = "home_address"
+        case country
         case region
         case state
         case statusLine = "status_line"
@@ -141,8 +145,9 @@ struct CreatePatientRequest: Encodable, Sendable {
     var dateOfBirth: Date?
     var gender: String?
     var homeAddress: String?
-    /// Data-residency region ('US'/'IN'). Set at onboarding; immutable after.
-    var region: Patient.Region?
+    /// Country this home is in (ISO alpha-2). Set at onboarding; the residency
+    /// region is derived from it server-side. Immutable after creation.
+    var country: String
 
     enum CodingKeys: String, CodingKey {
         case fullName = "full_name"
@@ -151,7 +156,7 @@ struct CreatePatientRequest: Encodable, Sendable {
         case dateOfBirth = "date_of_birth"
         case gender
         case homeAddress = "home_address"
-        case region
+        case country
     }
 
     func encode(to encoder: Encoder) throws {
@@ -168,7 +173,7 @@ struct CreatePatientRequest: Encodable, Sendable {
         }
         try c.encodeIfPresent(gender, forKey: .gender)
         try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
-        try c.encodeIfPresent(region, forKey: .region)
+        try c.encode(country, forKey: .country)
     }
 }
 

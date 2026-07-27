@@ -250,11 +250,13 @@ final class NemaraAPIClient {
 
     func provisionMe(
         displayName: String, phone: String? = nil, tosVersion: String? = nil,
+        country: String? = nil,
     ) async throws -> Caregiver {
         try await sendJSON(
             method: "POST", path: "/v1/me",
             body: CreateCaregiverRequest(
                 displayName: displayName, phone: phone, tosVersion: tosVersion,
+                country: country,
             ),
         )
     }
