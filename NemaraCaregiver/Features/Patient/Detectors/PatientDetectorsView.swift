@@ -20,6 +20,11 @@ struct PatientDetectorsView: View {
     }
     private var activeCount: Int { detectors.filter(\.isOn).count }
 
+    // Split preset vs custom so the list mirrors the web dashboard's two
+    // grouped "BUILT-IN" / "CUSTOM" sections.
+    private var presets: [Detector] { detectors.filter { $0.source == .preset } }
+    private var customs: [Detector] { detectors.filter { $0.source == .custom } }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -85,7 +90,7 @@ struct PatientDetectorsView: View {
     }
 
     private var list: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .lastTextBaseline, spacing: 8) {
                 NemaraEyebrow("DETECTORS")
                 Spacer()
@@ -93,21 +98,59 @@ struct PatientDetectorsView: View {
             }
             .padding(.horizontal, 16)
 
-            NemaraCard(padding: 0) {
-                VStack(spacing: 0) {
-                    ForEach(detectors.indices, id: \.self) { i in
-                        DetectorRow(
-                            patientId: patientId,
-                            detector: detectors[i],
-                            isLast: i == detectors.count - 1,
-                        )
-                        // Welcome-tour marker: the tour's "this is a
-                        // detector" pause rings the first row. Frame only.
-                        .tutorialTarget(i == 0 ? .firstDetector : nil)
+            // Two grouped sections, matching the web dashboard: built-in
+            // presets first, then the caregiver's custom detectors.
+            detectorSection(
+                title: "BUILT-IN",
+                rows: presets,
+                isFirstSection: true,
+                emptyHint: "No built-in detectors yet.",
+            )
+            detectorSection(
+                title: "CUSTOM",
+                rows: customs,
+                isFirstSection: false,
+                emptyHint: "None yet. Add a custom detector with the button above.",
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func detectorSection(
+        title: String,
+        rows: [Detector],
+        isFirstSection: Bool,
+        emptyHint: String,
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NemaraEyebrow(title)
+                .padding(.horizontal, 16)
+
+            if rows.isEmpty {
+                NemaraCard(padding: 14) {
+                    Text(emptyHint)
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.ink3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 16)
+            } else {
+                NemaraCard(padding: 0) {
+                    VStack(spacing: 0) {
+                        ForEach(rows.indices, id: \.self) { i in
+                            DetectorRow(
+                                patientId: patientId,
+                                detector: rows[i],
+                                isLast: i == rows.count - 1,
+                            )
+                            // Welcome-tour marker: the tour's "this is a
+                            // detector" pause rings the first row. Frame only.
+                            .tutorialTarget(isFirstSection && i == 0 ? .firstDetector : nil)
+                        }
                     }
                 }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
         }
     }
 }

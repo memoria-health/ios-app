@@ -17,6 +17,9 @@ struct DetectorDetailSheet: View {
     @State var detector: Detector
 
     @State private var feedback = ""
+    /// Focus for the "Ask for a change" field, so we can drop the keyboard on
+    /// submit and offer a "Done" toolbar button.
+    @FocusState private var feedbackFocused: Bool
     /// Previewed criteria from "Re-generate" — staged, not saved. Nil when we
     /// are showing the live compiled criteria.
     @State private var previewCriteria: [String]?
@@ -34,6 +37,23 @@ struct DetectorDetailSheet: View {
     @State private var allRooms = true
     @State private var selectedRooms: Set<String> = []
     @State private var roomsInitialised = false
+
+    // Category (Safety / Routine). Staged; included in isDirty + the PATCH.
+    @State private var category: Detector.Category = .safety
+
+    // Sensitivity (Low / Standard / High). Staged; editable for ANY detector
+    // regardless of on/off state (the old inline row picker only showed when
+    // the detector was ON, so an OFF draft couldn't be tuned).
+    @State private var sensitivity: Detector.Sensitivity = .standard
+    @State private var showSensitivityInfo = false
+
+    // When it runs — Always vs a specific HH:MM window. Mirrors the web
+    // editor's "When it runs" control; editable for presets and customs.
+    private enum WhenMode { case always, specific }
+    @State private var whenMode: WhenMode = .always
+    @State private var whenStart = Date()
+    @State private var whenEnd = Date()
+    @State private var whenInit = false
 
     private var isCustom: Bool { detector.source == .custom }
     private var compiling: Bool { detector.identifier == nil }
@@ -54,23 +74,29 @@ struct DetectorDetailSheet: View {
                     }
                     if isCustom { changeBox }
                     howItAlerts
-                    if isCustom {
-                        roomsCard
-                    } else {
-                        Text("This is a built-in detector, tuned by Memoria. Custom detectors you create can be adjusted in your own words.")
-                            .font(NemaraFont.caption)
-                            .foregroundStyle(NemaraColor.ink3)
-                    }
-                    if isCustom { saveBar }
+                    categoryCard
+                    sensitivityCard
+                    // Where it runs is editable for every detector, presets
+                    // included, so built-ins can be re-scoped to rooms too.
+                    // (What it looks for stays Memoria's for presets; only the
+                    // prompt/refine surface above is custom-only.)
+                    roomsCard
+                    whenCard
+                    saveBar
                 }
                 .padding(20)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(NemaraColor.paper)
             .navigationTitle(detector.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { feedbackFocused = false }
                 }
             }
             .onAppear(perform: initRoomsIfNeeded)
@@ -95,11 +121,6 @@ struct DetectorDetailSheet: View {
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                     .fixedSize(horizontal: false, vertical: true)
-                if detector.whenScope.uppercased() != "ALWAYS" {
-                    Text("Active: \(detector.whenScope)")
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink3)
-                }
             }
         }
     }
@@ -136,7 +157,7 @@ struct DetectorDetailSheet: View {
             NemaraEyebrow("WHAT YOU ASKED FOR")
             Text(detector.customPrompt?.isEmpty == false
                  ? detector.customPrompt!
-                 : "—")
+                 : "(none)")
                 .font(NemaraFont.bodySmall)
                 .foregroundStyle(NemaraColor.ink)
                 .lineSpacing(2)
@@ -152,7 +173,7 @@ struct DetectorDetailSheet: View {
     private var criteriaCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                NemaraEyebrow("WHAT MEMORIA LOOKS FOR", color: NemaraColor.terra)
+                NemaraEyebrow("✦ WHAT MEMORIA LOOKS FOR", color: NemaraColor.terra)
                 Spacer()
                 if previewCriteria != nil {
                     Text("PREVIEW · NOT SAVED")
@@ -185,7 +206,7 @@ struct DetectorDetailSheet: View {
             } else {
                 // Compiled but no bulleted summary yet — a neutral note (don't
                 // echo "what you asked for" above; that read as repetition).
-                Text("Memoria is finalizing this detector's details — check back in a moment.")
+                Text("Memoria is finalizing this detector's details. Check back in a moment.")
                     .font(NemaraFont.bodySmall)
                     .italic()
                     .foregroundStyle(NemaraColor.ink3)
@@ -194,6 +215,13 @@ struct DetectorDetailSheet: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(NemaraColor.cardAlt, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // The one AI-generated surface: a terra outline + soft glow so it
+        // reads as intelligent, distinct from the plain setting cards.
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(NemaraColor.terra.opacity(0.4), lineWidth: 1)
+        )
+        .shadow(color: NemaraColor.terra.opacity(0.18), radius: 10, y: 2)
     }
 
     private func refinementsCard(_ refinements: [String]) -> some View {
@@ -216,13 +244,14 @@ struct DetectorDetailSheet: View {
     private var changeBox: some View {
         VStack(alignment: .leading, spacing: 8) {
             NemaraEyebrow("ASK FOR A CHANGE")
-            Text("Tell Memoria in your own words — e.g. \u{201C}don't count eating as choking\u{201D}. Preview it, then Save to apply.")
+            Text("Tell Memoria in your own words, e.g. \u{201C}don't count eating as choking\u{201D}. Preview it, then Save to apply.")
                 .font(NemaraFont.caption)
                 .foregroundStyle(NemaraColor.ink3)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("What should work differently?", text: $feedback, axis: .vertical)
                 .lineLimit(2...4)
                 .font(NemaraFont.bodySmall)
+                .focused($feedbackFocused)
                 .padding(10)
                 .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .onChange(of: feedback) { _, _ in
@@ -263,9 +292,97 @@ struct DetectorDetailSheet: View {
                 }
             }
             if opts.isEmpty {
-                Text("No cameras yet — this runs everywhere once you pair one.")
+                Text("No cameras yet. This runs everywhere once you pair one.")
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
+            }
+        }
+    }
+
+    // MARK: - Category — Safety / Routine (mirrors the web editor)
+
+    private var categoryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NemaraEyebrow("CATEGORY")
+            FlowChips {
+                ForEach([Detector.Category.safety, .routine], id: \.self) { c in
+                    chip(categoryLabel(c), selected: category == c) {
+                        category = c
+                    }
+                }
+            }
+        }
+    }
+
+    private func categoryLabel(_ c: Detector.Category) -> String {
+        switch c {
+        case .safety:  "Safety"
+        case .routine: "Routine"
+        }
+    }
+
+    // MARK: - Sensitivity — Low / Standard / High (moved off the list row)
+
+    private var sensitivityCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                NemaraEyebrow("SENSITIVITY")
+                Button { showSensitivityInfo = true } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(NemaraColor.ink3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("What does sensitivity mean?")
+            }
+            FlowChips {
+                ForEach([Detector.Sensitivity.low, .standard, .high], id: \.self) { level in
+                    chip(level.displayName, selected: sensitivity == level) {
+                        sensitivity = level
+                    }
+                }
+            }
+            Text(sensitivityHint)
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .sheet(isPresented: $showSensitivityInfo) {
+            SensitivityInfoSheet()
+                .presentationDetents([.medium])
+        }
+    }
+
+    private var sensitivityHint: String {
+        switch sensitivity {
+        case .low:      "Fewer alerts, only the clearest signals"
+        case .standard: "Recommended baseline"
+        case .high:     "More alerts"
+        case .off:      "Detector off"
+        }
+    }
+
+    // MARK: - When it runs — Always vs a specific window (item E4 parity)
+
+    private var whenCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NemaraEyebrow("WHEN IT RUNS")
+            FlowChips {
+                chip("Always", selected: whenMode == .always) { whenMode = .always }
+                chip("Specific hours", selected: whenMode == .specific) { whenMode = .specific }
+            }
+            if whenMode == .specific {
+                HStack(spacing: 10) {
+                    DatePicker("", selection: $whenStart, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                    Text("to")
+                        .font(NemaraFont.bodySmall)
+                        .foregroundStyle(NemaraColor.ink3)
+                    DatePicker("", selection: $whenEnd, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                    Spacer()
+                }
             }
         }
     }
@@ -274,11 +391,17 @@ struct DetectorDetailSheet: View {
         Button(action: action) {
             Text(label)
                 .font(NemaraFont.bodySmall.weight(.medium))
+                // Selected chips are solid black (ink), matching the web
+                // dashboard's selected settings pills.
                 .foregroundStyle(selected ? NemaraColor.paper : NemaraColor.ink2)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(selected ? NemaraColor.terra : NemaraColor.paperDim,
+                .background(selected ? NemaraColor.ink : NemaraColor.paperDim,
                             in: Capsule(style: .continuous))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(selected ? NemaraColor.ink : .clear, lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
     }
@@ -374,7 +497,25 @@ struct DetectorDetailSheet: View {
         if !feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         if previewCriteria != nil { return true }
         if timingChanged && !timingInvalid { return true }
+        if categoryChanged { return true }
+        if sensitivityChanged { return true }
+        if whenChanged { return true }
         return roomsChanged
+    }
+
+    private var categoryChanged: Bool { category != detector.category }
+    private var sensitivityChanged: Bool { sensitivity != detector.sensitivity }
+
+    /// The staged When-window as the backend string ("ALWAYS" or "HH:MM-HH:MM").
+    private var computedWhen: String {
+        whenMode == .always
+            ? "ALWAYS"
+            : "\(Self.hhmm(from: whenStart))-\(Self.hhmm(from: whenEnd))"
+    }
+
+    private var whenChanged: Bool {
+        computedWhen.uppercased()
+            != detector.whenScope.trimmingCharacters(in: .whitespaces).uppercased()
     }
 
     private var timingChanged: Bool {
@@ -410,12 +551,64 @@ struct DetectorDetailSheet: View {
     private func initRoomsIfNeeded() {
         guard !roomsInitialised else { return }
         (allRooms, selectedRooms) = initialRoomState(detector)
+        category = detector.category
+        sensitivity = detector.sensitivity
         roomsInitialised = true
         if !timingInit {
             alertTrigger = detector.alertTrigger
             durationSeconds = detector.durationSeconds
             timingInit = true
         }
+        if !whenInit {
+            let (mode, start, end) = Self.parseWhenScope(detector.whenScope)
+            whenMode = mode
+            whenStart = start
+            whenEnd = end
+            whenInit = true
+        }
+    }
+
+    /// Snap the staged alert-timing, active-window, and rooms controls to a
+    /// detector's values. Used to reflect the backend's re-inferred fields from
+    /// a refine preview, and to re-sync after a committed refine Save, so those
+    /// pickers never go stale relative to the criteria.
+    private func syncStagedControls(from d: Detector) {
+        alertTrigger = d.alertTrigger
+        durationSeconds = d.alertTrigger == .duration ? d.durationSeconds : nil
+        (allRooms, selectedRooms) = initialRoomState(d)
+        let (mode, start, end) = Self.parseWhenScope(d.whenScope)
+        whenMode = mode
+        whenStart = start
+        whenEnd = end
+    }
+
+    // MARK: - When-scope <-> Date helpers
+
+    /// Parse a backend when-scope string. "HH:MM-HH:MM" → a specific window;
+    /// anything else (incl. "ALWAYS") → the always mode with a sane default.
+    private static func parseWhenScope(_ raw: String) -> (WhenMode, Date, Date) {
+        let parts = raw.trimmingCharacters(in: .whitespaces).split(separator: "-")
+        if parts.count == 2,
+           let s = date(fromHHMM: String(parts[0])),
+           let e = date(fromHHMM: String(parts[1])) {
+            return (.specific, s, e)
+        }
+        return (.always, date(fromHHMM: "08:00") ?? Date(), date(fromHHMM: "20:00") ?? Date())
+    }
+
+    private static func date(fromHHMM raw: String) -> Date? {
+        let comps = raw.trimmingCharacters(in: .whitespaces).split(separator: ":")
+        guard comps.count == 2, let h = Int(comps[0]), let m = Int(comps[1]),
+              (0...23).contains(h), (0...59).contains(m) else { return nil }
+        var dc = DateComponents()
+        dc.hour = h
+        dc.minute = m
+        return Calendar.current.date(from: dc)
+    }
+
+    private static func hhmm(from date: Date) -> String {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
     }
 
     private func toggleRoom(_ room: String) {
@@ -441,6 +634,7 @@ struct DetectorDetailSheet: View {
     private func regenerate() {
         let text = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        feedbackFocused = false
         regenerating = true
         error = nil
         Task {
@@ -451,9 +645,13 @@ struct DetectorDetailSheet: View {
                     detector.id, feedback: text, preview: true,
                 )
                 previewCriteria = previewed.userCriteria ?? []
+                // The backend re-infers the alert type, the active window, and
+                // the rooms from the change, so snap the staged pickers to the
+                // preview too (they persist on Save). Mirrors the web editor.
+                syncStagedControls(from: previewed)
             } catch {
                 self.error = (error as? LocalizedError)?.errorDescription
-                    ?? "Couldn't preview that — please try again."
+                    ?? "Couldn't preview that. Please try again."
             }
             regenerating = false
         }
@@ -462,6 +660,7 @@ struct DetectorDetailSheet: View {
     private func save() {
         saving = true
         error = nil
+        feedbackFocused = false
         let text = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             do {
@@ -472,6 +671,18 @@ struct DetectorDetailSheet: View {
                 var hasPatch = false
                 if roomsChanged {
                     patch.whereRooms = allRooms ? ["ALL ROOMS"] : Array(selectedRooms)
+                    hasPatch = true
+                }
+                if whenChanged {
+                    patch.whenScope = computedWhen
+                    hasPatch = true
+                }
+                if categoryChanged {
+                    patch.category = category
+                    hasPatch = true
+                }
+                if sensitivityChanged {
+                    patch.sensitivity = sensitivity
                     hasPatch = true
                 }
                 if timingChanged && !timingInvalid {
@@ -489,6 +700,9 @@ struct DetectorDetailSheet: View {
                     )
                     feedback = ""
                     previewCriteria = nil
+                    // The committed refine re-inferred alert type / window /
+                    // rooms too — re-sync the pickers so they aren't stale.
+                    syncStagedControls(from: detector)
                     saving = false
                     // The rewrite runs a few seconds server-side; poll so the
                     // fresh summary lands without the caregiver doing anything.
@@ -500,18 +714,27 @@ struct DetectorDetailSheet: View {
                             .first(where: { $0.id == detector.id }),
                            fresh.updatedAt > detector.updatedAt {
                             detector = fresh
+                            syncStagedControls(from: detector)
                             break
                         }
                     }
                     rewriting = false
                     return
                 }
+                // A pure PATCH commit (no refine): the controls already match
+                // what we sent, but re-sync from the server's echo to stay
+                // authoritative (e.g. the backend normalizing where_rooms).
+                if hasPatch {
+                    syncStagedControls(from: detector)
+                    category = detector.category
+                    sensitivity = detector.sensitivity
+                }
                 saving = false
             } catch {
                 saving = false
                 rewriting = false
                 self.error = (error as? LocalizedError)?.errorDescription
-                    ?? "Couldn't save that — please try again."
+                    ?? "Couldn't save that. Please try again."
             }
         }
     }
@@ -539,6 +762,73 @@ struct DetectorDetailSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(NemaraColor.terraSoft)
             .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.sm, style: .continuous))
+    }
+}
+
+/// Explains what Low / Standard / High sensitivity actually do — the
+/// confidence-vs-noise trade-off — so caregivers can tune intentionally.
+/// Lives here now that sensitivity is edited in the detail sheet, not the row.
+private struct SensitivityInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Sensitivity")
+                        .font(NemaraFont.title2)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text("How sure Memoria needs to be before it alerts you. Higher catches more, but with more false alarms.")
+                        .font(NemaraFont.bodySmall)
+                        .foregroundStyle(NemaraColor.ink2)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                level("Low", "Fewer alerts", "Only fires on the clearest, most obvious signals. Best when you want to avoid false alarms and only hear about the strongest events, at the cost of missing subtler ones.")
+                level("Standard", "Recommended", "A balanced baseline that works well for most rooms and detectors. Start here.")
+                level("High", "More alerts", "Fires on weaker or more ambiguous signals, so it catches subtle events others miss, but expect more false alarms to review.")
+
+                Text("You can change this anytime per detector; it only affects this sensor.")
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .padding(.top, 2)
+            }
+            .padding(20)
+        }
+        .background(NemaraColor.paper)
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+        }
+    }
+
+    private func level(_ name: String, _ tag: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(name)
+                    .font(NemaraFont.bodySemibold)
+                    .foregroundStyle(NemaraColor.ink)
+                Text(tag.uppercased())
+                    .font(NemaraFont.mono(size: 9, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(NemaraColor.terra)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(NemaraColor.terraSoft)
+                    .clipShape(Capsule(style: .continuous))
+            }
+            Text(body)
+                .font(NemaraFont.bodySmall)
+                .foregroundStyle(NemaraColor.ink2)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
