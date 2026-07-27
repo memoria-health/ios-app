@@ -150,7 +150,9 @@ struct DetectorRow: View {
     /// watching anything yet.
     private var wanderingActivationHint: some View {
         let active = activeSensorCount
-        return HStack(spacing: 8) {
+        // .top so the icon lines up with the first line when the text wraps
+        // to two lines (item E7).
+        return HStack(alignment: .top, spacing: 8) {
             Image(systemName: active > 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(active > 0 ? NemaraColor.success : NemaraColor.warning)
@@ -169,16 +171,22 @@ struct DetectorRow: View {
     }
 
     private var fourAxisCaption: some View {
+        // Caregiver-facing words, never the raw enum (item E2).
         HStack(spacing: 6) {
-            Text(detector.shape.displayName)
+            Text(detector.alertTrigger.caregiverShort)
             Text("·").foregroundStyle(NemaraColor.line)
-            Text(detector.whereScope)
+            Text(detector.roomsLabel)
             Text("·").foregroundStyle(NemaraColor.line)
-            Text(detector.whenScope)
+            Text(whenLabel)
         }
         .font(NemaraFont.mono(size: 9.5, weight: .semibold))
         .tracking(0.5)
         .foregroundStyle(NemaraColor.ink3)
+    }
+
+    private var whenLabel: String {
+        detector.whenScope.trimmingCharacters(in: .whitespaces).uppercased() == "ALWAYS"
+            ? "Always" : detector.whenScope
     }
 
     private var sensitivityPicker: some View {

@@ -70,6 +70,9 @@ struct AddDetectorView: View {
     @State private var stage: Stage = .entry
     @State private var busy = false
     @State private var error: String?
+    /// Create-as-draft (item C2): the just-created OFF detector, presented in
+    /// the detail sheet for review before the caregiver turns it on.
+    @State private var createdDetector: Detector?
 
     // Entry
     @State private var name = ""
@@ -77,7 +80,9 @@ struct AddDetectorView: View {
     @State private var prompt = ""
 
     // Inferred + editable
-    @State private var shape: Detector.Shape = .pointInTime
+    @State private var alertTrigger: Detector.AlertTrigger = .leading
+    @State private var isSustained = false
+    @State private var durationSeconds: Int? = nil
     @State private var category: Detector.Category = .safety
     @State private var icon = "eye"
     // Inferred only for `.state` (continuous) detectors — the rising-edge
@@ -118,6 +123,11 @@ struct AddDetectorView: View {
             // has no Return-key "Done"; dismiss it by swiping the scroll
             // view or tapping outside.
             .dismissKeyboardOnTap()
+            // Review the OFF draft in the detail sheet, then closing it
+            // returns to the detector list (item C2).
+            .sheet(item: $createdDetector, onDismiss: { dismiss() }) { det in
+                DetectorDetailSheet(patientId: patientId, detector: det)
+            }
         }
     }
 
@@ -236,7 +246,6 @@ struct AddDetectorView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     NemaraEyebrow("WHAT THIS WILL DO")
                     planRow("Watches", plan.watches)
-                    planRow("Sees", plan.media)
                     planRow("Alerts", plan.fires)
                     planRow("Checks", plan.checks)
                     if plan.listens {
@@ -247,18 +256,29 @@ struct AddDetectorView: View {
                 .background(NemaraColor.cardAlt, in: RoundedRectangle(cornerRadius: 10))
             }
 
-            // Type
+            // How it alerts — derived from the words. Sustained activities can
+            // pick the edge (as it happens / when it's over / too long);
+            // instant + absence detectors have no edge to choose.
             VStack(alignment: .leading, spacing: 8) {
-                NemaraEyebrow("TYPE")
-                typeCard(.pointInTime, title: "Live detection",
-                         sub: "fires the moment it's seen")
-                typeCard(.state, title: "Ongoing activity",
-                         sub: "one alert per session, not every moment")
-                typeCard(.scheduled, title: "Scheduled check",
-                         sub: "alerts if it DOESN'T happen in a window")
+                NemaraEyebrow("HOW IT ALERTS")
+                if isSustained && alertTrigger != .absence {
+                    typeCard(.leading, title: Detector.AlertTrigger.leading.caregiverLabel,
+                             sub: Detector.AlertTrigger.leading.caregiverSub)
+                    typeCard(.trailing, title: Detector.AlertTrigger.trailing.caregiverLabel,
+                             sub: Detector.AlertTrigger.trailing.caregiverSub)
+                    typeCard(.duration, title: Detector.AlertTrigger.duration.caregiverLabel,
+                             sub: Detector.AlertTrigger.duration.caregiverSub)
+                } else {
+                    (Text(alertTrigger.caregiverLabel + ". ")
+                     + Text(alertTrigger.caregiverSub))
+                        .font(NemaraFont.bodySmall)
+                        .foregroundColor(NemaraColor.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
-            if shape == .scheduled { scheduleEditor }
+            if alertTrigger == .absence { scheduleEditor }
 
             // Category + icon
             VStack(alignment: .leading, spacing: 8) {
@@ -387,7 +407,9 @@ struct AddDetectorView: View {
             let inf = try await env.api.inferDetector(
                 InferDetectorRequest(name: trimmedName.isEmpty ? nil : trimmedName, prompt: p)
             )
-            shape = inf.shape
+            alertTrigger = inf.alertTrigger
+            isSustained = inf.isSustained
+            durationSeconds = inf.durationSeconds
             episodeGapSeconds = inf.episodeGapSeconds
             category = inf.category
             icon = inf.iconName
@@ -402,7 +424,7 @@ struct AddDetectorView: View {
             windowStart = ws ?? Self.defaultTime(9, 0)
             windowEnd = we ?? Self.defaultTime(17, 0)
             deadline = dl ?? we ?? Self.defaultTime(17, 0)
-            timesUncertain = inf.shape == .scheduled && (ws == nil || we == nil || dl == nil)
+            timesUncertain = inf.alertTrigger == .absence && (ws == nil || we == nil || dl == nil)
             stage = .review
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -442,7 +464,7 @@ struct AddDetectorView: View {
         busy = true; error = nil
         defer { busy = false }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let whenScope = shape == .scheduled
+        let whenScope = alertTrigger == .absence
             ? Self.formatWhenScope(cadence: cadence, days: days,
                                    start: windowStart, end: windowEnd)
             : "ALWAYS"
@@ -453,16 +475,22 @@ struct AddDetectorView: View {
                 ? "Custom detector"
                 : note.trimmingCharacters(in: .whitespacesAndNewlines),
             category: category,
-            shape: shape,
+            alertTrigger: alertTrigger,
+            isSustained: isSustained,
+            durationSeconds: alertTrigger == .duration ? durationSeconds : nil,
             iconName: icon,
             whenScope: whenScope,
             sensitivity: sensitivity,
             scheduleConfig: nil,
-            episodeGapSeconds: shape == .state ? episodeGapSeconds : nil,
+            episodeGapSeconds: isSustained ? episodeGapSeconds : nil,
+            isOn: false,
         )
         do {
-            _ = try await env.api.createCustomDetector(forPatient: patientId, body)
-            dismiss()
+            // Create-as-draft: the detector is created OFF; present it in the
+            // detail sheet so the caregiver reviews the compiled criteria (and
+            // picks rooms / refines) before turning it on (item C2).
+            let created = try await env.api.createCustomDetector(forPatient: patientId, body)
+            createdDetector = created
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -485,9 +513,9 @@ struct AddDetectorView: View {
             .onSubmit { Self.resignFirstResponder() }
     }
 
-    private func typeCard(_ kind: Detector.Shape, title: String, sub: String) -> some View {
-        let on = shape == kind
-        return Button { shape = kind } label: {
+    private func typeCard(_ kind: Detector.AlertTrigger, title: String, sub: String) -> some View {
+        let on = alertTrigger == kind
+        return Button { alertTrigger = kind } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: on ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(on ? NemaraColor.terra : NemaraColor.ink3)

@@ -16,20 +16,44 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case custom
     }
 
-    /// "Shape" of a detection — a single moment vs. a sustained
-    /// condition. Wire raw values are snake_case to match the backend
-    /// `detector_shape` enum; `displayName` is the all-caps text used in
-    /// the detector row.
-    enum Shape: String, Sendable, Codable {
-        case pointInTime = "point_in_time"  // momentary — fires the moment it's seen
-        case state       = "state"       // continuous/ongoing activity — one event per session
-        case scheduled   = "scheduled"   // absence detector — fires if signal absent in window
+    /// Alert trigger — which MOMENT fires the alert. Wire raw values match
+    /// the backend `alert_trigger`. `isSustained` (instant vs sustained) is a
+    /// separate internal flag on the Detector; `durationSeconds` is the
+    /// "too long" threshold for the `duration` trigger.
+    enum AlertTrigger: String, Sendable, Codable {
+        case leading   // the moment it starts / happens
+        case trailing  // when a sustained activity ends
+        case duration  // once it's persisted past durationSeconds
+        case absence   // NOT detected within its active window (whenScope)
 
-        var displayName: String {
+        /// Caregiver-facing label — plain words. Mirrors web TRIGGER_LABEL.
+        var caregiverLabel: String {
             switch self {
-            case .pointInTime: return "POINT-IN-TIME"
-            case .state:       return "STATE"
-            case .scheduled:   return "SCHEDULED"
+            case .leading:  return "Alerts the moment it happens"
+            case .trailing: return "Alerts when the activity's finished"
+            case .duration: return "Alerts once it's gone on too long"
+            case .absence:  return "Alerts if it doesn't happen in your time window"
+            }
+        }
+
+        /// Compact caregiver label for dense captions. Mirrors web
+        /// TRIGGER_LABEL_SHORT.
+        var caregiverShort: String {
+            switch self {
+            case .leading:  return "When it happens"
+            case .trailing: return "When it ends"
+            case .duration: return "If it lasts too long"
+            case .absence:  return "If it doesn't happen"
+            }
+        }
+
+        /// One-line "why" under the label. Mirrors web TRIGGER_SUB.
+        var caregiverSub: String {
+            switch self {
+            case .leading:  return "Fires as soon as it's seen."
+            case .trailing: return "A single alert once the whole activity is over."
+            case .duration: return "Fires only after it has continued past your time limit."
+            case .absence:  return "Fires when the thing you're expecting is missing by your deadline."
             }
         }
     }
@@ -75,8 +99,15 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     var description: String
     var category: Category
     var source: Source
-    var shape: Shape
+    /// Alerting spine — the trigger + internal temporal nature + duration bar.
+    var alertTrigger: AlertTrigger
+    var isSustained: Bool
+    var durationSeconds: Int?
     var whereScope: String
+    /// Rooms the detector is scoped to (multi-select). Nil → every room
+    /// (back-compat with rows created before multi-room). `whereScope` is
+    /// the synced scalar fallback. Mirrors backend `where_rooms`.
+    var whereRooms: [String]?
     var whenScope: String
     var sensitivity: Sensitivity
     var isOn: Bool
@@ -88,9 +119,9 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// with `identifier=null` while the compile runs (~3-5s); UI can
     /// show a "compiling…" state during that window.
     var identifier: String?
-    /// Null for reactive detectors; the evaluation window for `scheduled`.
+    /// Null for reactive detectors; the evaluation window for `absence`.
     var scheduleConfig: ScheduleConfig?
-    /// Null unless `shape == .state`; the rising-edge episode gap (seconds).
+    /// Null unless `isSustained`; the rising-edge episode gap (seconds).
     var episodeGapSeconds: Int?
     /// Caregiver-readable summary of the compiled instructions
     /// ("Counts: …" / "Doesn't count: …" / "Caution: …"). Nil while
@@ -114,6 +145,19 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// Non-optional accessor for the UI. Nil (field absent) reads as
     /// "no caveat".
     var showsAccuracyCaveat: Bool { accuracyCaveat ?? false }
+
+    /// Human room-scope label, preferring the multi-room list and falling
+    /// back to the scalar `whereScope`. Mirrors web `roomsLabel`.
+    var roomsLabel: String {
+        if let wr = whereRooms, !wr.isEmpty {
+            if wr.contains(where: {
+                $0.trimmingCharacters(in: .whitespaces).uppercased() == "ALL ROOMS"
+            }) { return "All rooms" }
+            return wr.joined(separator: ", ")
+        }
+        return whereScope.trimmingCharacters(in: .whitespaces).uppercased() == "ALL ROOMS"
+            ? "All rooms" : whereScope
+    }
 
     /// The exit-door selection stored on a `wandering` detector. Mirrors the
     /// backend `door_config` jsonb (see `POST /v1/patients/{id}/wandering-door`):
@@ -177,8 +221,11 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case description
         case category
         case source
-        case shape
+        case alertTrigger = "alert_trigger"
+        case isSustained = "is_sustained"
+        case durationSeconds = "duration_seconds"
         case whereScope = "where_scope"
+        case whereRooms = "where_rooms"
         case whenScope = "when_scope"
         case sensitivity
         case isOn = "is_on"
@@ -263,27 +310,39 @@ struct CreateDetectorRequest: Encodable, Sendable {
     var customPrompt: String
     var description: String = "Custom detector"
     var category: Detector.Category = .safety
-    var shape: Detector.Shape = .pointInTime
+    var alertTrigger: Detector.AlertTrigger = .leading
+    var isSustained: Bool = false
+    var durationSeconds: Int? = nil
     var iconName: String = "eye"
     var whereScope: String = "ALL ROOMS"
+    /// Rooms the caregiver picked (multi-select). Nil/["ALL ROOMS"] = every
+    /// room. Drives camera auto-assignment; whereScope is kept in sync.
+    var whereRooms: [String]? = nil
     var whenScope: String = "ALWAYS"
     var sensitivity: Detector.Sensitivity = .standard
     var scheduleConfig: Detector.ScheduleConfig? = nil
-    /// Set only when `shape == .state`; the rising-edge episode gap (seconds).
+    /// Set only when `isSustained`; the rising-edge episode gap (seconds).
     var episodeGapSeconds: Int? = nil
+    /// Create-as-draft: create the detector OFF so the caregiver reviews the
+    /// compiled criteria on the detail sheet, then turns it on. Defaults true.
+    var isOn: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case name
         case customPrompt = "custom_prompt"
         case description
         case category
-        case shape
+        case alertTrigger = "alert_trigger"
+        case isSustained = "is_sustained"
+        case durationSeconds = "duration_seconds"
         case iconName = "icon_name"
         case whereScope = "where_scope"
+        case whereRooms = "where_rooms"
         case whenScope = "when_scope"
         case sensitivity
         case scheduleConfig = "schedule_config"
         case episodeGapSeconds = "episode_gap_seconds"
+        case isOn = "is_on"
     }
 }
 
@@ -299,7 +358,6 @@ struct InferDetectorRequest: Encodable, Sendable {
 /// shown on the review screen before the detector exists.
 struct DetectorPlan: Decodable, Sendable {
     var watches: String
-    var media: String
     var fires: String
     var checks: String
     var listens: Bool
@@ -308,18 +366,22 @@ struct DetectorPlan: Decodable, Sendable {
 /// LLM-inferred fields for the create review screen. Nulls where the
 /// model couldn't confidently determine a value.
 struct InferDetectorResponse: Decodable, Sendable {
-    var shape: Detector.Shape
+    var alertTrigger: Detector.AlertTrigger
+    var isSustained: Bool
+    var durationSeconds: Int?
     var category: Detector.Category
     var iconName: String
     var sensitivity: Detector.Sensitivity
     var scheduleConfig: Detector.ScheduleConfig?
-    /// Set when the model classified the activity as `.state`; nil otherwise.
+    /// Set when the activity is sustained; nil otherwise.
     var episodeGapSeconds: Int?
     /// Nil only when preview composition failed server-side — hide the card.
     var plan: DetectorPlan?
 
     enum CodingKeys: String, CodingKey {
-        case shape
+        case alertTrigger = "alert_trigger"
+        case isSustained = "is_sustained"
+        case durationSeconds = "duration_seconds"
         case category
         case iconName = "icon_name"
         case sensitivity
@@ -335,8 +397,13 @@ struct UpdateDetectorRequest: Encodable, Sendable {
     var iconName: String?
     var description: String?
     var category: Detector.Category?
-    var shape: Detector.Shape?
+    var alertTrigger: Detector.AlertTrigger?
+    var isSustained: Bool?
+    var durationSeconds: Int?
     var whereScope: String?
+    /// Re-scope the detector's rooms; the backend replaces its camera
+    /// assignments to match. ["ALL ROOMS"] = every room.
+    var whereRooms: [String]?
     var whenScope: String?
     var sensitivity: Detector.Sensitivity?
     var isOn: Bool?
@@ -347,8 +414,11 @@ struct UpdateDetectorRequest: Encodable, Sendable {
         case iconName = "icon_name"
         case description
         case category
-        case shape
+        case alertTrigger = "alert_trigger"
+        case isSustained = "is_sustained"
+        case durationSeconds = "duration_seconds"
         case whereScope = "where_scope"
+        case whereRooms = "where_rooms"
         case whenScope = "when_scope"
         case sensitivity
         case isOn = "is_on"
@@ -361,8 +431,11 @@ struct UpdateDetectorRequest: Encodable, Sendable {
         try c.encodeIfPresent(iconName, forKey: .iconName)
         try c.encodeIfPresent(description, forKey: .description)
         try c.encodeIfPresent(category, forKey: .category)
-        try c.encodeIfPresent(shape, forKey: .shape)
+        try c.encodeIfPresent(alertTrigger, forKey: .alertTrigger)
+        try c.encodeIfPresent(isSustained, forKey: .isSustained)
+        try c.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
         try c.encodeIfPresent(whereScope, forKey: .whereScope)
+        try c.encodeIfPresent(whereRooms, forKey: .whereRooms)
         try c.encodeIfPresent(whenScope, forKey: .whenScope)
         try c.encodeIfPresent(sensitivity, forKey: .sensitivity)
         try c.encodeIfPresent(isOn, forKey: .isOn)

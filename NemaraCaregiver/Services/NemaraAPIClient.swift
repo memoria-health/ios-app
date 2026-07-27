@@ -777,14 +777,23 @@ final class NemaraAPIClient {
     /// One plain-words change request ("don't count eating as choking").
     /// The backend appends it and rewrites the detector's instructions;
     /// the fresh summary lands on the row when the rewrite finishes.
-    func refineDetector(_ id: UUID, feedback: String) async throws -> Detector {
-        struct Body: Encodable { let feedback: String }
+    ///
+    /// `preview` = dry-run: the backend compiles WITH this feedback and
+    /// returns the resulting criteria WITHOUT persisting anything. Used by
+    /// the "Re-generate" button so the caregiver previews the change; a real
+    /// (non-preview) call on Save commits it. A preview never overwrites the
+    /// stored detector (its criteria aren't saved yet).
+    func refineDetector(
+        _ id: UUID, feedback: String, preview: Bool = false,
+    ) async throws -> Detector {
+        struct Body: Encodable { let feedback: String; let preview: Bool }
         let updated: Detector = try await sendJSON(
             method: "POST",
             path: "/v1/detectors/\(id.uuidString.lowercased())/refine",
-            body: Body(feedback: feedback),
+            body: Body(feedback: feedback, preview: preview),
         )
-        if var arr = detectorsByPatient[updated.patientId],
+        if !preview,
+           var arr = detectorsByPatient[updated.patientId],
            let idx = arr.firstIndex(where: { $0.id == updated.id }) {
             arr[idx] = updated
             detectorsByPatient[updated.patientId] = arr
