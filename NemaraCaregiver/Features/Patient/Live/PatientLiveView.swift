@@ -72,6 +72,28 @@ struct PatientLiveView: View {
     @State private var lastResubscribe: [String: Date] = [:]
     @State private var isReconnectingAll = false
 
+    /// Camera ids whose one-time "private room" explainer card the user
+    /// has dismissed on this device. Loaded from UserDefaults once at
+    /// init; `acknowledgeSensitiveRoom` keeps the two in sync. Device-
+    /// local by design (like the People-blur preference) — the privacy
+    /// state itself is server-derived, only the ack is local.
+    @State private var sensitiveRoomAcks: Set<UUID> = PatientLiveView.loadSensitiveRoomAcks()
+
+    private static let sensitiveRoomAckKey = "sensitiveRoomAcknowledgedCameraIds"
+
+    private static func loadSensitiveRoomAcks() -> Set<UUID> {
+        let raw = UserDefaults.standard.stringArray(forKey: sensitiveRoomAckKey) ?? []
+        return Set(raw.compactMap(UUID.init))
+    }
+
+    private func acknowledgeSensitiveRoom(_ cameraId: UUID) {
+        sensitiveRoomAcks.insert(cameraId)
+        UserDefaults.standard.set(
+            sensitiveRoomAcks.map(\.uuidString).sorted(),
+            forKey: Self.sensitiveRoomAckKey,
+        )
+    }
+
     /// Dev-only data-collection state (gated by `AppConfig.enableClipCapture`).
     /// `capturingCameraId` is the camera whose record-clip request is
     /// in flight (disables its button); `captureNote` is a short toast
@@ -82,7 +104,13 @@ struct PatientLiveView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                if privacyOn { privacyBanner }
+                // One-time explainer for cameras with per-camera privacy on
+                // (classifier said bathroom/bedroom, or fail-closed with an
+                // unknown room). Dismiss is remembered per camera on this
+                // device.
+                if let cam = unacknowledgedSensitiveCameras.first {
+                    sensitiveRoomCard(cam)
+                }
                 // The Live grid follows the cameras' ACTUAL live state, never
                 // the patient-level pause flag. "Disconnect all" / "Reconnect
                 // all" are just bulk desired_state toggles — they must not own
@@ -169,29 +197,35 @@ struct PatientLiveView: View {
                 }
             }
         }
-        .onChange(of: privacyOn) { oldValue, newValue in
-            // Privacy ACTIVATED → if a call is live, tear it down. The
-            // backend severs the caregiver's publish grant at the SFU, but
-            // the local call state and the backend `/talk` is_active flag
-            // would otherwise dangle — the wall phone keeps showing "on
-            // air". endCall() sends `/talk/end` and resets local UI state.
-            if oldValue == false, newValue == true {
-                if callState == .active { Task { await endCall() } }
-                return
+        .onChange(of: callTargetPrivacyOn) { oldValue, newValue in
+            // Per-camera privacy flipped ON for the camera the call is
+            // routed to → tear the call down. The backend severs media
+            // for that camera at the SFU, but the local call state and
+            // the backend `/talk` is_active flag would otherwise dangle
+            // — the wall phone keeps showing "on air". endCall() sends
+            // `/talk/end` and resets local UI state. (Privacy is
+            // per-camera and locked server-side, so there is no
+            // corresponding "cleared" recovery path to handle — other
+            // cameras' feeds were never touched.) `.connecting` is torn
+            // down too: a flip landing mid-`startCall` must not leave
+            // the in-flight call to complete against a private room.
+            if oldValue == false, newValue == true,
+               callState == .active || callState == .connecting {
+                Task { await endCall() }
             }
-            // Privacy CLEARED → the caregiver is still holding a token
-            // minted with can_subscribe=false (that's what kept the feed
-            // severed across reconnects). The SDK reuses that token, so we
-            // must force a fresh room.connect() with a re-minted,
-            // now-unblocked token before video/audio can return. Same
-            // force-rejoin loop as the unpause path.
-            guard oldValue == true, newValue == false else { return }
-            Task {
-                for attempt in 0..<6 {
-                    await bootstrap(force: attempt % 2 == 0)
-                    if !onlineCameras.isEmpty { break }
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                }
+        }
+        .onChange(of: privateCameraIdentities, initial: true) { _, identities in
+            // Per-camera privacy ON → hard-mute that camera locally,
+            // immediately. The backend severs the feed at the SFU, but a
+            // stale per-tile unmute (`audioEnabledByIdentity`) would
+            // restore volume 1.0 on the next (re)subscribe — and audio
+            // already decoding keeps playing until its volume drops.
+            // `revokeAudio` zeroes the live track AND forgets the listen
+            // choice, so no rejoin/re-subscribe can re-arm it.
+            // `initial: true` also sweeps cameras that flipped private
+            // while this view was away (room persists across sub-tabs).
+            for identity in identities {
+                env.liveKit.revokeAudio(forIdentity: identity)
             }
         }
         .onDisappear { Task { await tabAwayCleanup() } }
@@ -207,10 +241,12 @@ struct PatientLiveView: View {
             guard callState == .active, let newValue else { return }
             // A gateway/Pi camera can't take the call (no speaker) and
             // its tile shows no Call button, so transferring there would
-            // strand an active call with no way to end it. Swiping to
-            // one hangs up instead.
-            guard allCameras.first(where: { $0.id == newValue })?
-                .sourceType == .phone else {
+            // strand an active call with no way to end it. Same for a
+            // privacy-enabled camera (private room — talk is disabled
+            // for it). Swiping to either hangs up instead.
+            guard let target = allCameras.first(where: { $0.id == newValue }),
+                  target.sourceType == .phone,
+                  !target.privacyEnabled else {
                 Task { await endCall() }
                 return
             }
@@ -260,7 +296,7 @@ struct PatientLiveView: View {
                     // close-X and room label are both right-side-up over
                     // the video, matching every iOS video player.
                     ZStack {
-                        if privacyOn {
+                        if cam.privacyEnabled {
                             privacyPlacard
                         } else if let track {
                             if blurStore.isEnabled(patientId) {
@@ -413,7 +449,11 @@ struct PatientLiveView: View {
         }
         let tracks = env.liveKit.videoTracksByIdentity
         for cam in allCameras {
-            guard let identity = cam.livekitIdentity, !cam.disabled else {
+            // Privacy-enabled cameras are excluded: the backend severs their
+            // media at the SFU, so a missing track is the CORRECT state, not
+            // a desync — re-subscribing would loop forever and never land.
+            guard let identity = cam.livekitIdentity, !cam.disabled,
+                  !cam.privacyEnabled else {
                 if desyncSince[cam.id] != nil { desyncSince[cam.id] = nil }
                 continue
             }
@@ -485,9 +525,13 @@ struct PatientLiveView: View {
     private func startCall() async {
         guard let cameraId = selectedCameraId else { return }
         guard callState == .idle else { return }
-        let cameraIdentity = allCameras
-            .first(where: { $0.id == cameraId })?
-            .livekitIdentity
+        // Last-moment privacy re-check: the Call button hides for a
+        // private camera, but a privacy flip can land between render
+        // and tap. Talk must never start against a private room
+        // (enforced client-side here AND server-side).
+        guard let target = allCameras.first(where: { $0.id == cameraId }),
+              !target.privacyEnabled else { return }
+        let cameraIdentity = target.livekitIdentity
         callState = .connecting
         do {
             // The room is already connected with broadcaster grants (see
@@ -515,7 +559,9 @@ struct PatientLiveView: View {
     }
 
     private func endCall() async {
-        guard callState == .active else { return }
+        // `.connecting` is a valid teardown state too (privacy flipped
+        // on the target mid-start); only a no-call state bails.
+        guard callState != .idle else { return }
         // Stamp UI immediately so the button reverts the moment the
         // caregiver taps end, even if network is slow.
         callState = .idle
@@ -552,11 +598,14 @@ struct PatientLiveView: View {
     }
 
     private func transferCall(to cameraId: UUID) async {
+        // Same last-moment privacy re-check as startCall — the swipe
+        // handler already screens targets, but the camera can flip
+        // private between the swipe and this Task running.
+        guard let target = allCameras.first(where: { $0.id == cameraId }),
+              !target.privacyEnabled else { return }
         transferSeq &+= 1
         let seq = transferSeq
-        let cameraIdentity = allCameras
-            .first(where: { $0.id == cameraId })?
-            .livekitIdentity
+        let cameraIdentity = target.livekitIdentity
         do {
             try await env.api.startTalk(forPatient: patientId, cameraId: cameraId)
             // Shift the audio gate to the newly-targeted camera so the
@@ -625,8 +674,9 @@ struct PatientLiveView: View {
                     // active Talk camera is always audible regardless of
                     // this toggle; the toggle controls the non-Talk
                     // default mute state for each tile.
-                    // Hidden under privacy: there's no audio to listen to.
-                    if !privacyOn, let id = identity {
+                    // Hidden for a privacy-enabled camera: there's no
+                    // audio to listen to — the backend never sends it.
+                    if !cam.privacyEnabled, let id = identity {
                         Button {
                             _ = env.liveKit.toggleAudio(forIdentity: id)
                         } label: {
@@ -689,7 +739,7 @@ struct PatientLiveView: View {
 
                 Spacer()
 
-                if !privacyOn, isThisCallTarget, let err = lkError {
+                if !cam.privacyEnabled, isThisCallTarget, let err = lkError {
                     Text(err)
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.terraInk)
@@ -718,11 +768,12 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
         .background {
             ZStack {
-                if privacyOn {
-                    // Privacy mode: the live feed is severed server-side, so
-                    // never render video even if a stale track lingers. Show
-                    // the dignity placard instead — insights still flow in
-                    // the rest of the app.
+                if cam.privacyEnabled {
+                    // Private room: the live feed for THIS camera is severed
+                    // server-side, so never render video even if a stale
+                    // track lingers. Show the dignity placard instead —
+                    // event insights still flow in the rest of the app, and
+                    // every other camera streams normally.
                     privacyPlacard
                 } else if let track = videoTrack {
                     Group {
@@ -763,14 +814,16 @@ struct PatientLiveView: View {
                 .strokeBorder(NemaraColor.line, lineWidth: 1)
         )
         .overlay(alignment: .bottom) {
-            // No Talk under privacy: the caregiver token is minted
-            // can_publish=false, so tapping Call only yields a
-            // "does not have permission to publish" error. Hide it.
+            // No Talk on a privacy-enabled camera: it's a private room —
+            // talk is blocked on both sides (client guards in startCall/
+            // transferCall here, plus a server-side refusal), so the
+            // button could never do anything useful. Hide it for that
+            // camera (others keep it).
             // Phone sensors only: gateway/Pi cameras have no speaker —
             // the caregiver's voice plays through the wall phone
             // (`iphone` source), so Call on an RTSP camera dials into
             // a room where nothing can answer.
-            if Self.talkEnabled && isThisCallTarget && !privacyOn
+            if Self.talkEnabled && isThisCallTarget && !cam.privacyEnabled
                 && cam.sourceType == .phone {
                 CallButton(state: callState, onTap: handleCallButtonTap)
                     .offset(y: -10)
@@ -778,32 +831,59 @@ struct PatientLiveView: View {
         }
     }
 
-    /// Top-of-Live-tab indicator that Privacy mode is active for this
-    /// patient. Pairs with the per-tile placard so the state is obvious
-    /// from anywhere on the screen.
-    private var privacyBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "eye.slash.fill")
+    /// One-time, dismissible explainer for a camera with per-camera
+    /// privacy on. Keyed on `privacyEnabled` (not `roomClass`) so
+    /// fail-closed classifications — privacy on with room_class
+    /// other/nil — get the explainer too; the copy adapts when the
+    /// classifier's room call is known. Shown at the top of the Live
+    /// tab until acknowledged; the dismissal is remembered per camera
+    /// id on this device (UserDefaults). Shows one camera at a time —
+    /// dismissing reveals the next, if any.
+    private func sensitiveRoomCard(_ cam: Camera) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "lock.shield.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(NemaraColor.action)
+                .padding(.top, 2)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Privacy mode is on")
+                Text("\(cam.room) is a private room")
                     .font(NemaraFont.bodySemibold)
                     .foregroundStyle(NemaraColor.ink)
-                Text("Live view and audio are hidden. Insights are still active.")
-                    .font(NemaraFont.caption)
-                    .foregroundStyle(NemaraColor.ink3)
+                Text(
+                    cam.isSensitiveRoom
+                        ? "This camera looks like it's in a private room. Privacy "
+                            + "is on by default: no live view, and sensitive moments "
+                            + "in clips are always censored."
+                        : "This camera is in a private room. Privacy is on: "
+                            + "no live view, and sensitive moments in clips "
+                            + "are always censored."
+                )
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
+            Button {
+                acknowledgeSensitiveRoom(cam.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(NemaraColor.ink3)
+                    .padding(6)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss private-room notice for \(cam.room)")
         }
         .padding(12)
         .background(NemaraColor.actionSoft)
         .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.lg, style: .continuous))
     }
 
-    /// Fills a tile when the patient is in Privacy mode. Dignity-first:
-    /// no feed, no spinner — just a clear statement that the live view is
-    /// intentionally hidden while insights keep arriving elsewhere.
+    /// Fills a tile whose camera has per-camera privacy on (private
+    /// room). Dignity-first: no feed, no spinner — just a clear
+    /// statement that the live view is intentionally off for this room
+    /// while insights keep arriving elsewhere.
     private var privacyPlacard: some View {
         ZStack {
             NemaraColor.ink
@@ -811,10 +891,10 @@ struct PatientLiveView: View {
                 Image(systemName: "eye.slash.fill")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
-                Text("Privacy mode")
+                Text("Private room")
                     .font(NemaraFont.bodySemibold)
                     .foregroundStyle(NemaraColor.terraInk)
-                Text("Live video and audio are hidden.\nInsights still arrive on your phone.")
+                Text("Live view is off for this room.\nInsights still arrive on your phone.")
                     .font(NemaraFont.caption)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(NemaraColor.terraInk.opacity(0.75))
@@ -1344,12 +1424,30 @@ struct PatientLiveView: View {
     private var patient: Patient? {
         env.api.patients.first(where: { $0.id == patientId })
     }
-    /// Privacy mode for this patient. While on, the backend severs the
-    /// caregiver's LiveKit media at the SFU (no track ever arrives), so
-    /// every tile renders the privacy placard instead of a feed.
-    private var privacyOn: Bool { patient?.privacyModeEnabled ?? false }
+    /// Per-camera privacy of the camera the call is currently routed to
+    /// (the carousel selection). Watched by `.onChange` above so a
+    /// privacy flip on the active call target tears the call down.
+    private var callTargetPrivacyOn: Bool {
+        allCameras.first(where: { $0.id == selectedCameraId })?.privacyEnabled ?? false
+    }
+    /// LiveKit identities of every privacy-enabled camera. Watched by
+    /// `.onChange` above so a privacy flip instantly hard-mutes that
+    /// camera's audio on this device (see `LiveKitClient.revokeAudio`).
+    /// Sorted so the value is stable across unrelated roster reorders.
+    private var privateCameraIdentities: [String] {
+        allCameras.filter(\.privacyEnabled).compactMap(\.livekitIdentity).sorted()
+    }
     private var allCameras: [Camera] {
         env.api.camerasByPatient[patientId] ?? []
+    }
+    /// Privacy-enabled cameras whose one-time explainer card hasn't
+    /// been dismissed on this device yet. Keyed on `privacyEnabled`
+    /// (not room class) so fail-closed classifications are covered
+    /// too; user-hidden (`disabled`) cameras never surface a card.
+    private var unacknowledgedSensitiveCameras: [Camera] {
+        allCameras.filter {
+            $0.privacyEnabled && !$0.disabled && !sensitiveRoomAcks.contains($0.id)
+        }
     }
     /// Sensors shown in the carousel right now. A camera appears iff it has a
     /// LiveKit identity and isn't user-hidden (`disabled`), AND any of:

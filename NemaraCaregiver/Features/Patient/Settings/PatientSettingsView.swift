@@ -52,8 +52,7 @@ struct PatientSettingsView: View {
                 profileCard
                 identityCard
                 PatientEmailAlertsCard(patientId: patientId)
-                PrivacyModeCard(patientId: patientId)
-                PeopleBlurCard(patientId: patientId)
+                privacySection
                 DataCollectionCard(patientId: patientId)
                 feedbackEntry
 
@@ -350,6 +349,34 @@ struct PatientSettingsView: View {
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         return resized.jpegData(compressionQuality: quality)
+    }
+
+    /// Device-local privacy preferences, grouped under one header.
+    ///
+    /// The old patient-wide "Privacy mode" toggle (`PrivacyModeCard`)
+    /// was removed: privacy is now PER CAMERA, derived automatically
+    /// from AI room classification (bathroom/bedroom → private, locked,
+    /// no toggle) — see the "Private room" placards on the Live tab and
+    /// the badge on each camera's detail screen. What remains here is
+    /// the on-device blur preference.
+    private var privacySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NemaraEyebrow("PRIVACY")
+                .padding(.horizontal, 16)
+            PeopleBlurCard(patientId: patientId)
+            Text(
+                "Blur people applies on this device only — it changes what "
+                + "you see, not what is recorded or what other caregivers "
+                + "see. Bathroom and bedroom cameras are private "
+                + "automatically: no live view, and sensitive moments in "
+                + "clips are always censored."
+            )
+            .font(NemaraFont.caption)
+            .foregroundStyle(NemaraColor.ink3)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 16)
+        }
     }
 
     // `detectorsSection` and `camerasSection` lived here previously.

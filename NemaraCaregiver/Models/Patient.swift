@@ -85,12 +85,12 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     /// any PATCH that carries `data_collection_enabled`; the client never
     /// sends this field.
     var dataCollectionDecidedAt: Date?
-    /// Privacy mode (dignity override). When true: no clips are stored,
-    /// the live video+audio feed is severed server-side, and event clips
-    /// are stripped from insights — while text insights keep flowing.
-    /// Overrides (suspends) `dataCollectionEnabled` without changing it.
-    /// Default false; flipped by the Settings card.
-    var privacyModeEnabled: Bool
+    /// RETIRED patient-level privacy flag — superseded by per-camera
+    /// privacy (`Camera.privacyEnabled`); no UI reads or writes it
+    /// anymore. Optional for decode resilience: the backend is dropping
+    /// the column, and a required Bool would fail every patient decode
+    /// the moment it disappears from the payload.
+    var privacyModeEnabled: Bool?
     /// Bucket-relative key in patient-photos (e.g. "{id}.jpg") when
     /// the caregiver has uploaded an avatar. NULL falls back to
     /// the initials placeholder in `NemaraAvatar`. The signed URL
@@ -193,9 +193,6 @@ struct UpdatePatientRequest: Encodable, Sendable {
     /// server-side whenever this field is present (true OR false records a
     /// decision), so the client never sends the timestamp itself.
     var dataCollectionEnabled: Bool?
-    /// Privacy mode toggle. Suspends data collection + severs the live
-    /// feed server-side; does not touch the stored consent decision.
-    var privacyModeEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case fullName = "full_name"
@@ -208,7 +205,6 @@ struct UpdatePatientRequest: Encodable, Sendable {
         case emailAlertsEnabled = "email_alerts_enabled"
         case emailAlertRecipients = "email_alert_recipients"
         case dataCollectionEnabled = "data_collection_enabled"
-        case privacyModeEnabled = "privacy_mode_enabled"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -227,7 +223,6 @@ struct UpdatePatientRequest: Encodable, Sendable {
         try c.encodeIfPresent(emailAlertsEnabled, forKey: .emailAlertsEnabled)
         try c.encodeIfPresent(emailAlertRecipients, forKey: .emailAlertRecipients)
         try c.encodeIfPresent(dataCollectionEnabled, forKey: .dataCollectionEnabled)
-        try c.encodeIfPresent(privacyModeEnabled, forKey: .privacyModeEnabled)
     }
 }
 

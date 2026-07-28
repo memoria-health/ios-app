@@ -362,6 +362,23 @@ final class LiveKitClient {
         return nowEnabled
     }
 
+    /// Hard-mute one camera's remote audio and forget the caregiver's
+    /// per-tile listen choice for it. Called when per-camera privacy
+    /// flips ON: the backend severs the media server-side, but a stale
+    /// entry in `audioEnabledByIdentity` would re-arm playback the
+    /// moment any (re)subscribe delivers an audio track
+    /// (`handleSubscribedAudio` restores volume from the set). Dropping
+    /// the identity from the set makes the mute survive any rejoin;
+    /// zeroing the live track's volume silences audio that's already
+    /// playing. Also drops the Talk overlay for this identity as a
+    /// local belt — the view's call teardown does the full
+    /// `/talk/end` + mic unpublish.
+    func revokeAudio(forIdentity identity: String) {
+        audioEnabledByIdentity.remove(identity)
+        if activeCallIdentity == identity { activeCallIdentity = nil }
+        remoteAudioTracksByIdentity[identity]?.volume = 0.0
+    }
+
     /// True iff the caregiver will hear audio from this camera right
     /// now — either because they unmuted it via the per-tile toggle,
     /// or because Talk is active on this camera.

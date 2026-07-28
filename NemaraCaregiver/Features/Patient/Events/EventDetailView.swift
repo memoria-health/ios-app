@@ -29,6 +29,9 @@ struct EventDetailView: View {
     /// `AVPlayer(url:)` in the body was recreated on every render, which
     /// made the clip "close" mid-watch at ~20s.
     @State private var player: AVPlayer?
+    /// Censored clips require a deliberate tap before display —
+    /// per-open, never persisted (dignity-first default every time).
+    @State private var censoredRevealed = false
 
     private enum ClipResolutionState: Equatable {
         case pending
@@ -65,7 +68,7 @@ struct EventDetailView: View {
         }
         .background(NemaraColor.paper)
         .task(id: event.id) {
-            // Privacy mode suppressed the clip — there's nothing to poll
+            // clip_suppressed is terminal — there's nothing to poll
             // for; clipView shows the privacy placard instead.
             if event.clipSuppressed { return }
             // Archive runs ~25-45s after the event fires (post-15s
@@ -149,7 +152,7 @@ struct EventDetailView: View {
     private var clipView: some View {
         ZStack {
             if event.clipSuppressed {
-                // Privacy mode was on when this fired — the clip was never
+                // clip_suppressed is terminal — the clip was never
                 // recorded and never will be. Say so, instead of an endless
                 // "Generating clip…".
                 clipSuppressedPlacard
@@ -167,8 +170,16 @@ struct EventDetailView: View {
                 // Reuse the @State player — never `AVPlayer(url:)` inline here,
                 // or a re-render rebuilds it and playback dies mid-clip.
                 if let player {
-                    VideoPlayer(player: player)
-                        .accessibilityLabel("Event clip from \(event.location)")
+                    ZStack {
+                        VideoPlayer(player: player)
+                            .accessibilityLabel("Event clip from \(event.location)")
+                        // Dignity overlay (2026-07-28): censored clips sit
+                        // behind a cover with an explicit CTA — never
+                        // autoplayed, dismissed only by a deliberate tap.
+                        if event.clipCensored && !censoredRevealed {
+                            censoredOverlay
+                        }
+                    }
                 } else {
                     clipPlaceholder(label: "Loading clip…")
                 }
@@ -206,9 +217,13 @@ struct EventDetailView: View {
         }
     }
 
-    /// Shown in place of the clip when Privacy mode was on at the time of
-    /// the event: there is no clip and never will be. Dignity-first — a
-    /// clear, final statement, not a spinner.
+    /// Shown in place of the clip when `clip_suppressed` is stamped:
+    /// there is no clip and never will be. Since 2026-07-28 this covers
+    /// pipeline terminals (stale window, encode/censor failure) as well
+    /// as legacy privacy-mode rows, so the copy is reason-neutral and
+    /// honest — it must NOT claim privacy (private rooms DO get clips
+    /// now) and must not hide failures. A clear, final statement, not a
+    /// spinner.
     private var clipSuppressedPlacard: some View {
         ZStack {
             NemaraColor.ink
@@ -216,14 +231,52 @@ struct EventDetailView: View {
                 Image(systemName: "eye.slash.fill")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
-                Text("No clip — Privacy mode was on")
+                Text("No clip for this event")
                     .font(NemaraFont.bodySmall.weight(.semibold))
                     .foregroundStyle(NemaraColor.terraInk)
-                Text("The insight was still captured. No video was recorded.")
+                Text("The insight was captured, but video of this moment couldn\u{2019}t be saved.")
                     .font(NemaraFont.caption)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(NemaraColor.terraInk.opacity(0.75))
                     .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    /// Shown under the clip when it was censored server-side (event
+    /// from a privacy-enabled camera containing a sensitive moment).
+    /// Cover stacked over a censored clip until the caregiver taps the
+    /// CTA. One plain sentence, no category jargon — the video beneath
+    /// is the server-censored rendition either way.
+    private var censoredOverlay: some View {
+        ZStack {
+            NemaraColor.ink.opacity(0.96)
+            VStack(spacing: 10) {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.85))
+                Text("Sensitive moment")
+                    .font(NemaraFont.bodySmall.weight(.semibold))
+                    .foregroundStyle(NemaraColor.terraInk)
+                Text("This video has been censored to maintain dignity.")
+                    .font(NemaraFont.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(NemaraColor.terraInk.opacity(0.75))
+                    .padding(.horizontal, 24)
+                Button {
+                    censoredRevealed = true
+                } label: {
+                    Text("View video")
+                        .font(NemaraFont.bodySmall.weight(.semibold))
+                        .foregroundStyle(NemaraColor.ink)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(NemaraColor.terraInk)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+                .accessibilityLabel("View the censored video")
             }
         }
     }

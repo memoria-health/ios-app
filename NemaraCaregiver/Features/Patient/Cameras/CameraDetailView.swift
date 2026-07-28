@@ -48,6 +48,11 @@ struct CameraDetailView: View {
     @State private var doorConfig: Detector.DoorConfig?
     @State private var showDoorPicker = false
 
+    /// Collapsed state of the "Advanced" section (holds Pause AI).
+    /// Collapsed by default — pausing AI is a niche lever and sat too
+    /// prominently next to Disconnect.
+    @State private var showAdvanced = false
+
     @Environment(\.dismiss) private var dismiss
 
     private var camera: Camera? {
@@ -76,6 +81,11 @@ struct CameraDetailView: View {
             VStack(spacing: 14) {
                 if let cam = camera {
                     headerCard(cam)
+                    // Room-derived privacy. Locked server-side (no user
+                    // toggle) — this section only explains the state.
+                    if cam.privacyEnabled {
+                        privateRoomSection(cam)
+                    }
                     // Pairing-code section only applies to wall-phone
                     // cameras. Sensor (Pi) cameras get their ingest
                     // token at provision time, so a 6-digit code would
@@ -84,6 +94,7 @@ struct CameraDetailView: View {
                         pairingCodeSection(cam)
                     }
                     stateControls(cam)
+                    advancedSection(cam)
                     detectorsSection
                     // Exit doors are configured PER SENSOR — this is that sensor.
                     if let wd = wanderingDetector, wd.isOn, cam.livekitIdentity != nil {
@@ -268,29 +279,6 @@ struct CameraDetailView: View {
 
             NemaraCard(padding: 0) {
                 VStack(spacing: 0) {
-                    // Pause AI / Resume AI — instant, no confirm.
-                    // Lighter than Hide: video keeps streaming, only
-                    // the LLM call is skipped.
-                    Button {
-                        Task { await toggleAiPause() }
-                    } label: {
-                        controlRow(
-                            icon: cam.aiPaused ? "waveform" : "waveform.slash",
-                            title: togglingAiPause
-                                ? (cam.aiPaused ? "Resuming AI…" : "Pausing AI…")
-                                : (cam.aiPaused ? "Resume AI" : "Pause AI"),
-                            subtitle: cam.aiPaused
-                                ? "Resume AI tick. Video keeps streaming either way."
-                                : "Pause AI tick. Video keeps streaming.",
-                            destructive: false,
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(togglingAiPause || togglingDisconnect)
-
-
-                    NemaraColor.line.frame(height: 1)
-
                     // Disconnect / Reconnect — destructive when going
                     // FROM connected; harmless when going back.
                     Button {
@@ -329,6 +317,117 @@ struct CameraDetailView: View {
                     .foregroundStyle(NemaraColor.terra)
                     .padding(.horizontal, 16)
             }
+        }
+    }
+
+    /// "Private room" explainer, shown when per-camera privacy is on.
+    /// Read-only by design: privacy is derived from AI room
+    /// classification (bathroom/bedroom) and locked server-side, so
+    /// there is deliberately no toggle here.
+    private func privateRoomSection(_ cam: Camera) -> some View {
+        NemaraCard(padding: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(NemaraColor.actionSoft)
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(NemaraColor.action)
+                }
+                .frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Private room")
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text(
+                        "Live view off, clips protected. Set automatically "
+                        + "because this looks like a \(roomClassLabel(cam))."
+                    )
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// Human label for the classified room, for the private-room copy.
+    /// Falls back to the generic pair when the class is missing or
+    /// non-sensitive (privacy can only be on for bathroom/bedroom, but
+    /// stay defensive against contract drift).
+    private func roomClassLabel(_ cam: Camera) -> String {
+        switch cam.roomClass {
+        case .bathroom: return "bathroom"
+        case .bedroom: return "bedroom"
+        case .other, .none: return "bathroom or bedroom"
+        }
+    }
+
+    /// Collapsed "Advanced" section holding the Pause AI control. It
+    /// lived beside Disconnect in CONTROLS, but pausing the AI tick is
+    /// a niche cost lever — collapsed by default so the primary
+    /// controls stay simple.
+    private func advancedSection(_ cam: Camera) -> some View {
+        VStack(spacing: 8) {
+            NemaraCard(padding: 0) {
+                VStack(spacing: 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            showAdvanced.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(NemaraColor.paperDim)
+                                Image(systemName: "gearshape")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(NemaraColor.ink2)
+                            }
+                            .frame(width: 32, height: 32)
+                            Text("Advanced")
+                                .font(NemaraFont.bodySmallStrong)
+                                .foregroundStyle(NemaraColor.ink)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(NemaraColor.ink3)
+                                .rotationEffect(.degrees(showAdvanced ? 180 : 0))
+                        }
+                        .padding(14)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if showAdvanced {
+                        NemaraColor.line.frame(height: 1)
+
+                        // Pause AI / Resume AI — instant, no confirm.
+                        // Lighter than Disconnect: video keeps
+                        // streaming, only the LLM tick is skipped.
+                        Button {
+                            Task { await toggleAiPause() }
+                        } label: {
+                            controlRow(
+                                icon: cam.aiPaused ? "waveform" : "waveform.slash",
+                                title: togglingAiPause
+                                    ? (cam.aiPaused ? "Resuming AI…" : "Pausing AI…")
+                                    : (cam.aiPaused ? "Resume AI" : "Pause AI"),
+                                subtitle: cam.aiPaused
+                                    ? "Resume AI tick. Video keeps streaming either way."
+                                    : "Pause AI tick. Video keeps streaming.",
+                                destructive: false,
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(togglingAiPause || togglingDisconnect)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
         }
     }
 

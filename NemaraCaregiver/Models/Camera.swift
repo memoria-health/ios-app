@@ -52,6 +52,47 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     }
     var sourceType: SourceType
 
+    /// AI room classification for this camera's view. Drives the
+    /// per-camera privacy derivation on the backend: bathroom/bedroom
+    /// rooms get `privacy_enabled=true` automatically. Nil until the
+    /// classifier has run (or on older backends).
+    enum RoomClass: String, Sendable, Codable {
+        case bathroom
+        case bedroom
+        case other
+
+        /// Lenient decode: any unrecognized future class ("garage",
+        /// "hallway", …) folds into `.other` instead of failing the
+        /// whole camera-list decode — same defensive pattern as
+        /// `SourceType`.
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = RoomClass(rawValue: raw) ?? .other
+        }
+    }
+    /// What the classifier thinks this room is. Nil = not classified yet.
+    var roomClass: RoomClass?
+    /// Classifier confidence in `roomClass`, 0–1. Nil when unclassified.
+    var roomClassConfidence: Double?
+    /// When the classification last ran. Nil when unclassified.
+    var roomClassifiedAt: Date?
+
+    /// Per-camera privacy, derived server-side from `roomClass`
+    /// (bathroom/bedroom → true, locked, no user toggle). While true
+    /// the backend NEVER delivers live video/audio for this camera —
+    /// the Live tile shows a "Private room" placard, talk/call is
+    /// disabled for it — and sensitive event clips arrive blurred with
+    /// audio stripped (`DetectionEvent.clipCensored`). Defaults false
+    /// so older payloads (pre-column) decode cleanly.
+    var privacyEnabled: Bool
+
+    /// True when the classifier put this camera in a room that is
+    /// private by policy (bathroom/bedroom). Drives the one-time
+    /// sensitive-room explainer card on the Live tab.
+    var isSensitiveRoom: Bool {
+        roomClass == .bathroom || roomClass == .bedroom
+    }
+
     /// Whether the wall phone should be joined to the LiveKit room.
     /// The phone polls `GET /v1/cameras/me/desired-state` every 1s
     /// and reconciles by calling `room.disconnect()` /
@@ -113,6 +154,10 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case aiPaused = "ai_paused"
         case desiredState = "desired_state"
         case sourceType = "source_type"
+        case roomClass = "room_class"
+        case roomClassConfidence = "room_class_confidence"
+        case roomClassifiedAt = "room_classified_at"
+        case privacyEnabled = "privacy_enabled"
         case livekitIdentity = "livekit_identity"
         case createdAt = "created_at"
         case paired
@@ -148,6 +193,14 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         // the source_type column. Without this fallback, decoding older
         // rows would fail and crash the realtime stream.
         sourceType = try c.decodeIfPresent(SourceType.self, forKey: .sourceType) ?? .phone
+        // Room-classification + per-camera privacy columns. All tolerant:
+        // absent on older backends / pre-migration Realtime rows → nil /
+        // false, so this decode never fails on a payload that predates
+        // the privacy migration.
+        roomClass = try c.decodeIfPresent(RoomClass.self, forKey: .roomClass)
+        roomClassConfidence = try c.decodeIfPresent(Double.self, forKey: .roomClassConfidence)
+        roomClassifiedAt = try c.decodeIfPresent(Date.self, forKey: .roomClassifiedAt)
+        privacyEnabled = try c.decodeIfPresent(Bool.self, forKey: .privacyEnabled) ?? false
         livekitIdentity = try c.decodeIfPresent(String.self, forKey: .livekitIdentity)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         if let explicit = try c.decodeIfPresent(Bool.self, forKey: .paired) {
@@ -187,6 +240,10 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         try c.encode(aiPaused, forKey: .aiPaused)
         try c.encode(desiredState, forKey: .desiredState)
         try c.encode(sourceType, forKey: .sourceType)
+        try c.encodeIfPresent(roomClass, forKey: .roomClass)
+        try c.encodeIfPresent(roomClassConfidence, forKey: .roomClassConfidence)
+        try c.encodeIfPresent(roomClassifiedAt, forKey: .roomClassifiedAt)
+        try c.encode(privacyEnabled, forKey: .privacyEnabled)
         try c.encodeIfPresent(livekitIdentity, forKey: .livekitIdentity)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(paired, forKey: .paired)
@@ -200,6 +257,10 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         disabled: Bool,
         aiPaused: Bool,
         sourceType: SourceType = .phone,
+        roomClass: RoomClass? = nil,
+        roomClassConfidence: Double? = nil,
+        roomClassifiedAt: Date? = nil,
+        privacyEnabled: Bool = false,
         desiredState: DesiredState,
         id: UUID,
         patientId: UUID,
@@ -215,6 +276,10 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         self.disabled = disabled
         self.aiPaused = aiPaused
         self.sourceType = sourceType
+        self.roomClass = roomClass
+        self.roomClassConfidence = roomClassConfidence
+        self.roomClassifiedAt = roomClassifiedAt
+        self.privacyEnabled = privacyEnabled
         self.desiredState = desiredState
         self.id = id
         self.patientId = patientId

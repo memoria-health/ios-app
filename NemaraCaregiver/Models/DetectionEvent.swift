@@ -39,6 +39,17 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
     /// from "clip still processing" so the detail view can say which.
     /// Defaults false so older payloads (pre-column) decode cleanly.
     var clipSuppressed: Bool = false
+    /// True when this event's clip comes from a privacy-enabled camera
+    /// and contains a sensitive moment: the video arrives ALREADY
+    /// blurred server-side with audio stripped. The clip plays like any
+    /// other — this flag only drives the "Sensitive moment" badge on
+    /// the detail view. Defaults false so older payloads (pre-column)
+    /// decode cleanly.
+    var clipCensored: Bool = false
+    /// What the backend judged sensitive about the censored clip (e.g.
+    /// "undressing", "bathing"). Nil / absent on non-censored events;
+    /// shown as a subtle secondary line under the censored badge.
+    var sensitivityCategories: [String]?
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -61,6 +72,8 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
         case reviewedAt = "reviewed_at"
         case clipStorageKey = "clip_storage_key"
         case clipSuppressed = "clip_suppressed"
+        case clipCensored = "clip_censored"
+        case sensitivityCategories = "sensitivity_categories"
         case createdAt = "created_at"
     }
 
@@ -128,6 +141,8 @@ extension DetectionEvent {
         reviewedAt = try c.decodeIfPresent(Date.self, forKey: .reviewedAt)
         clipStorageKey = try c.decodeIfPresent(String.self, forKey: .clipStorageKey)
         clipSuppressed = try c.decodeIfPresent(Bool.self, forKey: .clipSuppressed) ?? false
+        clipCensored = try c.decodeIfPresent(Bool.self, forKey: .clipCensored) ?? false
+        sensitivityCategories = try c.decodeIfPresent([String].self, forKey: .sensitivityCategories)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
     }
 }
