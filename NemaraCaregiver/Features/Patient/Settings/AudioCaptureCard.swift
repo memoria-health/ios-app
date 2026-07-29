@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// Patient-wide audio capture toggle — the facilities audio kill.
-/// PATCHes `audio_capture_enabled`; when off, the camera publishers
-/// never publish an audio track (severed at the source: no live sound,
-/// no audio in clips, no speech alerts — listening detectors fall back
-/// to visual-only). The flip reaches gateway cameras within seconds via
-/// the roster long-poll. Care facilities where audio recording is not
-/// permitted must keep this OFF for every resident.
+/// Mirrors `PeopleBlurCard`'s layout, but PATCHes the server
+/// (`audio_capture_enabled`) instead of a local preference: when off,
+/// the camera publishers never publish an audio track (severed at the
+/// source — no live sound, no audio in clips, no speech alerts;
+/// listening detectors fall back to visual-only). The flip reaches
+/// gateway cameras within seconds via the roster long-poll. Care
+/// facilities where audio recording is not permitted keep this OFF.
 struct AudioCaptureCard: View {
     @Environment(AppEnvironment.self) private var env
     let patientId: UUID
@@ -18,38 +19,45 @@ struct AudioCaptureCard: View {
         env.api.patients.first(where: { $0.id == patientId })
     }
 
+    private var enabled: Bool { patient?.audioCaptureEnabled ?? true }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: Binding(
-                get: { patient?.audioCaptureEnabled ?? true },
-                set: { flip(to: $0) }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Audio capture")
-                        .font(NemaraFont.body)
-                        .foregroundStyle(NemaraColor.ink)
-                    Text(
-                        (patient?.audioCaptureEnabled ?? true)
-                            ? "Cameras capture sound for clips and speech alerts."
-                            : "No sound is captured, recorded, or analyzed."
-                    )
-                    .font(NemaraFont.caption)
-                    .foregroundStyle(NemaraColor.ink3)
+        NemaraCard(padding: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(enabled ? NemaraColor.actionSoft : NemaraColor.paperDim)
+                    Image(systemName: enabled ? "speaker.wave.2.fill" : "speaker.slash")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(enabled ? NemaraColor.action : NemaraColor.ink3)
                 }
-            }
-            .disabled(busy)
-            if let errorText {
-                Text(errorText)
-                    .font(NemaraFont.caption)
-                    .foregroundStyle(NemaraColor.terra)
+                .frame(width: 38, height: 38)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Audio capture")
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text(errorText
+                         ?? (enabled
+                             ? "Cameras capture sound for live audio, clips, and speech alerts."
+                             : "No sound is captured, recorded, or analyzed. Required for care facilities."))
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(errorText == nil ? NemaraColor.ink3 : NemaraColor.terra)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                NemaraToggle(isOn: Binding(
+                    get: { enabled },
+                    set: { flip(to: $0) }
+                ), track: "audio_capture.toggle")
+                .disabled(busy)
             }
         }
-        .padding(16)
-        .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal, 16)
     }
 
-    private func flip(to enabled: Bool) {
+    private func flip(to newValue: Bool) {
         guard !busy else { return }
         busy = true
         errorText = nil
@@ -57,7 +65,7 @@ struct AudioCaptureCard: View {
             defer { busy = false }
             do {
                 var body = UpdatePatientRequest()
-                body.audioCaptureEnabled = enabled
+                body.audioCaptureEnabled = newValue
                 _ = try await env.api.updatePatient(patientId, body)
             } catch {
                 errorText = "Couldn't update audio setting. Try again."
@@ -65,3 +73,13 @@ struct AudioCaptureCard: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let env = AppEnvironment.preview()
+    return AudioCaptureCard(patientId: env.api.patients[0].id)
+        .environment(env)
+        .padding(.vertical)
+        .background(NemaraColor.paper)
+}
+#endif
