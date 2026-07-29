@@ -204,7 +204,7 @@ struct HomeStatusView: View {
             verdictCard
             if !statuses.isEmpty {
                 Text(Self.md(briefing ?? templateBriefing))
-                    .font(.system(size: 17))
+                    .font(.system(size: 18, weight: .regular, design: .serif))
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(5)
                     .padding(.horizontal, 2)
@@ -237,7 +237,7 @@ struct HomeStatusView: View {
             HStack(spacing: 10) {
                 Circle().fill(dot).frame(width: 13, height: 13)
                 Text(v.line)
-                    .font(.system(size: 21, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold, design: .serif))
                     .foregroundStyle(NemaraColor.ink)
             }
             if !v.sub.isEmpty { Text(Self.md(v.sub))
