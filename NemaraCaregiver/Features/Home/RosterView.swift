@@ -39,6 +39,11 @@ struct RosterView: View {
                             )
                         }
 
+                        // Dashboard-style briefing: verdict, streaks, feed —
+                        // the answer BEFORE the navigation.
+                        HomeStatusView()
+                            .padding(.bottom, 14)
+
                         VStack(spacing: 10) {
                             ForEach(env.api.patients) { p in
                                 Button { env.deepLink.openPatient(p.id) } label: {
