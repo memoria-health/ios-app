@@ -141,22 +141,15 @@ struct HomeStatusView: View {
                            sub: "We noticed \(u.headline ?? "a serious moment") — open \(single ? "the moment" : names(urgent)) to review it")
         }
         if !blind.isEmpty {
-            // group people who share the same reason: "Samuel and Joey — no cameras set up yet"
-            var byReason: [String: [String]] = [:]
-            for b in blind { byReason[b.headline ?? "unwatched", default: []].append(b.name) }
-            let grouped = byReason
-                .sorted { $0.value.count > $1.value.count }
-                .map { "\($0.value.map { "**\($0)**" }.joined(separator: " and ")) — \($0.key)" }
-                .joined(separator: "\n")
             if blind.count == all.count {
                 return Verdict(level: .blind,
                                line: single ? "We can’t see \(blind[0].name) right now" : "No one is being watched right now",
-                               sub: grouped)
+                               sub: "")
             }
             // partial blindness must NEVER hide behind someone else's working cameras
             return Verdict(level: .blind,
                            line: "We can’t see \(names(blind)) right now",
-                           sub: grouped + (attention.isEmpty && urgent.isEmpty ? "\nEveryone else looks fine" : ""))
+                           sub: attention.isEmpty && urgent.isEmpty ? "Everyone else looks fine" : "")
         }
         if !attention.isEmpty {
             let n = attention.count
@@ -247,10 +240,10 @@ struct HomeStatusView: View {
                     .font(.system(size: 21, weight: .semibold, design: .serif))
                     .foregroundStyle(NemaraColor.ink)
             }
-            Text(Self.md(v.sub))
+            if !v.sub.isEmpty { Text(Self.md(v.sub))
                 .font(.system(size: 14.5))
                 .foregroundStyle(NemaraColor.ink3)
-                .padding(.leading, 23)
+                .padding(.leading, 23) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
