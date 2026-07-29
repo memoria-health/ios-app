@@ -146,7 +146,7 @@ struct HomeStatusView: View {
             for b in blind { byReason[b.headline ?? "unwatched", default: []].append(b.name) }
             let grouped = byReason
                 .sorted { $0.value.count > $1.value.count }
-                .map { "\($0.value.joined(separator: " and ")) — \($0.key)" }
+                .map { "\($0.value.map { "**\($0)**" }.joined(separator: " and ")) — \($0.key)" }
                 .joined(separator: "\n")
             if blind.count == all.count {
                 return Verdict(level: .blind,
@@ -247,7 +247,7 @@ struct HomeStatusView: View {
                     .font(.system(size: 21, weight: .semibold, design: .serif))
                     .foregroundStyle(NemaraColor.ink)
             }
-            Text(v.sub)
+            Text(Self.md(v.sub))
                 .font(.system(size: 14.5))
                 .foregroundStyle(NemaraColor.ink3)
                 .padding(.leading, 23)
