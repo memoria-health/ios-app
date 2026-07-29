@@ -25,6 +25,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case trailing  // when a sustained activity ends
         case duration  // once it's persisted past durationSeconds
         case absence   // NOT detected within its active window (whenScope)
+        case recordOnly = "record_only"  // never alerts — feeds daily summaries
 
         /// Caregiver-facing label — plain words. Mirrors web TRIGGER_LABEL.
         var caregiverLabel: String {
@@ -33,6 +34,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
             case .trailing: return "Alerts when the activity's finished"
             case .duration: return "Alerts once it's gone on too long"
             case .absence:  return "Alerts if it doesn't happen in your time window"
+            case .recordOnly: return "Never alerts — tracked quietly for daily insights"
             }
         }
 
@@ -44,6 +46,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
             case .trailing: return "When it ends"
             case .duration: return "If it lasts too long"
             case .absence:  return "If it doesn't happen"
+            case .recordOnly: return "Tracked quietly"
             }
         }
 
@@ -54,6 +57,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
             case .trailing: return "A single alert once the whole activity is over."
             case .duration: return "Fires only after it has continued past your time limit."
             case .absence:  return "Fires when the thing you're expecting is missing by your deadline."
+            case .recordOnly: return "Builds daily summaries (like sleep) without ever notifying anyone."
             }
         }
     }
