@@ -107,10 +107,8 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     var alertTrigger: AlertTrigger
     var isSustained: Bool
     var durationSeconds: Int?
-    var whereScope: String
-    /// Rooms the detector is scoped to (multi-select). Nil → every room
-    /// (back-compat with rows created before multi-room). `whereScope` is
-    /// the synced scalar fallback. Mirrors backend `where_rooms`.
+    /// Rooms the detector is scoped to (multi-select). Nil → every room.
+    /// The ONLY room-scope truth (where_scope deleted 2026-07-28).
     var whereRooms: [String]?
     var whenScope: String
     var sensitivity: Sensitivity
@@ -150,8 +148,8 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// "no caveat".
     var showsAccuracyCaveat: Bool { accuracyCaveat ?? false }
 
-    /// Human room-scope label, preferring the multi-room list and falling
-    /// back to the scalar `whereScope`. Mirrors web `roomsLabel`.
+    /// Human room-scope label. `whereRooms` is the only truth; nil/empty
+    /// means every room. Mirrors web `roomsLabel`.
     var roomsLabel: String {
         if let wr = whereRooms, !wr.isEmpty {
             if wr.contains(where: {
@@ -159,8 +157,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
             }) { return "All rooms" }
             return wr.joined(separator: ", ")
         }
-        return whereScope.trimmingCharacters(in: .whitespaces).uppercased() == "ALL ROOMS"
-            ? "All rooms" : whereScope
+        return "All rooms"
     }
 
     /// The exit-door selection stored on a `wandering` detector. Mirrors the
@@ -228,7 +225,6 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case alertTrigger = "alert_trigger"
         case isSustained = "is_sustained"
         case durationSeconds = "duration_seconds"
-        case whereScope = "where_scope"
         case whereRooms = "where_rooms"
         case whenScope = "when_scope"
         case sensitivity

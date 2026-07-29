@@ -112,12 +112,15 @@ final class BlurVideoRenderer: NSObject, VideoRenderer, @unchecked Sendable {
 
     // Lower = catches farther / more partial people (more false positives).
     private let minConfidence: Float = 0.25
-    // Pad each person box (buffer) so the blur sits proud of the body.
-    private let boxPad: CGFloat = 0.15
-    private let blurSigma: Double = 20
-    // Keep a box this long after its last sighting so a momentary detection gap
-    // never suddenly un-blurs someone (privacy hold — no readback, no freeze).
-    private let holdSeconds: CFTimeInterval = 0.8
+    // Uniform padding around each person box so the blur sits proud of the body.
+    // Mirrors the web dashboard's PAD = 0.18.
+    private let boxPad: CGFloat = 0.18
+    // Gaussian blur strength. Mirrors the web dashboard's BLUR_PX = 36 (CSS
+    // blur radius ≈ Gaussian sigma). Tune here if it reads differently on device.
+    private let blurSigma: Double = 36
+    // Keep a box this long after its last sighting so a detection gap never
+    // suddenly un-blurs someone (privacy hold). Mirrors web HOLD_MS = 1500.
+    private let holdSeconds: CFTimeInterval = 1.5
     private var heldBoxes: [(rect: CGRect, exp: CFTimeInterval)] = []
 
     // MARK: VideoRenderer

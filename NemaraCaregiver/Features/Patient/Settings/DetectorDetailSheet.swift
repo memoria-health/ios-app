@@ -542,10 +542,9 @@ struct DetectorDetailSheet: View {
             }) { return (true, []) }
             return (false, Set(wr))
         }
-        if d.whereScope.trimmingCharacters(in: .whitespaces).uppercased() == "ALL ROOMS" {
-            return (true, [])
-        }
-        return (false, [d.whereScope])
+        // whereRooms is the only truth (where_scope deleted 2026-07-28);
+        // nil/empty = every room.
+        return (true, [])
     }
 
     private func initRoomsIfNeeded() {
