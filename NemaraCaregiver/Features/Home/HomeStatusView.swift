@@ -58,8 +58,16 @@ struct HomeStatusView: View {
         let unreviewed = recent.filter { !$0.reviewed }
         if !unreviewed.isEmpty {
             let n = unreviewed.count
+            // facilities need the WHO immediately — name the people involved
+            let whoNames: String = {
+                guard env.api.patients.count > 1 else { return "" }
+                let ids = Set(unreviewed.map(\.patientId))
+                let list = env.api.patients.filter { ids.contains($0.id) }
+                    .map { $0.preferredName.isEmpty ? $0.fullName : $0.preferredName }
+                return list.isEmpty ? "" : " — \(list.joined(separator: " and "))"
+            }()
             return Verdict(level: .attention,
-                           line: "\(n == 1 ? "One thing" : "\(n) things") to look at",
+                           line: "\(n == 1 ? "One thing" : "\(n) things") to look at\(whoNames)",
                            sub: "\(n == 1 ? "A moment" : "Some moments") from the last day \(n == 1 ? "hasn’t" : "haven’t") been reviewed — nothing urgent")
         }
         return Verdict(level: .ok,
@@ -116,9 +124,45 @@ struct HomeStatusView: View {
 
     // MARK: - Body
 
+    @State private var briefing: String?
+
+    private var briefingName: String {
+        let names = env.api.patients.map { $0.preferredName.isEmpty ? $0.fullName : $0.preferredName }
+        return names.count == 1 ? names[0] : "everyone"
+    }
+
+    private var templateBriefing: String {
+        var parts: [String] = []
+        if let f = daysSinceLastFall { parts.append("it’s been \(f.value) \(f.label)") }
+        let q = quietNights
+        if let n = Int(q.value), n > 0 { parts.append("\(q.value) \(q.label)") }
+        let lead = allEvents.first { $0.occurredAt > Date().addingTimeInterval(-86_400) } == nil
+            ? "\(briefingName == "everyone" ? "Everyone has" : "\(briefingName) has") had a quiet day so far"
+            : "\(briefingName == "everyone" ? "Everyone is" : "\(briefingName) is") going about the day"
+        return parts.isEmpty ? "\(lead)." : "\(lead) — \(parts.joined(separator: ", "))."
+    }
+
+    private func fetchBriefing() async {
+        var facts: [String: String] = ["camerasWatching": camerasLine]
+        if let f = daysSinceLastFall { facts["daysSinceLastFall"] = f.value }
+        facts["quietNightsInARow"] = quietNights.value
+        for (i, e) in feed.prefix(4).enumerated() {
+            facts["moment\(i + 1)"] = "\(e.occurredAt.formatted(date: .abbreviated, time: .shortened)): \(humanize(e))"
+        }
+        if let text = try? await env.api.homeBriefing(name: briefingName, facts: facts), !text.isEmpty {
+            withAnimation(.easeOut(duration: 0.3)) { briefing = text }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             verdictCard
+            Text(briefing ?? templateBriefing)
+                .font(.system(size: 16, weight: .regular, design: .serif))
+                .foregroundStyle(NemaraColor.ink2)
+                .lineSpacing(3)
+                .padding(.horizontal, 2)
+                .task { await fetchBriefing() }
             HStack(spacing: 10) {
                 if let f = daysSinceLastFall { streakChip(f.value, f.label) }
                 let q = quietNights

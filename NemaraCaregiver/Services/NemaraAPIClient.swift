@@ -1048,6 +1048,26 @@ final class NemaraAPIClient {
         )
     }
 
+    // MARK: - Home briefing
+
+    struct HomeBriefingRequest: Encodable {
+        var name: String
+        var facts: [String: String]
+    }
+    private struct HomeBriefingResponse: Decodable { var briefing: String }
+
+    /// AI-written Home check-in sentence. The endpoint is a pure LLM proxy
+    /// (may be ABSENT on older backends) — callers treat any error as "keep
+    /// the local template sentence", so this can never break the Home view.
+    func homeBriefing(name: String, facts: [String: String]) async throws -> String {
+        let resp: HomeBriefingResponse = try await sendJSON(
+            method: "POST",
+            path: "/v1/home-briefing",
+            body: HomeBriefingRequest(name: name, facts: facts),
+        )
+        return resp.briefing
+    }
+
     // MARK: - HTTP plumbing
 
     private func makeRequest(
