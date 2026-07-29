@@ -178,14 +178,14 @@ struct HomeStatusView: View {
             var parts: [String] = []
             if let d = s.daysWithoutFall { parts.append("it’s been \(d) days without a fall") }
             if s.quietNights > 0 { parts.append("\(s.quietNights) quiet night\(s.quietNights == 1 ? "" : "s") in a row") }
-            let lead = s.level == .quiet ? "\(s.name) has had a calm stretch" : "\(s.name) has \(s.headline ?? "something to review")"
+            let lead = s.level == .quiet ? "**\(s.name)** has had a calm stretch" : "**\(s.name)** has \(s.headline ?? "something to review")"
             return parts.isEmpty ? "\(lead)." : "\(lead) — \(parts.joined(separator: ", "))."
         }
         let calm = all.filter { $0.level == .quiet }.map(\.name)
         let busy = all.filter { $0.level != .quiet }
         var bits: [String] = []
-        if !calm.isEmpty { bits.append("\(calm.joined(separator: " and ")) \(calm.count == 1 ? "has" : "have") had a calm day") }
-        for b in busy { bits.append("\(b.name) has \(b.headline ?? "something to review")") }
+        if !calm.isEmpty { bits.append("\(calm.map { "**\($0)**" }.joined(separator: " and ")) \(calm.count == 1 ? "has" : "have") had a calm day") }
+        for b in busy { bits.append("**\(b.name)** has \(b.headline ?? "something to review")") }
         return bits.joined(separator: ". ") + "."
     }
 
@@ -203,7 +203,8 @@ struct HomeStatusView: View {
         VStack(alignment: .leading, spacing: 14) {
             verdictCard
             if !statuses.isEmpty {
-                Text(briefing ?? templateBriefing)
+                // AttributedString(markdown:) so the model's **Name** bolds render
+                Text((try? AttributedString(markdown: briefing ?? templateBriefing)) ?? AttributedString(briefing ?? templateBriefing))
                     .font(.system(size: 16, weight: .regular, design: .serif))
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(3)
