@@ -130,8 +130,17 @@ final class NemaraAPIClient {
             try await group.waitForAll()
         }
 
-        await openRealtimeChannels()
+        // Realtime channels open OFF the sign-in critical path. Each
+        // `subscribeWithError()` blocks until the server acks the join —
+        // when Realtime is degraded (2026-07-28: prod Postgres ran out of
+        // connections → every join errored + retried) these four awaits
+        // held the "Signing in…" spinner for MINUTES while the roster was
+        // already loaded. Sign-in must only ever cost the REST loads;
+        // a Realtime outage costs live updates, never login. The state
+        // poll backstop starts immediately so data still refreshes even
+        // while channels are connecting (or failing).
         startStatePolling()
+        Task { await self.openRealtimeChannels() }
     }
 
     /// Refetch the full roster + every per-patient sub-collection.
