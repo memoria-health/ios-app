@@ -70,14 +70,16 @@ struct HomeStatusView: View {
         }
         var quiet = 0
         let cal = Calendar.current
-        for back in 1...30 {
+        // no loaded events = no basis for ANY claim — a brand-new patient must
+        // not get credited with "30 quiet nights" they were never watched for
+        if oldest != nil { for back in 1...30 {
             guard let dayStart = cal.date(byAdding: .day, value: -back, to: cal.startOfDay(for: now)) else { break }
             let nightStart = dayStart.addingTimeInterval(22 * 3600 - 86_400)
             let nightEnd = dayStart.addingTimeInterval(6 * 3600)
             if events.contains(where: { $0.occurredAt >= nightStart && $0.occurredAt < nightEnd }) { break }
             quiet = back
             if let oldest, nightStart < oldest { break }
-        }
+        } }
 
         // severity, per person
         if let s = recent.first(where: { isSerious($0) && $0.occurredAt > now.addingTimeInterval(-3 * 3600) && !$0.reviewed }) {
@@ -86,7 +88,13 @@ struct HomeStatusView: View {
                                 factLine: "\(name): NEEDS ATTENTION — \(humanize(s)) at \(s.occurredAt.formatted(date: .omitted, time: .shortened))",
                                 daysWithoutFall: daysWithoutFall, quietNights: quiet)
         }
-        if !cameras.isEmpty && !cameras.contains(where: { $0.online }) {
+        if cameras.isEmpty {
+            return PersonStatus(patient: p, name: name, level: .blind,
+                                headline: "no cameras set up yet",
+                                factLine: "\(name): not monitored yet — no cameras set up",
+                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+        }
+        if !cameras.contains(where: { $0.online }) {
             return PersonStatus(patient: p, name: name, level: .blind,
                                 headline: "cameras are offline",
                                 factLine: "\(name): unwatched right now — cameras offline",
@@ -135,13 +143,13 @@ struct HomeStatusView: View {
         if !blind.isEmpty {
             if blind.count == all.count {
                 return Verdict(level: .blind,
-                               line: "The cameras are offline",
-                               sub: "We can’t check on \(single ? blind[0].name : "anyone") right now — a camera may be unplugged or the internet may be down")
+                               line: single ? "We can’t see \(blind[0].name) right now" : "No one is being watched right now",
+                               sub: blind.map { "\($0.name): \($0.headline ?? "unwatched")" }.joined(separator: "; "))
             }
             // partial blindness must NEVER hide behind someone else's working cameras
             return Verdict(level: .blind,
                            line: "We can’t see \(names(blind)) right now",
-                           sub: "Their cameras are offline\(attention.isEmpty ? " — everyone else looks fine" : "")")
+                           sub: "\(blind.map { "\($0.name): \($0.headline ?? "unwatched")" }.joined(separator: "; "))\(attention.isEmpty && urgent.isEmpty && blind.count < all.count ? " — everyone else looks fine" : "")")
         }
         if !attention.isEmpty {
             let n = attention.count
