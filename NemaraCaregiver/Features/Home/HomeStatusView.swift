@@ -1,33 +1,34 @@
 import SwiftUI
 
-/// The dashboard's family Home, in the app — answers before navigation.
-/// Sits at the top of the Home tab above the roster: one glanceable
-/// verdict, streaks, and a plain-language feed, all computed CLIENT-SIDE
-/// from data `bootstrap()` already loads (no backend changes).
+/// The dashboard-style Home briefing — works identically for 1 or N patients.
 ///
-/// Design rules (mirrors the web Home):
-///  - three status colors ever: success (fine) / warning (look) / danger (now)
-///  - NEVER say "all quiet" while zero cameras are online — no false
-///    reassurance while blind
-///  - events render as calm sentences, not enum-flavored titles
+/// CORE RULE: never aggregate raw data — aggregate PER-PERSON verdicts.
+/// Every earlier logic hole (one person's online cameras hiding another's
+/// blindness, anonymous falls, streaks poisoned across people) came from
+/// pooling events/cameras across patients. So: compute each person's status
+/// independently, then fold by severity, naming names. One patient is just
+/// a fold of one — same code path, no special modes.
+///
+/// Severity order: urgent (unreviewed serious moment) > blind (that person
+/// has no working camera — never claim quiet while blind) > attention
+/// (unreviewed moments) > quiet. Streak chips render only for a single
+/// patient, where the numbers are unambiguous; multi-patient numbers live
+/// on each person's own page.
 struct HomeStatusView: View {
     @Environment(AppEnvironment.self) private var env
 
-    private var allEvents: [DetectionEvent] {
-        env.api.eventsByPatient.values.flatMap { $0 }.sorted { $0.occurredAt > $1.occurredAt }
-    }
-    private var allCameras: [Camera] {
-        env.api.camerasByPatient.values.flatMap { $0 }
-    }
+    // MARK: - Per-person status
 
-    // MARK: - Verdict
+    private enum Level: Int { case urgent = 0, blind = 1, attention = 2, quiet = 3 }
 
-    private enum Level { case ok, attention, urgent }
-
-    private struct Verdict {
+    private struct PersonStatus {
+        var patient: Patient
+        var name: String
         var level: Level
-        var line: String
-        var sub: String
+        var headline: String?      // person-specific detail for the fold
+        var factLine: String       // name-tagged fact for the AI briefing
+        var daysWithoutFall: String?
+        var quietNights: Int
     }
 
     private static let seriousTerms = ["fall", "chok", "stroke", "heart", "seizure", "help"]
@@ -37,138 +38,179 @@ struct HomeStatusView: View {
         return Self.seriousTerms.contains { t.contains($0) }
     }
 
-    private var verdict: Verdict {
-        let now = Date()
-        let dayAgo = now.addingTimeInterval(-86_400)
-        let recent = allEvents.filter { $0.occurredAt > dayAgo }
-        let names = env.api.patients.map { $0.preferredName.isEmpty ? $0.fullName : $0.preferredName }
-        let who = names.count == 1 ? names[0] : "everyone"
-
-        if let s = recent.first(where: { isSerious($0) && $0.occurredAt > now.addingTimeInterval(-3 * 3600) && !$0.reviewed }) {
-            return Verdict(level: .urgent,
-                           line: "Something needs your attention",
-                           sub: "\(humanize(s)) — tap the moment below to review it")
-        }
-        if !allCameras.isEmpty && !allCameras.contains(where: { $0.online }) {
-            // never claim quiet while blind
-            return Verdict(level: .attention,
-                           line: "The cameras are offline",
-                           sub: "We can’t check in right now — a camera may be unplugged or the internet may be down")
-        }
-        let unreviewed = recent.filter { !$0.reviewed }
-        if !unreviewed.isEmpty {
-            let n = unreviewed.count
-            // facilities need the WHO immediately — name the people involved
-            let whoNames: String = {
-                guard env.api.patients.count > 1 else { return "" }
-                let ids = Set(unreviewed.map(\.patientId))
-                let list = env.api.patients.filter { ids.contains($0.id) }
-                    .map { $0.preferredName.isEmpty ? $0.fullName : $0.preferredName }
-                return list.isEmpty ? "" : " — \(list.joined(separator: " and "))"
-            }()
-            return Verdict(level: .attention,
-                           line: "\(n == 1 ? "One thing" : "\(n) things") to look at\(whoNames)",
-                           sub: "\(n == 1 ? "A moment" : "Some moments") from the last day \(n == 1 ? "hasn’t" : "haven’t") been reviewed — nothing urgent")
-        }
-        return Verdict(level: .ok,
-                       line: "All quiet for \(who)",
-                       sub: recent.isEmpty ? "nothing unusual in the last day" : "everything from the last day has been reviewed")
-    }
-
-    // MARK: - Streaks (from the loaded event window — honest about its horizon)
-
-    private var oldestLoaded: Date? { allEvents.last?.occurredAt }
-
-    private var daysSinceLastFall: (value: String, label: String)? {
-        guard oldestLoaded != nil else { return nil }
-        let lastFall = allEvents.first { $0.title.lowercased().contains("fall") }
-        if let f = lastFall {
-            let d = max(0, Int(Date().timeIntervalSince(f.occurredAt) / 86_400))
-            return (String(d), d == 1 ? "day since a fall" : "days without a fall")
-        }
-        let horizon = max(1, Int(Date().timeIntervalSince(oldestLoaded!) / 86_400))
-        return ("\(horizon)+", "days without a fall")
-    }
-
-    private var quietNights: (value: String, label: String) {
-        var nights = 0
-        let cal = Calendar.current
-        for back in 1...30 {
-            guard let dayStart = cal.date(byAdding: .day, value: -back, to: cal.startOfDay(for: Date())) else { break }
-            let nightStart = dayStart.addingTimeInterval(22 * 3600 - 86_400) // 22:00 the evening before
-            let nightEnd = dayStart.addingTimeInterval(6 * 3600)             // 06:00 that morning
-            let had = allEvents.contains { $0.occurredAt >= nightStart && $0.occurredAt < nightEnd }
-            if had { break }
-            if let oldest = oldestLoaded, nightStart < oldest { nights = back; break }
-            nights = back
-        }
-        return (String(nights), nights == 1 ? "quiet night in a row" : "quiet nights in a row")
-    }
-
-    // MARK: - Feed language
-
     private func humanize(_ e: DetectionEvent) -> String {
         let t = e.title
             .replacingOccurrences(of: "Possible ", with: "")
             .replacingOccurrences(of: "possible ", with: "")
             .lowercased()
         let place = e.location.isEmpty ? "" : " in the \(e.location.lowercased())"
-        if t.contains("fall") { return "We noticed what looked like a fall\(place)" }
-        if t.contains("chok") { return "We noticed possible choking\(place)" }
-        if t.contains("wander") || t.contains("door") { return "Activity near the door\(place)" }
-        if t.contains("recover") { return "They got back up on their own\(place)" }
-        return "We noticed \(t)\(place)"
+        if t.contains("fall") { return "what looked like a fall\(place)" }
+        if t.contains("chok") { return "possible choking\(place)" }
+        if t.contains("wander") || t.contains("door") { return "activity near the door\(place)" }
+        if t.contains("recover") { return "getting back up on their own\(place)" }
+        return "\(t)\(place)"
     }
 
-    private var feed: [DetectionEvent] { Array(allEvents.prefix(8)) }
+    private func status(for p: Patient) -> PersonStatus {
+        let name = p.preferredName.isEmpty ? p.fullName : p.preferredName
+        let events = (env.api.eventsByPatient[p.id] ?? []).sorted { $0.occurredAt > $1.occurredAt }
+        let cameras = env.api.camerasByPatient[p.id] ?? []
+        let now = Date()
+        let recent = events.filter { $0.occurredAt > now.addingTimeInterval(-86_400) }
 
-    // MARK: - Body
+        // streaks — honest about the loaded window
+        let oldest = events.last?.occurredAt
+        var daysWithoutFall: String?
+        if let oldest {
+            if let f = events.first(where: { $0.title.lowercased().contains("fall") }) {
+                daysWithoutFall = String(max(0, Int(now.timeIntervalSince(f.occurredAt) / 86_400)))
+            } else {
+                daysWithoutFall = "\(max(1, Int(now.timeIntervalSince(oldest) / 86_400)))+"
+            }
+        }
+        var quiet = 0
+        let cal = Calendar.current
+        for back in 1...30 {
+            guard let dayStart = cal.date(byAdding: .day, value: -back, to: cal.startOfDay(for: now)) else { break }
+            let nightStart = dayStart.addingTimeInterval(22 * 3600 - 86_400)
+            let nightEnd = dayStart.addingTimeInterval(6 * 3600)
+            if events.contains(where: { $0.occurredAt >= nightStart && $0.occurredAt < nightEnd }) { break }
+            quiet = back
+            if let oldest, nightStart < oldest { break }
+        }
+
+        // severity, per person
+        if let s = recent.first(where: { isSerious($0) && $0.occurredAt > now.addingTimeInterval(-3 * 3600) && !$0.reviewed }) {
+            return PersonStatus(patient: p, name: name, level: .urgent,
+                                headline: humanize(s),
+                                factLine: "\(name): NEEDS ATTENTION — \(humanize(s)) at \(s.occurredAt.formatted(date: .omitted, time: .shortened))",
+                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+        }
+        if !cameras.isEmpty && !cameras.contains(where: { $0.online }) {
+            return PersonStatus(patient: p, name: name, level: .blind,
+                                headline: "cameras are offline",
+                                factLine: "\(name): unwatched right now — cameras offline",
+                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+        }
+        let unreviewed = recent.filter { !$0.reviewed }
+        if !unreviewed.isEmpty {
+            let first = unreviewed.first!
+            return PersonStatus(patient: p, name: name, level: .attention,
+                                headline: "\(unreviewed.count) unreviewed moment\(unreviewed.count == 1 ? "" : "s")",
+                                factLine: "\(name): \(humanize(first)) — unreviewed",
+                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+        }
+        return PersonStatus(patient: p, name: name, level: .quiet,
+                            headline: nil,
+                            factLine: "\(name): quiet\(quiet > 0 ? ", \(quiet) quiet nights in a row" : "")",
+                            daysWithoutFall: daysWithoutFall, quietNights: quiet)
+    }
+
+    private var statuses: [PersonStatus] {
+        env.api.patients.map(status(for:)).sorted { $0.level.rawValue < $1.level.rawValue }
+    }
+
+    // MARK: - The fold: one honest verdict across everyone
+
+    private struct Verdict { var level: Level; var line: String; var sub: String }
+
+    private func names(_ list: [PersonStatus]) -> String {
+        list.map(\.name).joined(separator: " and ")
+    }
+
+    private var verdict: Verdict {
+        let all = statuses
+        guard !all.isEmpty else { return Verdict(level: .quiet, line: "Welcome", sub: "add a patient to get started") }
+        let urgent = all.filter { $0.level == .urgent }
+        let blind = all.filter { $0.level == .blind }
+        let attention = all.filter { $0.level == .attention }
+        let single = all.count == 1
+
+        if !urgent.isEmpty {
+            let u = urgent[0]
+            return Verdict(level: .urgent,
+                           line: single ? "Something needs your attention" : "Something needs your attention — \(names(urgent))",
+                           sub: "We noticed \(u.headline ?? "a serious moment") — open \(single ? "the moment" : names(urgent)) to review it")
+        }
+        if !blind.isEmpty {
+            if blind.count == all.count {
+                return Verdict(level: .blind,
+                               line: "The cameras are offline",
+                               sub: "We can’t check on \(single ? blind[0].name : "anyone") right now — a camera may be unplugged or the internet may be down")
+            }
+            // partial blindness must NEVER hide behind someone else's working cameras
+            return Verdict(level: .blind,
+                           line: "We can’t see \(names(blind)) right now",
+                           sub: "Their cameras are offline\(attention.isEmpty ? " — everyone else looks fine" : "")")
+        }
+        if !attention.isEmpty {
+            let n = attention.count
+            return Verdict(level: .attention,
+                           line: single ? "\(n == 1 ? "One thing" : "\(n) things") to look at" : "Something to look at — \(names(attention))",
+                           sub: "\(n == 1 && single ? "A moment" : "Moments") from the last day \(n == 1 && single ? "hasn’t" : "haven’t") been reviewed — nothing urgent")
+        }
+        return Verdict(level: .quiet,
+                       line: "All quiet for \(single ? all[0].name : "everyone")",
+                       sub: "nothing unusual in the last day")
+    }
+
+    // MARK: - Briefing (template instantly, AI prose when the endpoint answers)
 
     @State private var briefing: String?
 
     private var briefingName: String {
-        let names = env.api.patients.map { $0.preferredName.isEmpty ? $0.fullName : $0.preferredName }
-        return names.count == 1 ? names[0] : "everyone"
+        statuses.count == 1 ? statuses[0].name : "everyone"
     }
 
     private var templateBriefing: String {
-        var parts: [String] = []
-        if let f = daysSinceLastFall { parts.append("it’s been \(f.value) \(f.label)") }
-        let q = quietNights
-        if let n = Int(q.value), n > 0 { parts.append("\(q.value) \(q.label)") }
-        let lead = allEvents.first { $0.occurredAt > Date().addingTimeInterval(-86_400) } == nil
-            ? "\(briefingName == "everyone" ? "Everyone has" : "\(briefingName) has") had a quiet day so far"
-            : "\(briefingName == "everyone" ? "Everyone is" : "\(briefingName) is") going about the day"
-        return parts.isEmpty ? "\(lead)." : "\(lead) — \(parts.joined(separator: ", "))."
+        let all = statuses
+        guard !all.isEmpty else { return "" }
+        if all.count == 1 {
+            let s = all[0]
+            var parts: [String] = []
+            if let d = s.daysWithoutFall { parts.append("it’s been \(d) days without a fall") }
+            if s.quietNights > 0 { parts.append("\(s.quietNights) quiet night\(s.quietNights == 1 ? "" : "s") in a row") }
+            let lead = s.level == .quiet ? "\(s.name) has had a calm stretch" : "\(s.name) has \(s.headline ?? "something to review")"
+            return parts.isEmpty ? "\(lead)." : "\(lead) — \(parts.joined(separator: ", "))."
+        }
+        let calm = all.filter { $0.level == .quiet }.map(\.name)
+        let busy = all.filter { $0.level != .quiet }
+        var bits: [String] = []
+        if !calm.isEmpty { bits.append("\(calm.joined(separator: " and ")) \(calm.count == 1 ? "has" : "have") had a calm day") }
+        for b in busy { bits.append("\(b.name) has \(b.headline ?? "something to review")") }
+        return bits.joined(separator: ". ") + "."
     }
 
     private func fetchBriefing() async {
-        var facts: [String: String] = ["camerasWatching": camerasLine]
-        if let f = daysSinceLastFall { facts["daysSinceLastFall"] = f.value }
-        facts["quietNightsInARow"] = quietNights.value
-        for (i, e) in feed.prefix(4).enumerated() {
-            facts["moment\(i + 1)"] = "\(e.occurredAt.formatted(date: .abbreviated, time: .shortened)): \(humanize(e))"
-        }
+        var facts: [String: String] = [:]
+        for s in statuses { facts[s.name] = s.factLine }
         if let text = try? await env.api.homeBriefing(name: briefingName, facts: facts), !text.isEmpty {
             withAnimation(.easeOut(duration: 0.3)) { briefing = text }
         }
     }
 
+    // MARK: - Body
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             verdictCard
-            Text(briefing ?? templateBriefing)
-                .font(.system(size: 16, weight: .regular, design: .serif))
-                .foregroundStyle(NemaraColor.ink2)
-                .lineSpacing(3)
-                .padding(.horizontal, 2)
-                .task { await fetchBriefing() }
-            HStack(spacing: 10) {
-                if let f = daysSinceLastFall { streakChip(f.value, f.label) }
-                let q = quietNights
-                streakChip(q.value, q.label)
+            if !statuses.isEmpty {
+                Text(briefing ?? templateBriefing)
+                    .font(.system(size: 16, weight: .regular, design: .serif))
+                    .foregroundStyle(NemaraColor.ink2)
+                    .lineSpacing(3)
+                    .padding(.horizontal, 2)
+                    .task { await fetchBriefing() }
             }
-            if !feed.isEmpty { feedSection }
+            // streak chips ONLY when the numbers are unambiguous (one person);
+            // multi-patient numbers belong on each person's own page
+            if statuses.count == 1 {
+                let s = statuses[0]
+                HStack(spacing: 10) {
+                    if let d = s.daysWithoutFall { streakChip(d, d == "1" ? "day since a fall" : "days without a fall") }
+                    streakChip(String(s.quietNights), s.quietNights == 1 ? "quiet night in a row" : "quiet nights in a row")
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
@@ -178,8 +220,8 @@ struct HomeStatusView: View {
         let v = verdict
         let (dot, bg): (Color, Color) = {
             switch v.level {
-            case .ok: return (NemaraColor.success, NemaraColor.success.opacity(0.12))
-            case .attention: return (NemaraColor.warning, NemaraColor.warning.opacity(0.12))
+            case .quiet: return (NemaraColor.success, NemaraColor.success.opacity(0.12))
+            case .attention, .blind: return (NemaraColor.warning, NemaraColor.warning.opacity(0.12))
             case .urgent: return (NemaraColor.danger, NemaraColor.terraSoft)
             }
         }()
@@ -194,21 +236,10 @@ struct HomeStatusView: View {
                 .font(.system(size: 14.5))
                 .foregroundStyle(NemaraColor.ink3)
                 .padding(.leading, 23)
-            Text(camerasLine)
-                .font(.system(size: 12.5))
-                .foregroundStyle(NemaraColor.ink4)
-                .padding(.leading, 23)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .background(bg, in: RoundedRectangle(cornerRadius: 22))
-    }
-
-    private var camerasLine: String {
-        let on = allCameras.filter { $0.online }.count
-        let total = allCameras.count
-        guard total > 0 else { return "no cameras set up yet" }
-        return "\(on) of \(total) camera\(total == 1 ? "" : "s") watching"
     }
 
     private func streakChip(_ value: String, _ label: String) -> some View {
@@ -224,37 +255,5 @@ struct HomeStatusView: View {
         .padding(14)
         .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(NemaraColor.line.opacity(0.6)))
-    }
-
-    private var feedSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("RECENT MOMENTS")
-                .font(.system(size: 11, weight: .semibold))
-                .kerning(0.8)
-                .foregroundStyle(NemaraColor.ink4)
-                .padding(.top, 4)
-            ForEach(feed) { e in
-                Button { env.deepLink.openPatient(e.patientId) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(e.occurredAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(NemaraColor.ink4)
-                            .frame(width: 92, alignment: .leading)
-                        Text(humanize(e))
-                            .font(.system(size: 14.5))
-                            .foregroundStyle(NemaraColor.ink2)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 12)
-                    .background(
-                        isSerious(e) ? NemaraColor.terraSoft.opacity(0.55) : NemaraColor.card,
-                        in: RoundedRectangle(cornerRadius: 14)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
     }
 }
