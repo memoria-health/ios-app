@@ -364,6 +364,7 @@ struct PatientSettingsView: View {
             NemaraEyebrow("PRIVACY")
                 .padding(.horizontal, 16)
             PeopleBlurCard(patientId: patientId)
+            AudioCaptureCard(patientId: patientId)
             Text(
                 "Blur people applies on this device only — it changes what "
                 + "you see, not what is recorded or what other caregivers "

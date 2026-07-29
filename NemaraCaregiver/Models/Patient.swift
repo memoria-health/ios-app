@@ -65,6 +65,10 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     var statusLine: String
     var lastEventAt: Date?
     var camerasPaused: Bool
+    /// Facilities audio kill: false = the patient's cameras never publish
+    /// an audio track (no live sound, no audio in clips, no speech
+    /// alerts). Optional for decode resilience; treat nil as true.
+    var audioCaptureEnabled: Bool?
     /// Per-patient master toggle for event-driven email alerts. When on,
     /// the backend fans alerts to the owning caregiver's account email
     /// plus every address in `emailAlertRecipients`. Mirrors the web
@@ -114,6 +118,7 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case statusLine = "status_line"
         case lastEventAt = "last_event_at"
         case camerasPaused = "cameras_paused"
+        case audioCaptureEnabled = "audio_capture_enabled"
         case emailAlertsEnabled = "email_alerts_enabled"
         case emailAlertRecipients = "email_alert_recipients"
         case dataCollectionEnabled = "data_collection_enabled"
@@ -186,6 +191,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
     var relation: Patient.Relation?
     var homeAddress: String?
     var camerasPaused: Bool?
+    var audioCaptureEnabled: Bool?
     var emailAlertsEnabled: Bool?
     /// Send the full array. The backend replaces the column wholesale.
     var emailAlertRecipients: [String]?
@@ -202,6 +208,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         case relation
         case homeAddress = "home_address"
         case camerasPaused = "cameras_paused"
+        case audioCaptureEnabled = "audio_capture_enabled"
         case emailAlertsEnabled = "email_alerts_enabled"
         case emailAlertRecipients = "email_alert_recipients"
         case dataCollectionEnabled = "data_collection_enabled"
@@ -220,6 +227,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         try c.encodeIfPresent(relation, forKey: .relation)
         try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
         try c.encodeIfPresent(camerasPaused, forKey: .camerasPaused)
+        try c.encodeIfPresent(audioCaptureEnabled, forKey: .audioCaptureEnabled)
         try c.encodeIfPresent(emailAlertsEnabled, forKey: .emailAlertsEnabled)
         try c.encodeIfPresent(emailAlertRecipients, forKey: .emailAlertRecipients)
         try c.encodeIfPresent(dataCollectionEnabled, forKey: .dataCollectionEnabled)
