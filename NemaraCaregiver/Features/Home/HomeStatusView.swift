@@ -91,13 +91,13 @@ struct HomeStatusView: View {
         if cameras.isEmpty {
             return PersonStatus(patient: p, name: name, level: .blind,
                                 headline: "no cameras set up yet",
-                                factLine: "\(name): not monitored yet — no cameras set up",
+                                factLine: "\(name): no cameras set up yet",
                                 daysWithoutFall: daysWithoutFall, quietNights: quiet)
         }
         if !cameras.contains(where: { $0.online }) {
             return PersonStatus(patient: p, name: name, level: .blind,
                                 headline: "cameras are offline",
-                                factLine: "\(name): unwatched right now — cameras offline",
+                                factLine: "\(name): cameras offline",
                                 daysWithoutFall: daysWithoutFall, quietNights: quiet)
         }
         let unreviewed = recent.filter { !$0.reviewed }
@@ -204,7 +204,7 @@ struct HomeStatusView: View {
             verdictCard
             if !statuses.isEmpty {
                 Text(Self.md(briefing ?? templateBriefing))
-                    .font(.system(size: 18, weight: .regular, design: .serif))
+                    .font(.system(size: 17, weight: .regular, design: .serif))
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(5)
                     .padding(.horizontal, 2)
