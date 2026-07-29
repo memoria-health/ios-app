@@ -141,15 +141,22 @@ struct HomeStatusView: View {
                            sub: "We noticed \(u.headline ?? "a serious moment") — open \(single ? "the moment" : names(urgent)) to review it")
         }
         if !blind.isEmpty {
+            // group people who share the same reason: "Samuel and Joey — no cameras set up yet"
+            var byReason: [String: [String]] = [:]
+            for b in blind { byReason[b.headline ?? "unwatched", default: []].append(b.name) }
+            let grouped = byReason
+                .sorted { $0.value.count > $1.value.count }
+                .map { "\($0.value.joined(separator: " and ")) — \($0.key)" }
+                .joined(separator: "\n")
             if blind.count == all.count {
                 return Verdict(level: .blind,
                                line: single ? "We can’t see \(blind[0].name) right now" : "No one is being watched right now",
-                               sub: blind.map { "\($0.name): \($0.headline ?? "unwatched")" }.joined(separator: "; "))
+                               sub: grouped)
             }
             // partial blindness must NEVER hide behind someone else's working cameras
             return Verdict(level: .blind,
                            line: "We can’t see \(names(blind)) right now",
-                           sub: "\(blind.map { "\($0.name): \($0.headline ?? "unwatched")" }.joined(separator: "; "))\(attention.isEmpty && urgent.isEmpty && blind.count < all.count ? " — everyone else looks fine" : "")")
+                           sub: grouped + (attention.isEmpty && urgent.isEmpty ? "\nEveryone else looks fine" : ""))
         }
         if !attention.isEmpty {
             let n = attention.count
@@ -203,8 +210,7 @@ struct HomeStatusView: View {
         VStack(alignment: .leading, spacing: 14) {
             verdictCard
             if !statuses.isEmpty {
-                // AttributedString(markdown:) so the model's **Name** bolds render
-                Text((try? AttributedString(markdown: briefing ?? templateBriefing)) ?? AttributedString(briefing ?? templateBriefing))
+                Text(Self.md(briefing ?? templateBriefing))
                     .font(.system(size: 16, weight: .regular, design: .serif))
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(3)
@@ -249,6 +255,16 @@ struct HomeStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .background(bg, in: RoundedRectangle(cornerRadius: 22))
+    }
+
+    /// Inline-markdown render; a failed parse falls back to STRIPPED text —
+    /// raw asterisks must never reach a caregiver's screen.
+    static func md(_ s: String) -> AttributedString {
+        if let a = try? AttributedString(
+            markdown: s,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) { return a }
+        return AttributedString(s.replacingOccurrences(of: "**", with: ""))
     }
 
     private func streakChip(_ value: String, _ label: String) -> some View {
