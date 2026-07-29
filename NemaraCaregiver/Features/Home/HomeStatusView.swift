@@ -204,9 +204,9 @@ struct HomeStatusView: View {
             verdictCard
             if !statuses.isEmpty {
                 Text(Self.md(briefing ?? templateBriefing))
-                    .font(.system(size: 16, weight: .regular, design: .serif))
+                    .font(.system(size: 17))
                     .foregroundStyle(NemaraColor.ink2)
-                    .lineSpacing(3)
+                    .lineSpacing(5)
                     .padding(.horizontal, 2)
                     .task { await fetchBriefing() }
             }
@@ -237,11 +237,11 @@ struct HomeStatusView: View {
             HStack(spacing: 10) {
                 Circle().fill(dot).frame(width: 13, height: 13)
                 Text(v.line)
-                    .font(.system(size: 21, weight: .semibold, design: .serif))
+                    .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(NemaraColor.ink)
             }
             if !v.sub.isEmpty { Text(Self.md(v.sub))
-                .font(.system(size: 14.5))
+                .font(.system(size: 15))
                 .foregroundStyle(NemaraColor.ink3)
                 .padding(.leading, 23) }
         }
