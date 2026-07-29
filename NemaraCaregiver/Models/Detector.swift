@@ -318,9 +318,11 @@ struct CreateDetectorRequest: Encodable, Sendable {
     var isSustained: Bool = false
     var durationSeconds: Int? = nil
     var iconName: String = "eye"
-    var whereScope: String = "ALL ROOMS"
+    // where_scope REMOVED (2026-07-28): the backend's CreateDetectorRequest
+    // dropped it for where_rooms and rejects unknown fields — encoding it
+    // 422'd every iOS custom-detector create.
     /// Rooms the caregiver picked (multi-select). Nil/["ALL ROOMS"] = every
-    /// room. Drives camera auto-assignment; whereScope is kept in sync.
+    /// room. Drives camera auto-assignment.
     var whereRooms: [String]? = nil
     var whenScope: String = "ALWAYS"
     var sensitivity: Detector.Sensitivity = .standard
@@ -340,7 +342,6 @@ struct CreateDetectorRequest: Encodable, Sendable {
         case isSustained = "is_sustained"
         case durationSeconds = "duration_seconds"
         case iconName = "icon_name"
-        case whereScope = "where_scope"
         case whereRooms = "where_rooms"
         case whenScope = "when_scope"
         case sensitivity
@@ -404,7 +405,6 @@ struct UpdateDetectorRequest: Encodable, Sendable {
     var alertTrigger: Detector.AlertTrigger?
     var isSustained: Bool?
     var durationSeconds: Int?
-    var whereScope: String?
     /// Re-scope the detector's rooms; the backend replaces its camera
     /// assignments to match. ["ALL ROOMS"] = every room.
     var whereRooms: [String]?
@@ -421,7 +421,6 @@ struct UpdateDetectorRequest: Encodable, Sendable {
         case alertTrigger = "alert_trigger"
         case isSustained = "is_sustained"
         case durationSeconds = "duration_seconds"
-        case whereScope = "where_scope"
         case whereRooms = "where_rooms"
         case whenScope = "when_scope"
         case sensitivity
@@ -438,7 +437,6 @@ struct UpdateDetectorRequest: Encodable, Sendable {
         try c.encodeIfPresent(alertTrigger, forKey: .alertTrigger)
         try c.encodeIfPresent(isSustained, forKey: .isSustained)
         try c.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
-        try c.encodeIfPresent(whereScope, forKey: .whereScope)
         try c.encodeIfPresent(whereRooms, forKey: .whereRooms)
         try c.encodeIfPresent(whenScope, forKey: .whenScope)
         try c.encodeIfPresent(sensitivity, forKey: .sensitivity)
