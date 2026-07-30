@@ -130,7 +130,17 @@ final class NemaraAPIClient {
             try await group.waitForAll()
         }
 
-        await openRealtimeChannels()
+        // Realtime is a LIVENESS nicety, not a precondition for using
+        // the app: `startStatePolling()` below is the REST backstop that
+        // already carries every change within ~1s. Awaiting the channel
+        // subscribes here is what hung sign-in on 2026-07-28 — the
+        // project's Realtime tenant was dead after the DB ran out of
+        // connections, `subscribeWithError()` never returned (a hang is
+        // not an error, so its catch block never ran), and the caregiver
+        // sat on a spinner forever with a perfectly healthy roster
+        // already loaded. Detached, so a stalled subscribe can never
+        // hold sign-in again.
+        Task { [weak self] in await self?.openRealtimeChannels() }
         startStatePolling()
     }
 
@@ -1188,6 +1198,10 @@ final class NemaraAPIClient {
 
 // MARK: - FastAPI error envelopes
 
+/// Raised when a Realtime channel subscribe exceeds its budget. Not
+/// surfaced to the caregiver: Realtime is a nicety over the 1s poll.
+private struct RealtimeSubscribeTimeout: Error {}
+
 private struct SimpleDetail: Decodable { let detail: String? }
 private struct ValidationItem: Decodable { let loc: [String]?; let msg: String?; let type: String? }
 private struct ValidationEnvelope: Decodable { let detail: [ValidationItem]? }
@@ -1233,7 +1247,23 @@ extension NemaraAPIClient {
         streamTasks.append(task)
         channels.append(channel)
         do {
-            try await channel.subscribeWithError()
+            // Bounded, because `subscribeWithError()` can HANG rather
+            // than throw: on 2026-07-28 the project's Realtime tenant
+            // was wedged and the call simply never returned, so the
+            // catch below never ran and every later channel waited
+            // behind it. A timeout turns that hang into an ordinary
+            // failure the 1s poll and the foreground rebuild recover
+            // from.
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { try await channel.subscribeWithError() }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 10_000_000_000)   // 10s
+                    throw RealtimeSubscribeTimeout()
+                }
+                // First one home wins; cancelAll stops the other.
+                try await group.next()
+                group.cancelAll()
+            }
             #if DEBUG
             print("[Realtime] subscribed to \(table)")
             #endif
