@@ -67,6 +67,19 @@ struct CameraDetailView: View {
     private var togglableDetectors: [Detector] {
         detectors.filter { $0.identifier != "wandering" }
     }
+    /// Case-insensitive room match against whereRooms, falling back to
+    /// whereScope (the backend stores rooms UPPERCASED in where_scope, e.g.
+    /// "HALLWAY" — a case-sensitive compare failed open and showed the doors
+    /// section on every camera). Empty/ALL ROOMS = all cameras.
+    private func wanderingWatches(room: String, detector wd: Detector) -> Bool {
+        var rooms = (wd.whereRooms ?? []).map { $0.uppercased() }
+        if rooms.isEmpty {
+            rooms = wd.whereScope.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
+        }
+        if rooms.isEmpty || rooms.contains("ALL ROOMS") || rooms.contains("ALL") { return true }
+        return rooms.contains(room.uppercased())
+    }
+
     /// The patient's wandering detector (if any) — gates the exit-door section.
     private var wanderingDetector: Detector? {
         detectors.first { $0.identifier == "wandering" }
@@ -102,7 +115,7 @@ struct CameraDetailView: View {
                     // A living-room sensor shouldn't carry a doors section
                     // when wandering only watches the hallway.
                     if let wd = wanderingDetector, wd.isOn, cam.livekitIdentity != nil,
-                       (wd.whereRooms ?? []).isEmpty || (wd.whereRooms ?? []).contains(cam.room) {
+                       wanderingWatches(room: cam.room, detector: wd) {
                         exitDoorsSection(cam)
                     }
                     // Unpair returns a paired phone camera to the UNPAIRED

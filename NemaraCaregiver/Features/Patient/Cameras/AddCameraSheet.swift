@@ -268,6 +268,15 @@ private struct PhoneCameraTab: View {
     private func generate() async {
         let trimmed = room.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        // Room names must be unique per patient: duplicates make every
+        // name-scoped feature ambiguous (wandering rooms, the Home report,
+        // the info panel all key on the name).
+        let taken = (env.api.camerasByPatient[patientId] ?? [])
+            .contains { !$0.disabled && $0.room.compare(trimmed, options: .caseInsensitive) == .orderedSame }
+        if taken {
+            state = .error("A camera named “\(trimmed)” already exists for this patient. Pick a different name.")
+            return
+        }
         state = .generating
         do {
             let response = try await env.api.createPairingCode(
