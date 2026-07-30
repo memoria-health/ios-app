@@ -78,24 +78,23 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
     }
 
     /// Human-readable time label for the event card / detail header.
-    /// Same-day: "HH:mm". Yesterday: "Yesterday HH:mm". Older this
-    /// week: "EEE HH:mm" (e.g. "Mon 16:42"). Beyond: "MMM d HH:mm".
+    /// Always 12-hour AM/PM; no weekday (the relative "Xd ago" chip already
+    /// carries recency). Same-day: "4:42 PM". Yesterday: "Yesterday 4:42 PM".
+    /// Older: "Jul 24, 4:42 PM".
     var time: String {
         let cal = Calendar.current
-        let now = Date()
         let hm = DateFormatter()
         hm.locale = Locale(identifier: "en_US_POSIX")
-        hm.dateFormat = "HH:mm"
+        hm.dateFormat = "h:mm a"
         if cal.isDateInToday(occurredAt) {
             return hm.string(from: occurredAt)
         }
         if cal.isDateInYesterday(occurredAt) {
             return "Yesterday \(hm.string(from: occurredAt))"
         }
-        let days = cal.dateComponents([.day], from: occurredAt, to: now).day ?? 0
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = days < 7 ? "EEE HH:mm" : "MMM d HH:mm"
+        f.dateFormat = "MMM d, h:mm a"
         return f.string(from: occurredAt)
     }
 
