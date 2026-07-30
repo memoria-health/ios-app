@@ -174,12 +174,13 @@ struct HomeStatusView: View {
             let name = p.preferredName.isEmpty ? p.fullName : p.preferredName
             let cams = env.api.camerasByPatient[p.id] ?? []
             if cams.isEmpty { return (name, "no cameras set up") }
-            let parts = cams.map { c in
-                let room = c.room.isEmpty ? "Camera \(c.displayId)" : c.room
-                if !c.online { return "\(room): offline" }
-                if c.aiPaused { return "\(room): on, AI paused" }
-                return "\(room): watching"
-            }
+            let off = cams.filter { !$0.online }.count
+            let paused = cams.filter { $0.online && $0.aiPaused }.count
+            let watching = cams.filter { $0.online && !$0.aiPaused }.count
+            var parts: [String] = []
+            if watching > 0 { parts.append("\(watching) watching") }
+            if paused > 0 { parts.append("\(paused) on but AI paused") }
+            if off > 0 { parts.append("\(off) offline") }
             return (name, parts.joined(separator: " · "))
         }
     }

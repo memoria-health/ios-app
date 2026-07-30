@@ -97,7 +97,12 @@ struct CameraDetailView: View {
                     advancedSection(cam)
                     detectorsSection
                     // Exit doors are configured PER SENSOR — this is that sensor.
-                    if let wd = wanderingDetector, wd.isOn, cam.livekitIdentity != nil {
+                    // Exit doors are per-CAMERA config: only show on cameras
+                    // the wandering detector actually watches (whereRooms).
+                    // A living-room sensor shouldn't carry a doors section
+                    // when wandering only watches the hallway.
+                    if let wd = wanderingDetector, wd.isOn, cam.livekitIdentity != nil,
+                       (wd.whereRooms ?? []).isEmpty || (wd.whereRooms ?? []).contains(cam.room) {
                         exitDoorsSection(cam)
                     }
                     // Unpair returns a paired phone camera to the UNPAIRED
