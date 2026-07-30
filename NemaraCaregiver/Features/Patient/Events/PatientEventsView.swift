@@ -173,14 +173,6 @@ struct PatientEventsView: View {
                 .foregroundStyle(NemaraColor.ink)
                 .kerning(-0.4)
             Spacer()
-            Text("Last 7d")
-                .font(NemaraFont.mono(size: 10, weight: .bold))
-                .tracking(0.5)
-                .foregroundStyle(NemaraColor.ink2)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(NemaraColor.paperDim)
-                .clipShape(Capsule(style: .continuous))
         }
         .padding(.top, 2)
     }

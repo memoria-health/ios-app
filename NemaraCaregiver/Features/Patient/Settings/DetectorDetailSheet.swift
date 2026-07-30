@@ -789,10 +789,6 @@ private struct SensitivityInfoSheet: View {
                 level("Standard", "Recommended", "A balanced baseline that works well for most rooms and detectors. Start here.")
                 level("High", "More alerts", "Fires on weaker or more ambiguous signals, so it catches subtle events others miss, but expect more false alarms to review.")
 
-                Text("You can change this anytime per detector; it only affects this sensor.")
-                    .font(NemaraFont.caption)
-                    .foregroundStyle(NemaraColor.ink3)
-                    .padding(.top, 2)
             }
             .padding(20)
         }

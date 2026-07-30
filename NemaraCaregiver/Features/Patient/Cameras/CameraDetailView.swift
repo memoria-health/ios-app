@@ -494,13 +494,10 @@ struct CameraDetailView: View {
             }
             .padding(.horizontal, 16)
 
-            Text(
-                "Toggling here only affects this sensor. Other sensors "
-                + "under the same patient are independent. The global "
-                + "master switch lives on the detector itself.",
-            )
-            .font(NemaraFont.caption)
-            .foregroundStyle(NemaraColor.ink3)
+            HStack {
+                Spacer()
+                InfoDot("Applies to this camera only — other cameras are independent. The master switch lives on the detector.")
+            }
             .padding(.horizontal, 16)
             .padding(.top, 4)
         }

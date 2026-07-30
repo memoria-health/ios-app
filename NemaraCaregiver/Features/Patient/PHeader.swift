@@ -24,9 +24,6 @@ struct PHeader: View {
                         .font(NemaraFont.serif(size: 19, weight: .regular))
                         .kerning(-0.3)
                         .foregroundStyle(NemaraColor.ink)
-                    Text(patient.relation.displayName)
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink3)
                 }
             }
             Spacer()
