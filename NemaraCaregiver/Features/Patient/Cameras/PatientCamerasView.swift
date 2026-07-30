@@ -69,7 +69,6 @@ struct PatientCamerasView: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 8) {
-                .padding(.horizontal, 16)
             NemaraCard(padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(cameras.indices, id: \.self) { i in
