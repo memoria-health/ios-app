@@ -208,7 +208,10 @@ struct HomeStatusView: View {
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(5)
                     .padding(.horizontal, 2)
-                    .task { await fetchBriefing() }
+                    // refetch whenever any person's REALITY changes (camera
+                    // flips online, new event, …) — a briefing must never
+                    // outlive the facts it narrates
+                    .task(id: statuses.map(\.factLine).joined()) { await fetchBriefing() }
             }
             // streak chips ONLY when the numbers are unambiguous (one person);
             // multi-patient numbers belong on each person's own page
