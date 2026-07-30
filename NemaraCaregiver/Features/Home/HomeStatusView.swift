@@ -166,6 +166,23 @@ struct HomeStatusView: View {
 
     @State private var briefing: String?
     @State private var report: NemaraAPIClient.HomeReport?
+    @State private var showCameraDetail = false
+
+    /// The ⓘ expansion: exact camera truth per person, straight from data.
+    private var cameraDetail: [(String, String)] {
+        env.api.patients.map { p in
+            let name = p.preferredName.isEmpty ? p.fullName : p.preferredName
+            let cams = env.api.camerasByPatient[p.id] ?? []
+            if cams.isEmpty { return (name, "no cameras set up") }
+            let parts = cams.map { c in
+                let room = c.room.isEmpty ? "Camera \(c.displayId)" : c.room
+                if !c.online { return "\(room): offline" }
+                if c.aiPaused { return "\(room): on, AI paused" }
+                return "\(room): watching"
+            }
+            return (name, parts.joined(separator: " · "))
+        }
+    }
 
     private var briefingName: String {
         statuses.count == 1 ? statuses[0].name : "everyone"
@@ -273,6 +290,24 @@ struct HomeStatusView: View {
                 Text(v.line)
                     .font(.system(size: 22, weight: .semibold, design: .serif))
                     .foregroundStyle(NemaraColor.ink)
+                Spacer(minLength: 0)
+                Button { withAnimation(.easeOut(duration: 0.2)) { showCameraDetail.toggle() } } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(NemaraColor.ink4)
+                }
+                .buttonStyle(.plain)
+            }
+            if showCameraDetail {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(cameraDetail, id: \.0) { name, line in
+                        Text("**\(name)** — \(line)")
+                            .font(.system(size: 13.5))
+                            .foregroundStyle(NemaraColor.ink3)
+                    }
+                }
+                .padding(.top, 4)
+                .padding(.leading, 23)
             }
             if !v.sub.isEmpty { Text(Self.md(v.sub))
                 .font(.system(size: 15))
