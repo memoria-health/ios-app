@@ -34,17 +34,22 @@ struct AudioCaptureCard: View {
                 .frame(width: 38, height: 38)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Audio capture")
-                        .font(NemaraFont.bodySemibold)
-                        .foregroundStyle(NemaraColor.ink)
-                    Text(errorText
-                         ?? (enabled
-                             ? "Cameras capture sound for live audio, clips, and speech alerts."
-                             : "No sound is captured, recorded, or analyzed. Required for care facilities."))
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(errorText == nil ? NemaraColor.ink3 : NemaraColor.terra)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+
+                        Text("Audio capture")
+
+                            .font(NemaraFont.bodySemibold)
+
+                            .foregroundStyle(NemaraColor.ink)
+
+                        InfoDot("On: cameras capture sound for live audio, clips, and speech alerts. Off: no sound is captured, recorded, or analyzed - required for care facilities.")
+
+                    }
+                    if let errorText {
+                        Text(errorText)
+                            .font(NemaraFont.caption)
+                            .foregroundStyle(NemaraColor.terra)
+                    }
                 }
                 Spacer()
                 NemaraToggle(isOn: Binding(

@@ -52,19 +52,12 @@ struct DataCollectionCard: View {
             .frame(width: 38, height: 38)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Contribute recordings to research")
-                    .font(NemaraFont.bodySemibold)
-                    .foregroundStyle(NemaraColor.ink)
-                // Cameras in private rooms are excluded from research
-                // clips server-side (per-camera privacy), so the toggle
-                // is never locked by a patient-level privacy flag.
-                Text(enabled
-                     ? "Memoria is securely storing video and audio clips of \(name) to help improve our understanding of elderly health and disease."
-                     : "Memoria will securely store video and audio clips of \(name) to help improve our understanding of elderly health and disease.")
-                    .font(NemaraFont.caption)
-                    .foregroundStyle(NemaraColor.ink3)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text("Contribute recordings to research")
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                    InfoDot("Securely stores video and audio clips to help improve understanding of elderly health. Private-room cameras are always excluded.")
+                }
             }
             Spacer()
             NemaraToggle(isOn: Binding(

@@ -20,8 +20,9 @@ struct InfoDot: View {
             Text(text)
                 .font(.system(size: 13.5))
                 .foregroundStyle(NemaraColor.ink2)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(14)
-                .frame(maxWidth: 280)
+                .frame(width: 280, alignment: .leading)
                 .presentationCompactAdaptation(.popover)
         }
     }

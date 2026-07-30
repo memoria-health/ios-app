@@ -23,16 +23,12 @@ struct PeopleBlurCard: View {
                 .frame(width: 38, height: 38)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Blur people")
-                        .font(NemaraFont.bodySemibold)
-                        .foregroundStyle(NemaraColor.ink)
-                    Text(enabled
-                         ? "People in the live feed are blurred on this device. The room stays visible. This changes nothing about recording or what others see."
-                         : "Blur anyone who appears in the live feed while keeping the room visible. Applies to this device only.")
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink3)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        Text("Blur people")
+                            .font(NemaraFont.bodySemibold)
+                            .foregroundStyle(NemaraColor.ink)
+                        InfoDot("Blurs people in the live feed on this device only. The room stays visible; recording and what others see are unchanged.")
+                    }
                 }
                 Spacer()
                 NemaraToggle(isOn: Binding(
