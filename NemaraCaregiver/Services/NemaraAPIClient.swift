@@ -1068,6 +1068,29 @@ final class NemaraAPIClient {
         return resp.briefing
     }
 
+    // MARK: - Home report (LLM-authored highlight + description)
+
+    struct HomeReport: Decodable {
+        var severity: String   // ok | warn | urgent
+        var highlight: String
+        var description: String
+    }
+    private struct HomeReportRequest: Encodable {
+        var timezone: String
+        var local_time: String
+    }
+
+    func homeReport() async throws -> HomeReport {
+        try await sendJSON(
+            method: "POST",
+            path: "/v1/home-report",
+            body: HomeReportRequest(
+                timezone: TimeZone.current.identifier,
+                local_time: Date().formatted(date: .complete, time: .shortened),
+            ),
+        )
+    }
+
     // MARK: - Presence
 
     struct LastPresence: Decodable {

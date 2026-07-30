@@ -165,6 +165,7 @@ struct HomeStatusView: View {
     // MARK: - Briefing (template instantly, AI prose when the endpoint answers)
 
     @State private var briefing: String?
+    @State private var report: NemaraAPIClient.HomeReport?
 
     private var briefingName: String {
         statuses.count == 1 ? statuses[0].name : "everyone"
@@ -208,6 +209,14 @@ struct HomeStatusView: View {
         return "; no one in camera view since \(seen.formatted(date: .abbreviated, time: .shortened))"
     }
 
+    private func fetchReport() async {
+        if let rep = try? await env.api.homeReport(), !rep.highlight.isEmpty {
+            withAnimation(.easeOut(duration: 0.3)) { report = rep }
+            return
+        }
+        await fetchBriefing() // older backend: fall back to the facts proxy
+    }
+
     private func fetchBriefing() async {
         var facts: [String: String] = [:]
         for s in statuses { facts[s.name] = s.factLine + (await presenceSuffix(for: s)) }
@@ -222,7 +231,7 @@ struct HomeStatusView: View {
         VStack(alignment: .leading, spacing: 14) {
             verdictCard
             if !statuses.isEmpty {
-                Text(Self.md(briefing ?? templateBriefing))
+                Text(Self.md(report?.description ?? briefing ?? templateBriefing))
                     .font(.system(size: 17, weight: .regular, design: .serif))
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(5)
@@ -230,7 +239,7 @@ struct HomeStatusView: View {
                     // refetch whenever any person's REALITY changes (camera
                     // flips online, new event, …) — a briefing must never
                     // outlive the facts it narrates
-                    .task(id: statuses.map(\.factLine).joined()) { await fetchBriefing() }
+                    .task(id: statuses.map(\.factLine).joined()) { await fetchReport() }
             }
             // streak chips ONLY when the numbers are unambiguous (one person);
             // multi-patient numbers belong on each person's own page
@@ -247,7 +256,11 @@ struct HomeStatusView: View {
     }
 
     private var verdictCard: some View {
-        let v = verdict
+        var v = verdict
+        if let rep = report {
+            let lvl: Level = rep.severity == "urgent" ? .urgent : rep.severity == "warn" ? .attention : .quiet
+            v = Verdict(level: lvl, line: rep.highlight, sub: "")
+        }
         let (dot, bg): (Color, Color) = {
             switch v.level {
             case .quiet: return (NemaraColor.success, NemaraColor.success.opacity(0.12))
