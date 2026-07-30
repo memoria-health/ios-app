@@ -92,10 +92,8 @@ struct DetectionEvent: Identifiable, Hashable, Sendable, Codable {
         if cal.isDateInYesterday(occurredAt) {
             return "Yesterday \(hm.string(from: occurredAt))"
         }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "MMM d, h:mm a"
-        return f.string(from: occurredAt)
+        // older events: time only — the relative "Xd ago" chip carries the day
+        return hm.string(from: occurredAt)
     }
 
     /// "42 min ago" / "2h ago" / "1d ago".

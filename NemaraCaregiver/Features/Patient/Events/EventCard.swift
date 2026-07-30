@@ -30,12 +30,6 @@ struct EventCard: View {
                 .frame(width: 36, height: 36)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 6) {
-                        NemaraSolidPill(text: categoryLabel, background: categoryBadgeColor)
-                        if event.source == .custom {
-                            NemaraSolidPill(text: "CUSTOM", background: NemaraColor.terra)
-                        }
-                    }
                     Text(event.title)
                         .font(NemaraFont.serif(size: 17, weight: event.opened ? .regular : .semibold))
                         .kerning(-0.3)
