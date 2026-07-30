@@ -168,11 +168,6 @@ struct PatientEventsView: View {
 
     private var titleRow: some View {
         HStack(alignment: .lastTextBaseline, spacing: 8) {
-            Text("Recent events")
-                .font(NemaraFont.title2)
-                .foregroundStyle(NemaraColor.ink)
-                .kerning(-0.4)
-            Spacer()
         }
         .padding(.top, 2)
     }

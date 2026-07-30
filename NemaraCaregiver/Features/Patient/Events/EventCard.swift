@@ -41,9 +41,6 @@ struct EventCard: View {
                         .kerning(-0.3)
                         .foregroundStyle(NemaraColor.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(event.location)
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink2)
                 }
                 Spacer()
             }
