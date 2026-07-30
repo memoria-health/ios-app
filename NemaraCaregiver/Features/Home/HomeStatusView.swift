@@ -110,7 +110,7 @@ struct HomeStatusView: View {
         }
         return PersonStatus(patient: p, name: name, level: .quiet,
                             headline: nil,
-                            factLine: "\(name): quiet\(quiet > 0 ? ", \(quiet) quiet nights in a row" : "")",
+                            factLine: "\(name): quiet",
                             daysWithoutFall: daysWithoutFall, quietNights: quiet)
     }
 
@@ -178,7 +178,7 @@ struct HomeStatusView: View {
             let s = all[0]
             var parts: [String] = []
             if let d = s.daysWithoutFall { parts.append("it’s been \(d) days without a fall") }
-            if s.quietNights > 0 { parts.append("\(s.quietNights) quiet night\(s.quietNights == 1 ? "" : "s") in a row") }
+            
             let lead = s.level == .quiet ? "**\(s.name)** has had a calm stretch" : "**\(s.name)** has \(s.headline ?? "something to review")"
             return parts.isEmpty ? "\(lead)." : "\(lead) — \(parts.joined(separator: ", "))."
         }
@@ -245,9 +245,8 @@ struct HomeStatusView: View {
             // multi-patient numbers belong on each person's own page
             if statuses.count == 1 {
                 let s = statuses[0]
-                HStack(spacing: 10) {
-                    if let d = s.daysWithoutFall { streakChip(d, d == "1" ? "day since a fall" : "days without a fall") }
-                    streakChip(String(s.quietNights), s.quietNights == 1 ? "quiet night in a row" : "quiet nights in a row")
+                if let d = s.daysWithoutFall {
+                    streakChip(d, d == "1" ? "day since a fall" : "days without a fall")
                 }
             }
         }
