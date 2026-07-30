@@ -1068,6 +1068,23 @@ final class NemaraAPIClient {
         return resp.briefing
     }
 
+    // MARK: - Presence
+
+    struct LastPresence: Decodable {
+        var lastPersonSeenAt: Date?
+        var lastAnalysisAt: Date?
+        enum CodingKeys: String, CodingKey {
+            case lastPersonSeenAt = "last_person_seen_at"
+            case lastAnalysisAt = "last_analysis_at"
+        }
+    }
+
+    /// When the pipeline last SAW a person / last looked at all. Absent on
+    /// older backends — callers must degrade to no presence claims.
+    func lastPresence(patientId: UUID) async throws -> LastPresence {
+        try await sendNoBody(method: "GET", path: "/v1/patients/\(patientId.uuidString.lowercased())/last-presence")
+    }
+
     // MARK: - HTTP plumbing
 
     private func makeRequest(

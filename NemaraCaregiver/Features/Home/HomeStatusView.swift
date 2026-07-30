@@ -189,9 +189,28 @@ struct HomeStatusView: View {
         return bits.joined(separator: ". ") + "."
     }
 
+    /// Presence suffix under the 3-mode honesty rule: only claim what we
+    /// actually watched. AI paused -> say so, no claims. Watching -> say when
+    /// a person was last in view. Not analyzing recently -> stay silent.
+    private func presenceSuffix(for s: PersonStatus) async -> String {
+        guard s.level == .quiet else { return "" }
+        let cams = (env.api.camerasByPatient[s.patient.id] ?? []).filter { $0.online }
+        if !cams.isEmpty && cams.allSatisfy({ $0.aiPaused }) {
+            return "; camera is on but AI is paused — not analyzing the room"
+        }
+        guard let p = try? await env.api.lastPresence(patientId: s.patient.id),
+              let looked = p.lastAnalysisAt,
+              Date().timeIntervalSince(looked) < 10 * 60 else { return "" }
+        guard let seen = p.lastPersonSeenAt else { return "; no one has been in view yet" }
+        let mins = Int(Date().timeIntervalSince(seen) / 60)
+        if mins < 10 { return "; someone was in view minutes ago" }
+        if mins < 180 { return "; no one in camera view for about \(mins) minutes" }
+        return "; no one in camera view since \(seen.formatted(date: .abbreviated, time: .shortened))"
+    }
+
     private func fetchBriefing() async {
         var facts: [String: String] = [:]
-        for s in statuses { facts[s.name] = s.factLine }
+        for s in statuses { facts[s.name] = s.factLine + (await presenceSuffix(for: s)) }
         if let text = try? await env.api.homeBriefing(name: briefingName, facts: facts), !text.isEmpty {
             withAnimation(.easeOut(duration: 0.3)) { briefing = text }
         }
