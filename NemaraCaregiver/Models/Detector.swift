@@ -263,7 +263,6 @@ extension Detector {
         alertTrigger = try c.decodeIfPresent(AlertTrigger.self, forKey: .alertTrigger) ?? .leading
         isSustained = try c.decodeIfPresent(Bool.self, forKey: .isSustained) ?? false
         durationSeconds = try c.decodeIfPresent(Int.self, forKey: .durationSeconds)
-        whereScope = try c.decode(String.self, forKey: .whereScope)
         whereRooms = try c.decodeIfPresent([String].self, forKey: .whereRooms)
         whenScope = try c.decode(String.self, forKey: .whenScope)
         sensitivity = try c.decode(Sensitivity.self, forKey: .sensitivity)

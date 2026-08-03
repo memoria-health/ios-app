@@ -67,15 +67,12 @@ struct CameraDetailView: View {
     private var togglableDetectors: [Detector] {
         detectors.filter { $0.identifier != "wandering" }
     }
-    /// Case-insensitive room match against whereRooms, falling back to
-    /// whereScope (the backend stores rooms UPPERCASED in where_scope, e.g.
-    /// "HALLWAY" — a case-sensitive compare failed open and showed the doors
-    /// section on every camera). Empty/ALL ROOMS = all cameras.
+    /// Case-insensitive room match against whereRooms. The backend stores
+    /// room names in capitals ("HALLWAY"), so comparing them as-typed
+    /// showed the doors section on the wrong cameras — both sides are
+    /// upper-cased here. Empty/ALL ROOMS = all cameras.
     private func wanderingWatches(room: String, detector wd: Detector) -> Bool {
-        var rooms = (wd.whereRooms ?? []).map { $0.uppercased() }
-        if rooms.isEmpty {
-            rooms = wd.whereScope.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
-        }
+        let rooms = (wd.whereRooms ?? []).map { $0.uppercased() }
         if rooms.isEmpty || rooms.contains("ALL ROOMS") || rooms.contains("ALL") { return true }
         return rooms.contains(room.uppercased())
     }

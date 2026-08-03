@@ -15,14 +15,18 @@ final class CameraCodableTests: XCTestCase {
         XCTAssertEqual(cam.iconName, "tv")
         XCTAssertTrue(cam.online)
         XCTAssertEqual(cam.livekitIdentity, "cam_ce110001")
-        XCTAssertNotNil(cam.lastSeenAt)
+        XCTAssertFalse(cam.disabled)
+        XCTAssertFalse(cam.aiPaused)
+        XCTAssertEqual(cam.desiredState, .connected)
+        XCTAssertTrue(cam.paired)
     }
 
-    func test_decode_offline_camera_handles_null_last_seen() throws {
+    func test_decode_offline_camera_is_unpaired_with_no_identity() throws {
         let cam = try decoder.decode(Camera.self, from: JSONFixtures.cameraOffline.data(using: .utf8)!)
         XCTAssertFalse(cam.online)
-        XCTAssertNil(cam.lastSeenAt)
+        XCTAssertFalse(cam.paired)
         XCTAssertNil(cam.livekitIdentity)
+        XCTAssertEqual(cam.desiredState, .disconnected)
         XCTAssertEqual(cam.displayId, 2)
     }
 

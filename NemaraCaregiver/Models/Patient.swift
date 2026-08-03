@@ -141,6 +141,57 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Tolerant decoding (backend-version skew)
+
+/// Custom decoder in an EXTENSION (so the struct keeps its synthesized
+/// memberwise init — same convention as `Detector`).
+///
+/// Patient is the FIRST thing `bootstrap()` loads, and bootstrap runs
+/// inside sign-in, so any key this throws on takes login down with
+/// "Couldn't read the response" rather than breaking one screen. Camera
+/// and Detector each got this treatment after being burned; Patient was
+/// the one model on the critical path still using the synthesized
+/// decoder, which makes EVERY non-optional property mandatory.
+///
+/// Rule: columns that have existed since launch stay required — without
+/// those the payload is not a patient at all. Every column added since
+/// falls back to its pre-column default, so an app build that runs
+/// against an older backend still signs in.
+extension Patient {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        caregiverId = try c.decode(UUID.self, forKey: .caregiverId)
+        fullName = try c.decode(String.self, forKey: .fullName)
+        preferredName = try c.decode(String.self, forKey: .preferredName)
+        relation = try c.decode(Relation.self, forKey: .relation)
+        state = try c.decode(State.self, forKey: .state)
+        statusLine = try c.decode(String.self, forKey: .statusLine)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+
+        dateOfBirth = try c.decodeIfPresent(Date.self, forKey: .dateOfBirth)
+        gender = try c.decodeIfPresent(String.self, forKey: .gender)
+        homeAddress = try c.decodeIfPresent(String.self, forKey: .homeAddress)
+        country = try c.decodeIfPresent(String.self, forKey: .country)
+        region = try c.decodeIfPresent(Region.self, forKey: .region)
+        lastEventAt = try c.decodeIfPresent(Date.self, forKey: .lastEventAt)
+        photoStorageKey = try c.decodeIfPresent(String.self, forKey: .photoStorageKey)
+        audioCaptureEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioCaptureEnabled)
+        privacyModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .privacyModeEnabled)
+        dataCollectionDecidedAt = try c.decodeIfPresent(Date.self, forKey: .dataCollectionDecidedAt)
+
+        // Post-launch columns. Each default is the behavior that was in
+        // force before the column existed: monitoring live, no email
+        // fan-out, and NOT contributing clips to the research dataset —
+        // absent consent must never read as consent given.
+        camerasPaused = try c.decodeIfPresent(Bool.self, forKey: .camerasPaused) ?? false
+        emailAlertsEnabled = try c.decodeIfPresent(Bool.self, forKey: .emailAlertsEnabled) ?? false
+        emailAlertRecipients = try c.decodeIfPresent([String].self, forKey: .emailAlertRecipients) ?? []
+        dataCollectionEnabled = try c.decodeIfPresent(Bool.self, forKey: .dataCollectionEnabled) ?? false
+    }
+}
+
 /// Body of `POST /v1/patients`. Server-managed state/status fields
 /// are not settable at creation.
 struct CreatePatientRequest: Encodable, Sendable {

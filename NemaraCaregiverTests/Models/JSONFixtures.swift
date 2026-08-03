@@ -41,11 +41,31 @@ enum JSONFixtures {
       "state": "critical",
       "status_line": "Possible fall, living room",
       "last_event_at": "2026-05-21T22:18:00+00:00",
-      "battery_percent": 78,
       "cameras_paused": false,
+      "email_alerts_enabled": true,
+      "email_alert_recipients": ["kate@example.com"],
+      "data_collection_enabled": false,
       "photo_storage_key": "5b1c0312-44a0-4f9d-9a3a-2d4f44a1f0bb.jpg",
       "created_at": "2026-04-01T10:00:00+00:00",
       "updated_at": "2026-05-21T22:18:00+00:00"
+    }
+    """
+
+    /// An OLDER backend's patient row: only the launch columns. Every
+    /// field added since (email alerts, data collection, residency,
+    /// audio kill, cameras_paused) is absent. Sign-in loads patients
+    /// first, so a hard decode of any of these takes login down.
+    static let patientLegacyBackend = """
+    {
+      "id": "22222222-3333-4444-5555-666666666666",
+      "caregiver_id": "a4f1c2d8-5c7e-4dab-9c2f-72e1f3b0aa01",
+      "full_name": "Arthur Reed",
+      "preferred_name": "Art",
+      "relation": "parent",
+      "state": "calm",
+      "status_line": "All quiet",
+      "created_at": "2026-05-22T09:00:00+00:00",
+      "updated_at": "2026-05-22T09:00:00+00:00"
     }
     """
 
@@ -62,8 +82,10 @@ enum JSONFixtures {
       "state": "calm",
       "status_line": "All quiet",
       "last_event_at": null,
-      "battery_percent": null,
       "cameras_paused": false,
+      "email_alerts_enabled": false,
+      "email_alert_recipients": [],
+      "data_collection_enabled": false,
       "photo_storage_key": null,
       "created_at": "2026-05-22T09:00:00+00:00",
       "updated_at": "2026-05-22T09:00:00+00:00"
@@ -78,8 +100,12 @@ enum JSONFixtures {
       "room": "Living room",
       "icon_name": "tv",
       "online": true,
+      "disabled": false,
+      "ai_paused": false,
+      "desired_state": "connected",
+      "paired": true,
+      "app_present": true,
       "livekit_identity": "cam_ce110001",
-      "last_seen_at": "2026-05-21T22:20:00+00:00",
       "created_at": "2026-04-01T10:05:00+00:00"
     }
     """
@@ -92,12 +118,18 @@ enum JSONFixtures {
       "room": "Kitchen",
       "icon_name": "fork.knife",
       "online": false,
+      "disabled": false,
+      "ai_paused": false,
+      "desired_state": "disconnected",
+      "paired": false,
       "livekit_identity": null,
-      "last_seen_at": null,
       "created_at": "2026-04-01T10:05:00+00:00"
     }
     """
 
+    /// Preset detector as the current backend sends it: `alert_trigger` +
+    /// `is_sustained` present, room scope carried by `where_rooms`, and no
+    /// `where_scope` key at all (dropped from the API 2026-07-28).
     static let detectorPreset = """
     {
       "id": "de110001-0000-4000-8000-000000000001",
@@ -107,17 +139,23 @@ enum JSONFixtures {
       "description": "Detects falls in any room.",
       "category": "safety",
       "source": "preset",
-      "shape": "point_in_time",
-      "where_scope": "ALL ROOMS",
+      "alert_trigger": "leading",
+      "is_sustained": false,
+      "duration_seconds": null,
+      "where_rooms": null,
       "when_scope": "ALWAYS",
       "sensitivity": "high",
       "is_on": true,
       "custom_prompt": null,
+      "identifier": "fall",
+      "accuracy_caveat": false,
       "created_at": "2026-04-01T10:00:00+00:00",
       "updated_at": "2026-04-01T10:00:00+00:00"
     }
     """
 
+    /// Custom detector exercising the sustained shape: `duration` trigger
+    /// with a threshold, an episode gap, and a multi-room scope.
     static let detectorCustom = """
     {
       "id": "de110002-0000-4000-8000-000000000002",
@@ -127,14 +165,41 @@ enum JSONFixtures {
       "description": "Patient took morning + evening medication.",
       "category": "routine",
       "source": "custom",
-      "shape": "state",
-      "where_scope": "KITCHEN",
+      "alert_trigger": "duration",
+      "is_sustained": true,
+      "duration_seconds": 900,
+      "where_rooms": ["KITCHEN", "DINING ROOM"],
       "when_scope": "8 AM, 8 PM ±1H",
+      "episode_gap_seconds": 300,
       "sensitivity": "standard",
       "is_on": true,
       "custom_prompt": "Confirm patient swallowed pills next to the dispenser.",
+      "identifier": "custom_a1b2c3d4",
+      "accuracy_caveat": true,
       "created_at": "2026-04-02T15:30:00+00:00",
       "updated_at": "2026-04-02T15:30:00+00:00"
+    }
+    """
+
+    /// An OLDER backend's response: carries only the columns that predate
+    /// the alert-trigger migration. Everything the app added since is
+    /// absent. This is what the tolerant decoder in `Detector` exists for —
+    /// a hard `decode` of any missing key here throws `keyNotFound` and
+    /// takes sign-in down with it.
+    static let detectorLegacyBackend = """
+    {
+      "id": "de110003-0000-4000-8000-000000000003",
+      "patient_id": "5b1c0312-44a0-4f9d-9a3a-2d4f44a1f0bb",
+      "name": "Wandering",
+      "icon_name": "figure.walk",
+      "description": "Patient left through an exit door.",
+      "category": "safety",
+      "source": "preset",
+      "when_scope": "10 PM - 6 AM",
+      "sensitivity": "high",
+      "is_on": true,
+      "created_at": "2026-04-03T08:00:00+00:00",
+      "updated_at": "2026-04-03T08:00:00+00:00"
     }
     """
 

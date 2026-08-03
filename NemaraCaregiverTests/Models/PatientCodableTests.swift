@@ -18,7 +18,6 @@ final class PatientCodableTests: XCTestCase {
         XCTAssertEqual(p.homeAddress, "12 Cedar Ln, Berkeley CA")
         XCTAssertEqual(p.state, .critical)
         XCTAssertEqual(p.statusLine, "Possible fall, living room")
-        XCTAssertEqual(p.batteryPercent, 78)
         XCTAssertFalse(p.camerasPaused)
         XCTAssertEqual(
             p.photoStorageKey,
@@ -41,11 +40,39 @@ final class PatientCodableTests: XCTestCase {
         XCTAssertNil(p.gender)
         XCTAssertNil(p.homeAddress)
         XCTAssertNil(p.lastEventAt)
-        XCTAssertNil(p.batteryPercent)
         XCTAssertNil(p.photoStorageKey)
         XCTAssertEqual(p.state, .calm)
         XCTAssertEqual(p.statusLine, "All quiet")
         XCTAssertEqual(p.age, 0, "age should be 0 when DOB is unknown")
+    }
+
+    /// Sign-in loads patients before anything else, so a `keyNotFound`
+    /// here surfaces as "Couldn't read the response" and blocks login
+    /// entirely. Columns added after launch must decode to their
+    /// pre-column defaults instead of throwing.
+    func test_decode_tolerates_backend_missing_post_launch_columns() throws {
+        let p = try decoder.decode(
+            Patient.self,
+            from: JSONFixtures.patientLegacyBackend.data(using: .utf8)!,
+        )
+        XCTAssertEqual(p.fullName, "Arthur Reed")
+        XCTAssertFalse(p.camerasPaused)
+        XCTAssertFalse(p.emailAlertsEnabled)
+        XCTAssertEqual(p.emailAlertRecipients, [])
+        XCTAssertNil(p.country)
+        XCTAssertNil(p.region)
+        XCTAssertNil(p.audioCaptureEnabled)
+    }
+
+    /// Absent consent must never read as consent given — a missing
+    /// column cannot opt a patient into the research dataset.
+    func test_absent_data_collection_column_is_not_consent() throws {
+        let p = try decoder.decode(
+            Patient.self,
+            from: JSONFixtures.patientLegacyBackend.data(using: .utf8)!,
+        )
+        XCTAssertFalse(p.dataCollectionEnabled)
+        XCTAssertNil(p.dataCollectionDecidedAt, "never asked ⇒ still prompt")
     }
 
     func test_round_trip_preserves_all_fields() throws {
