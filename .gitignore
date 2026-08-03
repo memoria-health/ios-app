@@ -15,3 +15,9 @@ NemaraCaregiver/Local.xcconfig
 # Swift Package Manager
 .swiftpm/
 Package.resolved
+
+# env files — secrets stay OUT of git (2026-08-03: a checked-in
+# .env.local put live API keys on origin/main in nemara-web-app).
+.env
+.env.*
+!.env.example
