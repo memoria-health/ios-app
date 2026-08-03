@@ -28,6 +28,11 @@ struct DetectorLibraryView: View {
     @State private var query = ""
     @State private var isLoading = true
     @State private var loadError: String?
+    // Wandering is per-camera: right after adding it, ask WHICH cameras
+    // should watch for it (sets whereRooms; the exit-door section then only
+    // appears on those cameras).
+    @State private var wanderingRoomPrompt = false
+    @State private var wanderingRooms: Set<String> = []
     @State private var isSubmitting = false
     @State private var submitError: String?
 
@@ -62,6 +67,23 @@ struct DetectorLibraryView: View {
         }
         .background(NemaraColor.paper)
         .task { await load() }
+        .sheet(isPresented: $wanderingRoomPrompt) {
+            WanderingRoomsSheet(
+                rooms: Array(Set((env.api.camerasByPatient[patientId] ?? []).map(\.room).filter { !$0.isEmpty })).sorted(),
+                selected: $wanderingRooms,
+            ) {
+                Task {
+                    if let wd = (env.api.detectorsByPatient[patientId] ?? []).first(where: { $0.identifier == "wandering" }),
+                       !wanderingRooms.isEmpty {
+                        var patch = UpdateDetectorRequest()
+                        patch.whereRooms = Array(wanderingRooms)
+                        _ = try? await env.api.updateDetector(wd.id, patch)
+                    }
+                    wanderingRoomPrompt = false
+                    dismiss()
+                }
+            }
+        }
     }
 
     // MARK: - chrome
@@ -357,7 +379,11 @@ struct DetectorLibraryView: View {
                 if !toAdd.isEmpty {
                     _ = try await env.api.addDetectorsFromLibrary(forPatient: patientId, keys: toAdd)
                 }
-                dismiss()
+                if toAdd.contains("wandering") {
+                    wanderingRoomPrompt = true   // sheet PATCHes rooms, then dismisses
+                } else {
+                    dismiss()
+                }
             case .onboarding:
                 let present = Set(entries.filter(\.alreadyAdded).map(\.key))
                 let desired = selectedKeys
@@ -382,6 +408,41 @@ struct DetectorLibraryView: View {
             }
         } catch {
             submitError = error.localizedDescription
+        }
+    }
+}
+
+private struct WanderingRoomsSheet: View {
+    let rooms: [String]
+    @Binding var selected: Set<String>
+    var onDone: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(rooms, id: \.self) { room in
+                        Button {
+                            if selected.contains(room) { selected.remove(room) } else { selected.insert(room) }
+                        } label: {
+                            HStack {
+                                Text(room).foregroundStyle(NemaraColor.ink)
+                                Spacer()
+                                if selected.contains(room) {
+                                    Image(systemName: "checkmark").foregroundStyle(NemaraColor.terra)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Which cameras should watch for wandering?")
+                } footer: {
+                    Text("Exit-door setup will only appear on these cameras. Leave empty for all cameras.")
+                }
+            }
+            .navigationTitle("Wandering cameras")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { onDone() } } }
         }
     }
 }

@@ -39,8 +39,19 @@ struct RosterView: View {
                             )
                         }
 
+                        // Dashboard-style briefing: verdict, streaks, feed —
+                        // the answer BEFORE the navigation.
+                        HomeStatusView()
+                            .padding(.bottom, 14)
+
                         VStack(spacing: 10) {
-                            ForEach(env.api.patients) { p in
+                            // triage order: whoever needs eyes floats to the top
+                            ForEach(env.api.patients.sorted { a, b in
+                                func rank(_ s: Patient.State) -> Int {
+                                    switch s { case .critical: return 0; case .offline: return 1; case .calm: return 2 }
+                                }
+                                return rank(a.state) < rank(b.state)
+                            }) { p in
                                 Button { env.deepLink.openPatient(p.id) } label: {
                                     PatientRow(patient: p)
                                 }

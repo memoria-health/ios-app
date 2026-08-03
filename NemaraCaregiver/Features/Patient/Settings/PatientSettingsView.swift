@@ -365,17 +365,10 @@ struct PatientSettingsView: View {
                 .padding(.horizontal, 16)
             PeopleBlurCard(patientId: patientId)
             AudioCaptureCard(patientId: patientId)
-            Text(
-                "Blur people applies on this device only — it changes what "
-                + "you see, not what is recorded or what other caregivers "
-                + "see. Bathroom and bedroom cameras are private "
-                + "automatically: no live view, and sensitive moments in "
-                + "clips are always censored."
-            )
-            .font(NemaraFont.caption)
-            .foregroundStyle(NemaraColor.ink3)
-            .lineSpacing(2)
-            .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                InfoDot("Blur people applies on this device only. Bathroom and bedroom cameras are private automatically — no live view, and sensitive moments in clips are always censored.")
+            }
             .padding(.horizontal, 16)
         }
     }
@@ -405,9 +398,6 @@ struct PatientSettingsView: View {
                             Text("Feedback & support")
                                 .font(NemaraFont.bodySmallStrong)
                                 .foregroundStyle(NemaraColor.ink)
-                            Text("Send feedback, contact the team, or share Memoria")
-                                .font(NemaraFont.caption)
-                                .foregroundStyle(NemaraColor.ink3)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")

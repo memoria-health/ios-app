@@ -64,16 +64,12 @@ struct PatientEmailAlertsCard: View {
             .frame(width: 38, height: 38)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Send email alerts for this patient")
-                    .font(NemaraFont.bodySemibold)
-                    .foregroundStyle(NemaraColor.ink)
-                Text(enabled
-                     ? "Alerts go to your account email plus everyone below."
-                     : "When on, every detector event triggers an email to your recipients.")
-                    .font(NemaraFont.caption)
-                    .foregroundStyle(NemaraColor.ink3)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text("Send email alerts for this patient")
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                    InfoDot("When on, every detector event emails your account address plus every recipient below.")
+                }
             }
             Spacer()
             NemaraToggle(isOn: Binding(

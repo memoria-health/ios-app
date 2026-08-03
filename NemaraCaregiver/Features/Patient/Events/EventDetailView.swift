@@ -132,10 +132,6 @@ struct EventDetailView: View {
                         .foregroundStyle(tone)
                 }
                 .frame(width: 28, height: 28)
-                Text(categoryLabel)
-                    .font(NemaraFont.mono(size: 10, weight: .bold))
-                    .tracking(0.7)
-                    .foregroundStyle(tone)
             }
             Text(event.title)
                 .font(NemaraFont.title1)

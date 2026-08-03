@@ -242,6 +242,45 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Tolerant decoding (backend-version skew)
+
+/// Custom decoder in an EXTENSION (so the struct keeps its synthesized
+/// memberwise init). `alert_trigger` and `is_sustained` only exist on the
+/// gateway-camera-ownership backend; against prod or an older local stack
+/// the synthesized decoder threw keyNotFound and sign-in died with
+/// "Couldn't read the response". Absent → leading/false, the pre-column
+/// semantics — same convention as Camera's tolerant decode.
+extension Detector {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        patientId = try c.decode(UUID.self, forKey: .patientId)
+        name = try c.decode(String.self, forKey: .name)
+        iconName = try c.decode(String.self, forKey: .iconName)
+        description = try c.decode(String.self, forKey: .description)
+        category = try c.decode(Category.self, forKey: .category)
+        source = try c.decode(Source.self, forKey: .source)
+        alertTrigger = try c.decodeIfPresent(AlertTrigger.self, forKey: .alertTrigger) ?? .leading
+        isSustained = try c.decodeIfPresent(Bool.self, forKey: .isSustained) ?? false
+        durationSeconds = try c.decodeIfPresent(Int.self, forKey: .durationSeconds)
+        whereScope = try c.decode(String.self, forKey: .whereScope)
+        whereRooms = try c.decodeIfPresent([String].self, forKey: .whereRooms)
+        whenScope = try c.decode(String.self, forKey: .whenScope)
+        sensitivity = try c.decode(Sensitivity.self, forKey: .sensitivity)
+        isOn = try c.decode(Bool.self, forKey: .isOn)
+        customPrompt = try c.decodeIfPresent(String.self, forKey: .customPrompt)
+        identifier = try c.decodeIfPresent(String.self, forKey: .identifier)
+        scheduleConfig = try c.decodeIfPresent(ScheduleConfig.self, forKey: .scheduleConfig)
+        episodeGapSeconds = try c.decodeIfPresent(Int.self, forKey: .episodeGapSeconds)
+        userCriteria = try c.decodeIfPresent([String].self, forKey: .userCriteria)
+        refinements = try c.decodeIfPresent([String].self, forKey: .refinements)
+        doorConfig = try c.decodeIfPresent(DoorConfig.self, forKey: .doorConfig)
+        accuracyCaveat = try c.decodeIfPresent(Bool.self, forKey: .accuracyCaveat)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+    }
+}
+
 // MARK: - Wandering exit-door picker wire types
 
 /// Body of `POST /v1/detect-doors` — one camera frame (base64 JPEG) the VLM

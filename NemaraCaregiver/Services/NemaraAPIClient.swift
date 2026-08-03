@@ -130,18 +130,29 @@ final class NemaraAPIClient {
             try await group.waitForAll()
         }
 
-        // Realtime is a LIVENESS nicety, not a precondition for using
-        // the app: `startStatePolling()` below is the REST backstop that
-        // already carries every change within ~1s. Awaiting the channel
-        // subscribes here is what hung sign-in on 2026-07-28 — the
-        // project's Realtime tenant was dead after the DB ran out of
-        // connections, `subscribeWithError()` never returned (a hang is
-        // not an error, so its catch block never ran), and the caregiver
-        // sat on a spinner forever with a perfectly healthy roster
-        // already loaded. Detached, so a stalled subscribe can never
-        // hold sign-in again.
-        Task { [weak self] in await self?.openRealtimeChannels() }
+        // Realtime channels open OFF the sign-in critical path. Each
+        // `subscribeWithError()` blocks until the server acks the join —
+        // when Realtime is degraded (2026-07-28: prod Postgres ran out of
+        // connections → every join errored + retried) these awaits held
+        // the "Signing in…" spinner for MINUTES while the roster was
+        // already loaded. Worse, a dead Realtime tenant made the call
+        // never return at all, and a hang is not an error, so the catch
+        // block never ran either.
+        //
+        // Realtime is a LIVENESS nicety, never a precondition: the
+        // `startStatePolling()` REST backstop below carries every change
+        // within ~1s on its own. So the poll starts FIRST and the
+        // subscribes are detached — a Realtime outage costs live updates,
+        // never login.
+        //
+        // Merge note (2026-08-03): both branches fixed this independently
+        // and git kept both calls. Opening the channels twice would have
+        // doubled every subscription, so this is deliberately ONE call —
+        // Sunny's ordering (poll before channels) with the `[weak self]`
+        // from the other branch, which keeps a stalled subscribe from
+        // pinning the client alive.
         startStatePolling()
+        Task { [weak self] in await self?.openRealtimeChannels() }
     }
 
     /// Refetch the full roster + every per-patient sub-collection.
@@ -1047,6 +1058,66 @@ final class NemaraAPIClient {
             path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/\(cameraId.uuidString.lowercased())/record-clip",
             body: RecordClipRequest(durationSeconds: durationSeconds),
         )
+    }
+
+    // MARK: - Home briefing
+
+    struct HomeBriefingRequest: Encodable {
+        var name: String
+        var facts: [String: String]
+    }
+    private struct HomeBriefingResponse: Decodable { var briefing: String }
+
+    /// AI-written Home check-in sentence. The endpoint is a pure LLM proxy
+    /// (may be ABSENT on older backends) — callers treat any error as "keep
+    /// the local template sentence", so this can never break the Home view.
+    func homeBriefing(name: String, facts: [String: String]) async throws -> String {
+        let resp: HomeBriefingResponse = try await sendJSON(
+            method: "POST",
+            path: "/v1/home-briefing",
+            body: HomeBriefingRequest(name: name, facts: facts),
+        )
+        return resp.briefing
+    }
+
+    // MARK: - Home report (LLM-authored highlight + description)
+
+    struct HomeReport: Decodable {
+        var severity: String   // ok | warn | urgent
+        var highlight: String
+        var description: String
+    }
+    private struct HomeReportRequest: Encodable {
+        var timezone: String
+        var local_time: String
+    }
+
+    func homeReport() async throws -> HomeReport {
+        try await sendJSON(
+            method: "POST",
+            path: "/v1/home-report",
+            body: HomeReportRequest(
+                timezone: TimeZone.current.identifier,
+                local_time: Date().formatted(date: .complete, time: .shortened),
+            ),
+        )
+    }
+
+    // MARK: - Presence
+
+    struct LastPresence: Decodable {
+        var lastPersonSeenAt: Date?
+        var lastAnalysisAt: Date?
+        enum CodingKeys: String, CodingKey {
+            case lastPersonSeenAt = "last_person_seen_at"
+            case lastAnalysisAt = "last_analysis_at"
+        }
+    }
+
+    /// When the pipeline last SAW a person / last looked at all. Absent on
+    /// older backends — callers must degrade to no presence claims.
+    func lastPresence(patientId: UUID) async throws -> LastPresence {
+        try await sendNoBody(method: "GET", path: "/v1/patients/\(patientId.uuidString.lowercased())/last-presence")
     }
 
     // MARK: - HTTP plumbing

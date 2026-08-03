@@ -69,8 +69,6 @@ struct PatientCamerasView: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 8) {
-            NemaraEyebrow("SENSORS · \(cameras.count) PAIRED")
-                .padding(.horizontal, 16)
             NemaraCard(padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(cameras.indices, id: \.self) { i in
@@ -138,13 +136,12 @@ private struct CameraRow: View {
     /// they always render OFFLINE without us having to check
     /// `paired` here.
     private var statusLine: String {
-        let id = "SENSOR \(String(format: "%02d", camera.displayId))"
         // UNPAIRED wins over every other state: the pairing was cleared
         // (server-side api_key gone), so this camera can't stream until a
         // phone is re-paired to it. Make that obvious + actionable — tapping
         // the row opens the detail where "Show pairing code" lives.
         if camera.sourceType == .phone && !camera.paired {
-            return "\(id) · UNPAIRED — TAP TO RE-PAIR"
+            return "" // the UNPAIRED chip carries this state
         }
         // APP CLOSED is the distinct 4th state: the Memoria Sensor app
         // isn't running on the phone, so reconnect can't help — the
@@ -152,12 +149,12 @@ private struct CameraRow: View {
         // wording (which now strictly means "reconnectable"), but not
         // over an active stream (`online` can't be true with the app
         // shut). iPhone-only — Pi sensors never reach this state.
-        if camera.isAppClosed { return "\(id) · APP CLOSED" }
+        if camera.isAppClosed { return "APP CLOSED" }
         // Caregiver intent wins over the (lagging) backend `online` flag:
         // a sensor they disconnected reads OFFLINE immediately, even though
         // the reconciler takes a few seconds to flip `online` false.
-        if camera.desiredState == .disconnected { return "\(id) · OFFLINE" }
-        return "\(id) · \(camera.online ? "ONLINE" : "OFFLINE")"
+        if camera.desiredState == .disconnected { return "OFFLINE" }
+        return camera.online ? "ONLINE" : "OFFLINE"
     }
 
     /// User-triggered settings render as independent additive chips.
