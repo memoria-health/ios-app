@@ -42,13 +42,13 @@ struct EventDetailView: View {
     }
 
     private var tone: Color {
-        event.category == .safety ? NemaraColor.terra : NemaraColor.sky
+        event.category.accent
     }
     private var toneSoft: Color {
-        event.category == .safety ? NemaraColor.terraSoft : NemaraColor.skySoft
+        event.category.soft
     }
     private var categoryLabel: String {
-        event.category == .safety ? "SAFETY" : "ROUTINE"
+        event.category.displayName.uppercased()
     }
 
     var body: some View {

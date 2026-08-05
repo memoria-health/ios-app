@@ -8,13 +8,13 @@ struct EventCard: View {
     let event: DetectionEvent
 
     private var cardBackground: Color {
-        event.category == .safety ? NemaraColor.terraSoft : NemaraColor.skySoft
+        event.category.soft
     }
     private var categoryBadgeColor: Color {
-        event.category == .safety ? NemaraColor.terra : NemaraColor.sky
+        event.category.accent
     }
     private var categoryLabel: String {
-        event.category == .safety ? "SAFETY" : "ROUTINE"
+        event.category.displayName.uppercased()
     }
 
     var body: some View {

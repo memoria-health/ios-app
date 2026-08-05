@@ -18,10 +18,21 @@ struct EventReviewView: View {
     @State private var choice: DetectionEvent.ReviewChoice = .correct
     @State private var notes: String = ""
 
+    /// Two shapes of question, not four.
+    ///
+    /// Safety and Behaviour name a specific thing that either happened or
+    /// did not ("a real fall?", "a real agitation?"), so the useful question
+    /// is whether it was real. Routine and Care are about whether something
+    /// was worth surfacing at all — "was this a real company at meals?" is
+    /// not a sentence anyone would say. Unknown takes the softer form
+    /// because we cannot know which shape fits a category this build has
+    /// never heard of.
     private var subjectQuestion: String {
         switch event.category {
-        case .safety:  "Was this a real \(event.title.lowercased())?"
-        case .routine: "Was this the right thing to flag?"
+        case .safety, .behaviour:
+            "Was this a real \(event.title.lowercased())?"
+        case .routine, .care, .unknown:
+            "Was this the right thing to flag?"
         }
     }
 
@@ -215,11 +226,16 @@ struct EventReviewView: View {
 
     private func subText(_ k: DetectionEvent.ReviewChoice) -> String {
         switch (event.category, k) {
-        case (.safety, .correct):  return "Yes, that was a real \(event.title.lowercased())."
-        case (.safety, .wrong):    return "It wasn't a \(event.title.lowercased())."
-        case (.routine, .correct): return "Yes, that's the right thing to flag."
-        case (.routine, .wrong):   return "We shouldn't have flagged this."
-        case (_, .unsure):         return "Hard to tell from the clip."
+        case (_, .unsure):
+            return "Hard to tell from the clip."
+        case (.safety, .correct), (.behaviour, .correct):
+            return "Yes, that was a real \(event.title.lowercased())."
+        case (.safety, .wrong), (.behaviour, .wrong):
+            return "It wasn't a \(event.title.lowercased())."
+        case (_, .correct):
+            return "Yes, that's the right thing to flag."
+        case (_, .wrong):
+            return "We shouldn't have flagged this."
         }
     }
 }

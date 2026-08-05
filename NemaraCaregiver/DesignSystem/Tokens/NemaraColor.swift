@@ -43,6 +43,15 @@ enum NemaraColor {
     static let sky        = Color("Colors/Sky",        bundle: .main)
     static let skySoft    = Color("Colors/SkySoft",    bundle: .main)
 
+    // MARK: - Behaviour · plum  /  Care · sage
+    // Muted on purpose so all four category hues carry the same weight
+    // beside terra and sky; a category chip should read as one family, not
+    // as one shouting colour and three quiet ones.
+    static let plum       = Color("Colors/Plum",       bundle: .main)
+    static let plumSoft   = Color("Colors/PlumSoft",   bundle: .main)
+    static let sage       = Color("Colors/Sage",       bundle: .main)
+    static let sageSoft   = Color("Colors/SageSoft",   bundle: .main)
+
     // MARK: - Semantic aliases
     static let success    = Color("Colors/Success",    bundle: .main)
     static let warning    = Color("Colors/Warning",    bundle: .main)

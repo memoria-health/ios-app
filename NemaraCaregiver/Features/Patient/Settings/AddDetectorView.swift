@@ -283,9 +283,16 @@ struct AddDetectorView: View {
             // Category + icon
             VStack(alignment: .leading, spacing: 8) {
                 NemaraEyebrow("CATEGORY")
-                HStack(spacing: 8) {
-                    catCard(.safety, "Safety", NemaraColor.terra, NemaraColor.terraSoft)
-                    catCard(.routine, "Routine", NemaraColor.sky, NemaraColor.skySoft)
+                // 2x2 rather than one row: four cards side by side on a
+                // phone leaves each too narrow to read or tap comfortably.
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 8),
+                              GridItem(.flexible(), spacing: 8)],
+                    spacing: 8,
+                ) {
+                    ForEach(Detector.Category.selectable, id: \.self) { c in
+                        catCard(c, c.displayName, c.accent, c.soft)
+                    }
                 }
             }
             VStack(alignment: .leading, spacing: 8) {

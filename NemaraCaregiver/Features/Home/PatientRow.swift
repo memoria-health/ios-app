@@ -28,7 +28,7 @@ struct PatientRow: View {
     /// `lastEventAt` are not server-maintained yet, so we derive everything
     /// the card shows from the events the app already has.
     private var hasUnopenedSafety: Bool {
-        !isPaused && unopenedEvents.contains { $0.category == .safety }
+        !isPaused && unopenedEvents.contains { $0.category.escalates }
     }
 
     var body: some View {

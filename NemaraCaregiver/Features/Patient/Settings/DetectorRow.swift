@@ -29,10 +29,10 @@ struct DetectorRow: View {
                 // separate CUSTOM / category pills are gone.
                 ZStack {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(detector.category == .safety ? NemaraColor.terraSoft : NemaraColor.skySoft)
+                        .fill(detector.category.soft)
                     Image(systemName: detector.iconName)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(detector.category == .safety ? NemaraColor.terraDeep : NemaraColor.sky)
+                        .foregroundStyle(detector.category.deep)
                 }
                 .frame(width: 32, height: 32)
 

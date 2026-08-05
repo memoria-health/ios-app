@@ -305,7 +305,7 @@ struct DetectorDetailSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             NemaraEyebrow("CATEGORY")
             FlowChips {
-                ForEach([Detector.Category.safety, .routine], id: \.self) { c in
+                ForEach(Detector.Category.selectable, id: \.self) { c in
                     chip(categoryLabel(c), selected: category == c) {
                         category = c
                     }
@@ -314,11 +314,11 @@ struct DetectorDetailSheet: View {
         }
     }
 
+    // Labels come from the one palette extension rather than a local
+    // switch — this is the site the compiler caught when Behaviour and Care
+    // were added, and a duplicated switch would have gone stale again.
     private func categoryLabel(_ c: Detector.Category) -> String {
-        switch c {
-        case .safety:  "Safety"
-        case .routine: "Routine"
-        }
+        c.displayName
     }
 
     // MARK: - Sensitivity — Low / Standard / High (moved off the list row)

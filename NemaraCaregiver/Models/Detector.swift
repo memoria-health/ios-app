@@ -6,9 +6,35 @@ import Foundation
 /// Every detector — preset or custom — describes itself along four
 /// axes (per design system): what, shape, where, when.
 struct Detector: Identifiable, Hashable, Sendable, Codable {
+    /// What KIND of thing a detector watches for. SEMANTIC ONLY.
+    ///
+    /// Category decides how loudly we PRESENT something, never how hard we
+    /// look for it — the backend keys detection strictness off `severity`
+    /// instead (see schemas/detector.py:DetectorCategory). So a Behaviour
+    /// detector can be watched just as closely as a Safety one; it simply
+    /// does not escalate the patient card.
+    ///
+    /// `safety` is the only category that escalates (PatientRow paints the
+    /// card red for an unopened safety event). That is deliberate: a red
+    /// card that fires for everything trains people to ignore it. The rule
+    /// is a plausible physical threat to the patient — the other three are
+    /// informational.
+    ///
+    /// Decoded leniently: the server may add categories before the app
+    /// knows them, and an unknown value must degrade to a neutral label
+    /// rather than fail the whole decode and blank the screen.
     enum Category: String, Sendable, Codable {
         case safety
         case routine
+        case behaviour
+        case care
+        /// Anything this build doesn't recognise yet.
+        case unknown
+
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Category(rawValue: raw) ?? .unknown
+        }
     }
 
     enum Source: String, Sendable, Codable {
