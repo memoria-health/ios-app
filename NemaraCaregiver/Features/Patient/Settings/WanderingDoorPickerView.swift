@@ -314,10 +314,8 @@ struct WanderingDoorPickerView: View {
         phase = .loading(reload ? "Getting a fresh view…" : "Loading the camera view…")
         // FRAME first — fast, no LLM. The picker becomes usable immediately.
         let outcome = reload
-            ? await cache.reloadFrame(cameraId: cameraId, patientId: patientId,
-                                      identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
-            : await cache.ensureFrame(cameraId: cameraId, patientId: patientId,
-                                      identity: cameraIdentity, api: env.api, liveKit: env.liveKit)
+            ? await cache.reloadFrame(cameraId: cameraId, api: env.api)
+            : await cache.ensureFrame(cameraId: cameraId, api: env.api)
         switch outcome {
         case .ok:
             loaded = cache.cachedFrame(cameraId)

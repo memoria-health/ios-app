@@ -838,6 +838,27 @@ final class NemaraAPIClient {
 
     /// Send a camera frame (base64 JPEG) to the VLM; returns the doorways it
     /// found so the picker can highlight them.
+    /// One still for the exit-door picker, straight from the backend's
+    /// detection frame buffer.
+    ///
+    /// Replaces connecting to LiveKit and grabbing a frame off the track.
+    /// That could never work for a PRIVATE camera — privacy mode restricts
+    /// track subscription to the detector workers, so the picker waited out
+    /// its timeout and claimed the sensor wasn't streaming, which was wrong.
+    ///
+    /// The server masks people for private cameras before returning, so this
+    /// is not a way to watch a private room. 503 means genuinely not
+    /// streaming, or masking was unavailable — either way there is no frame
+    /// to show.
+    func doorFrame(cameraId: UUID) async throws -> Data {
+        let request = try await makeRequest(
+            method: "GET", path: "/v1/cameras/\(cameraId.uuidString)/door-frame",
+        )
+        let (data, response) = try await runDataTask(request)
+        try mapStatus(response: response, data: data)
+        return data
+    }
+
     func detectDoors(imageBase64: String) async throws -> [DetectedDoor] {
         let resp: DetectDoorsResponse = try await sendJSON(
             method: "POST", path: "/v1/detect-doors",

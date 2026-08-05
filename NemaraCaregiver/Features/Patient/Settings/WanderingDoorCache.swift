@@ -38,15 +38,11 @@ final class WanderingDoorCache {
     /// Grab (or return the cached) still frame for this camera. No detection —
     /// this is what the picker awaits so the view appears fast.
     func ensureFrame(
-        cameraId: UUID, patientId: UUID, identity: String,
-        api: NemaraAPIClient, liveKit: LiveKitClient,
+        cameraId: UUID, api: NemaraAPIClient,
     ) async -> DoorLoadOutcome {
         if frames[cameraId] != nil { return .ok }
         if let task = frameTasks[cameraId] { return await task.value }
-        let task = Task {
-            await self.grab(cameraId: cameraId, patientId: patientId,
-                            identity: identity, api: api, liveKit: liveKit)
-        }
+        let task = Task { await self.grab(cameraId: cameraId, api: api) }
         frameTasks[cameraId] = task
         let outcome = await task.value
         frameTasks[cameraId] = nil
@@ -55,15 +51,13 @@ final class WanderingDoorCache {
 
     /// Force a fresh capture (+ drop stale doors) — the Reload button.
     func reloadFrame(
-        cameraId: UUID, patientId: UUID, identity: String,
-        api: NemaraAPIClient, liveKit: LiveKitClient,
+        cameraId: UUID, api: NemaraAPIClient,
     ) async -> DoorLoadOutcome {
         frameTasks[cameraId]?.cancel(); frameTasks[cameraId] = nil
         doorTasks[cameraId]?.cancel(); doorTasks[cameraId] = nil
         frames[cameraId] = nil
         doors[cameraId] = nil
-        return await ensureFrame(cameraId: cameraId, patientId: patientId,
-                                 identity: identity, api: api, liveKit: liveKit)
+        return await ensureFrame(cameraId: cameraId, api: api)
     }
 
     // MARK: - Doors (single background VLM call)
@@ -89,40 +83,47 @@ final class WanderingDoorCache {
     // MARK: - Capture pipeline
 
     private func grab(
-        cameraId: UUID, patientId: UUID, identity: String,
-        api: NemaraAPIClient, liveKit: LiveKitClient,
+        cameraId: UUID, api: NemaraAPIClient,
     ) async -> DoorLoadOutcome {
-        // Reuse an already-connected room (e.g. the Live tab); otherwise open one
-        // ourselves and tear it down after grabbing so we never leave a dangling
-        // connection or disturb an active Live view.
-        let room = "patient_\(patientId.uuidString.lowercased())"
-        var weConnected = false
-        if liveKit.currentRoom != room || liveKit.state != .connected {
-            do {
-                let tok = try await api.mintViewerToken(forPatient: patientId)
-                await liveKit.connect(url: tok.url, token: tok.token, room: room)
-                weConnected = true
-            } catch {
-                return .failed("Couldn't connect to the camera. Check your connection and try again.")
+        // Ask the BACKEND for a still rather than subscribing to the track
+        // ourselves (2026-08-04).
+        //
+        // The old path connected to the room, waited up to 6s for
+        // `videoTracksByIdentity[identity]`, captured a frame, and tore the
+        // connection down. For a PRIVATE camera the track never arrives —
+        // privacy mode restricts subscription to the detector workers — so it
+        // always timed out and reported "this sensor isn't streaming right
+        // now". The sensor was streaming; we simply may not watch it.
+        //
+        // Letting the picker subscribe would have been the smaller change and
+        // the wrong one: it makes this screen a live-view bypass for exactly
+        // the rooms privacy mode protects. The server masks people out of the
+        // still for private cameras instead, so doors stay visible and the
+        // room does not.
+        //
+        // Side benefit: no room connect, no 6s wait, no teardown, and no risk
+        // of disturbing an active Live view.
+        do {
+            let jpeg = try await api.doorFrame(cameraId: cameraId)
+            guard let image = UIImage(data: jpeg) else {
+                return .failed("Couldn't read the camera image. Please try again.")
             }
+            frames[cameraId] = Frame(jpeg: jpeg, image: image, capturedAt: Date())
+            return .ok
+        } catch let APIError.serverError(_, message) {
+            // The backend distinguishes two 503s, and they need different
+            // advice — "check it's online" is wrong when the camera is fine
+            // and the privacy mask is what failed.
+            switch message {
+            case "camera_not_streaming":
+                return .blocked("This sensor isn't sending video right now. Check it's online, then try again.")
+            case "privacy_mask_unavailable":
+                return .failed("Can't show a picture from a private room at the moment. Please try again shortly.")
+            default:
+                return .failed("The server couldn't provide a picture from this sensor. Please try again.")
+            }
+        } catch {
+            return .failed("Couldn't load a picture from this sensor. Please try again.")
         }
-
-        var track: VideoTrack?
-        for _ in 0..<30 {
-            if let t = liveKit.videoTracksByIdentity[identity] { track = t; break }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-        }
-        guard let track else {
-            if weConnected { await liveKit.disconnect() }
-            return .blocked("This sensor isn't streaming right now. Open its Live view to wake it, then try again.")
-        }
-
-        let jpeg = await LiveKitFrameCapture.jpeg(from: track)
-        if weConnected { await liveKit.disconnect() }
-        guard let jpeg, let image = UIImage(data: jpeg) else {
-            return .failed("Couldn't capture a frame from the camera. Please try again.")
-        }
-        frames[cameraId] = Frame(jpeg: jpeg, image: image, capturedAt: Date())
-        return .ok
     }
 }

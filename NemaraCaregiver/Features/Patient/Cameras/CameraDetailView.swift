@@ -605,12 +605,14 @@ struct CameraDetailView: View {
     /// Warm this sensor's frame + door detection in the background so opening
     /// the picker is instant (cached; Rescan refreshes).
     private func prewarmDoorFrame() async {
+        // The identity itself is no longer needed (the backend resolves the
+        // camera from its id), but a nil one still means "not paired yet",
+        // so the guard stays.
         guard let wd = wanderingDetector, wd.isOn,
               let cam = camera, cam.online, !cam.disabled,
-              let identity = cam.livekitIdentity else { return }
+              cam.livekitIdentity != nil else { return }
         let out = await WanderingDoorCache.shared.ensureFrame(
-            cameraId: cam.id, patientId: patientId, identity: identity,
-            api: env.api, liveKit: env.liveKit,
+            cameraId: cam.id, api: env.api,
         )
         if out == .ok {
             _ = await WanderingDoorCache.shared.ensureDoors(cameraId: cam.id, api: env.api)
