@@ -147,6 +147,7 @@ final class AppEnvironment {
             emailAlertRecipients: [],
             dataCollectionEnabled: false,
             dataCollectionDecidedAt: nil,
+            eventGateEnabled: true,
             privacyModeEnabled: false,
             photoStorageKey: nil,
             createdAt: now.addingTimeInterval(-86_400 * 30),

@@ -89,6 +89,9 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     /// any PATCH that carries `data_collection_enabled`; the client never
     /// sends this field.
     var dataCollectionDecidedAt: Date?
+    /// Evaluation mode. ON by default: when the backend is older than
+    /// this field, absence should read as enabled, not disabled.
+    var eventGateEnabled: Bool
     /// RETIRED patient-level privacy flag — superseded by per-camera
     /// privacy (`Camera.privacyEnabled`); no UI reads or writes it
     /// anymore. Optional for decode resilience: the backend is dropping
@@ -123,6 +126,7 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case emailAlertRecipients = "email_alert_recipients"
         case dataCollectionEnabled = "data_collection_enabled"
         case dataCollectionDecidedAt = "data_collection_decided_at"
+        case eventGateEnabled = "event_gate_enabled"
         case privacyModeEnabled = "privacy_mode_enabled"
         case photoStorageKey = "photo_storage_key"
         case createdAt = "created_at"
@@ -189,6 +193,7 @@ extension Patient {
         emailAlertsEnabled = try c.decodeIfPresent(Bool.self, forKey: .emailAlertsEnabled) ?? false
         emailAlertRecipients = try c.decodeIfPresent([String].self, forKey: .emailAlertRecipients) ?? []
         dataCollectionEnabled = try c.decodeIfPresent(Bool.self, forKey: .dataCollectionEnabled) ?? false
+        eventGateEnabled = try c.decodeIfPresent(Bool.self, forKey: .eventGateEnabled) ?? true
     }
 }
 
@@ -250,6 +255,9 @@ struct UpdatePatientRequest: Encodable, Sendable {
     /// server-side whenever this field is present (true OR false records a
     /// decision), so the client never sends the timestamp itself.
     var dataCollectionEnabled: Bool?
+    /// Evaluation mode: hold this patient's alerts for a few seconds so a
+    /// Memoria reviewer can drop false alarms before the family is told.
+    var eventGateEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case fullName = "full_name"
@@ -263,6 +271,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         case emailAlertsEnabled = "email_alerts_enabled"
         case emailAlertRecipients = "email_alert_recipients"
         case dataCollectionEnabled = "data_collection_enabled"
+        case eventGateEnabled = "event_gate_enabled"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -282,6 +291,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         try c.encodeIfPresent(emailAlertsEnabled, forKey: .emailAlertsEnabled)
         try c.encodeIfPresent(emailAlertRecipients, forKey: .emailAlertRecipients)
         try c.encodeIfPresent(dataCollectionEnabled, forKey: .dataCollectionEnabled)
+        try c.encodeIfPresent(eventGateEnabled, forKey: .eventGateEnabled)
     }
 }
 

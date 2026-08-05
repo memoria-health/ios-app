@@ -52,6 +52,7 @@ struct PatientSettingsView: View {
                 profileCard
                 identityCard
                 PatientEmailAlertsCard(patientId: patientId)
+                accuracySection
                 privacySection
                 DataCollectionCard(patientId: patientId)
                 feedbackEntry
@@ -351,6 +352,18 @@ struct PatientSettingsView: View {
         return resized.jpegData(compressionQuality: quality)
     }
 
+    /// Accuracy controls: things that change how much you can trust an
+    /// alert, as opposed to who can see what (that is `privacySection`).
+    /// Currently one setting, and it is ON by default, so the explainer
+    /// behind its ⓘ is carrying a disclosure rather than a nicety.
+    private var accuracySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NemaraEyebrow("ACCURACY")
+                .padding(.horizontal, 16)
+            EvaluationModeCard(patientId: patientId)
+        }
+    }
+
     /// Device-local privacy preferences, grouped under one header.
     ///
     /// The old patient-wide "Privacy mode" toggle (`PrivacyModeCard`)
@@ -365,11 +378,6 @@ struct PatientSettingsView: View {
                 .padding(.horizontal, 16)
             PeopleBlurCard(patientId: patientId)
             AudioCaptureCard(patientId: patientId)
-            HStack {
-                Spacer()
-                InfoDot("Blur people applies on this device only. Bathroom and bedroom cameras are private automatically — no live view, and sensitive moments in clips are always censored.")
-            }
-            .padding(.horizontal, 16)
         }
     }
 
