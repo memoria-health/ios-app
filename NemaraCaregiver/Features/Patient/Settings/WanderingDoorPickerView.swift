@@ -18,7 +18,6 @@ struct WanderingDoorPickerView: View {
     let patientId: UUID
     let cameraId: UUID
     let cameraIdentity: String
-    let cameraName: String
     let existingConfig: Detector.DoorConfig?
     /// Called after a successful save so the parent can refresh its status.
     var onSaved: () -> Void = {}
@@ -58,7 +57,11 @@ struct WanderingDoorPickerView: View {
                 NemaraColor.paper.ignoresSafeArea()
                 content
             }
-            .navigationTitle(cameraName.isEmpty ? "Exit doors" : "\(cameraName) · exit doors")
+            // Just "Exit doors" — the camera name used to be prefixed here and
+            // an inline title has no room for it ("Aryaman Bedroom · exit
+            // doors" truncated mid-word). It was redundant anyway: you reach
+            // this screen from one specific camera.
+            .navigationTitle("Exit doors")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

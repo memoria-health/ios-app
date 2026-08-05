@@ -147,7 +147,6 @@ struct CameraDetailView: View {
                     patientId: patientId,
                     cameraId: cam.id,
                     cameraIdentity: identity,
-                    cameraName: cam.room,
                     existingConfig: doorConfig,
                     onSaved: { Task { await loadDoorConfig() } },
                 )
