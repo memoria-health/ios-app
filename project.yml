@@ -95,9 +95,21 @@ targets:
         # Without it the OS silently blocks the connection and surfaces
         # it as "Internet connection appears to be offline" in the SDK.
         NSLocalNetworkUsageDescription: Memoria uses your local network to find and set up nearby camera devices on the same Wi-Fi.
-        # `nemara://` URL scheme reserved for future Supabase password-
-        # reset deep links. Wired in MenoraApp pattern when real auth
-        # ships — not handled in v0.
+        # `nemara://reset-password?code=…` — the Supabase password-reset
+        # deep link. This IS live: NemaraCaregiverApp.onOpenURL routes it
+        # into ResetPasswordView. (The old comment here said "not handled
+        # in v0"; that went stale and made the scheme look inert during a
+        # security review.)
+        #
+        # Custom schemes are claimable by ANY installed app, so a hostile
+        # app can register `nemara://` and receive the recovery link. What
+        # stops that becoming account takeover is PKCE: the SDK's
+        # exchangeCodeForSession needs the code verifier held only by the
+        # app that started the flow, so an intercepted code will not
+        # exchange. Universal Links would remove the interception itself
+        # and are the real fix — they need an apple-app-site-association
+        # file hosted on the domain plus the associated-domains
+        # entitlement, so they are tracked as post-pilot work.
         CFBundleURLTypes:
           - CFBundleURLName: co.sunny.nemara
             CFBundleURLSchemes:

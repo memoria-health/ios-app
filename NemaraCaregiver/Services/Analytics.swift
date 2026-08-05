@@ -206,7 +206,20 @@ final class Analytics {
         guard let url = Analytics.fileURL else { return }
         guard let data = try? JSONEncoder().encode(buffer) else { return }
         Task.detached(priority: .utility) {
-            try? data.write(to: url, options: .atomic)
+            // `.completeFileProtection` — encrypted at rest whenever the
+            // device is locked. Without it the file inherits the iOS
+            // default (readable after first unlock), so anything with
+            // filesystem access on a lost or jailbroken phone can read
+            // the buffer. It carries caregiver_id plus a screen-by-screen
+            // trail of what they looked at and when: not patient health
+            // data, but enough to profile a named user.
+            //
+            // Safe against the write path: persist() runs on app
+            // background and on the hourly flush, both with the device
+            // unlocked. A write that did land while locked simply fails
+            // (`try?`) and the events stay in the in-memory buffer for
+            // the next persist — losing telemetry, never user data.
+            try? data.write(to: url, options: [.atomic, .completeFileProtection])
         }
     }
 
