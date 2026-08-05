@@ -137,7 +137,6 @@ enum TutorialStep: Int, CaseIterable {
     case faceDecision     // enrollment: ring on Proceed (user's choice)
     case faceCapture      // enrollment: camera screen (top card, NO ring)
     case openPatient      // ring: patient card
-    case sensorsTab       // ring: Sensors tab slot
     case addSensor        // ring: Add a sensor
     case generateCode     // ring walks: room field → Generate code
     case pairSensor       // card + Sensor keypad photo; waits for the pair
@@ -170,14 +169,15 @@ enum TutorialStep: Int, CaseIterable {
     }
 
     /// Patient-shell tab-bar slot to highlight (Live 0 · Events 1 ·
-    /// Sensors 2 · Detectors 3 · Settings 4). The cutout is a generous
-    /// full-height strip over that slot's column.
+    /// Detectors 2 · Settings 3). Indices shifted left when Sensors folded
+    /// into Live (2026-08-05) — they are positional, so a stale number
+    /// rings the wrong tab rather than failing, which is why they live
+    /// beside the enum that defines the order.
     var tabSlot: Int? {
         switch self {
         case .liveTab: 0
         case .events: 1
-        case .sensorsTab: 2
-        case .detectors: 3
+        case .detectors: 2
         default: nil
         }
     }
@@ -209,7 +209,7 @@ enum TutorialStep: Int, CaseIterable {
             // can't desync the explanation.
             return true
         case .addPatient, .openPatient, .addSensor,
-             .sensorsTab, .liveTab, .detectors, .events:
+             .liveTab, .detectors, .events:
             return true
         default:
             return false
@@ -399,11 +399,11 @@ final class TutorialManager {
     }
 
     func patientOpened() {
-        if step == .openPatient { set(.sensorsTab) }
+        if step == .openPatient { set(.addSensor) }
         // Replay affordance: a returning user on the add-patient step may
         // open one of their EXISTING patients instead of creating another
         // — continue the tour with that patient at the sensor section.
-        if step == .addPatient { set(.sensorsTab) }
+        if step == .addPatient { set(.addSensor) }
     }
 
     func cameraCountIncreased() {
@@ -420,10 +420,10 @@ final class TutorialManager {
     }
 
     /// Patient-shell tab change, by case name ("live"/"events"/
-    /// "cameras"/"detectors"/"settings").
+    /// "detectors"/"settings"). "cameras" is gone — Sensors folded into
+    /// Live, and the tour now spotlights Add a sensor there directly.
     func patientTabChanged(_ name: String) {
         switch (step, name) {
-        case (.sensorsTab, "cameras"): set(.addSensor)
         case (.liveTab, "live"): set(.liveInfo)
         case (.detectors, "detectors"): set(.detectorsInfo)
         case (.events, "events"): set(.eventsInfo)
@@ -791,8 +791,6 @@ private struct TutorialHost: View {
             return "Follow the on-screen prompts to capture \(patientFirstName)'s face. The tour continues when you're done."
         case .openPatient:
             return "Tap \(patientFirstName)'s card to open their space."
-        case .sensorsTab:
-            return "Tap the Sensors tab below — that's where cameras live."
         case .addSensor:
             return "Tap Add a sensor to connect your first camera."
         case .generateCode:

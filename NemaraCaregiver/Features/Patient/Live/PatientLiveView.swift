@@ -99,6 +99,8 @@ struct PatientLiveView: View {
     /// in flight (disables its button); `captureNote` is a short toast
     /// shown on that camera's tile after the trigger fires.
     @State private var capturingCameraId: UUID? = nil
+    /// Pairing sheet, moved here with the Sensors tab.
+    @State private var showingAddCamera = false
     @State private var captureNote: (cameraId: UUID, text: String)? = nil
 
     var body: some View {
@@ -141,6 +143,11 @@ struct PatientLiveView: View {
             .padding(.bottom, 16)
         }
         .background(NemaraColor.paper)
+        .sheet(isPresented: $showingAddCamera) {
+            AddCameraSheet(patientId: patientId)
+                .presentationDetents([.large])
+                .trackScreen("add_camera")
+        }
         .navigationDestination(for: UUID.self) { cameraId in
             CameraDetailView(cameraId: cameraId, patientId: patientId)
         }
@@ -1215,19 +1222,25 @@ struct PatientLiveView: View {
                     NemaraEyebrow("SENSORS · \(onlineCameras.count) ONLINE")
                     Spacer()
                 }
-                VStack(spacing: 8) {
+                // Roomier than it was (2026-08-05). This list absorbed the
+                // Sensors tab, so it is now the ONLY way into a sensor's
+                // settings — the rows have to be comfortable to hit, not a
+                // dense summary you glance at. 26pt tiles and 8pt gaps were
+                // fine as a readout; as a destination they are under Apple's
+                // 44pt minimum touch target.
+                VStack(spacing: 10) {
                     ForEach(allCameras) { cam in
                         NavigationLink(value: cam.id) {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 12) {
                                 ZStack {
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
                                         .fill(NemaraColor.paperDim)
                                     Image(systemName: cam.iconName)
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.system(size: 16, weight: .semibold))
                                         .foregroundStyle(NemaraColor.ink2)
                                 }
-                                .frame(width: 26, height: 26)
-                                Text(cam.room).font(NemaraFont.bodySmall).foregroundStyle(NemaraColor.ink)
+                                .frame(width: 36, height: 36)
+                                Text(cam.room).font(NemaraFont.body).foregroundStyle(NemaraColor.ink)
                                 Spacer()
                                 // Spell out the app-closed state right in the
                                 // list (not just a dot) so the caregiver knows
@@ -1249,11 +1262,30 @@ struct PatientLiveView: View {
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(NemaraColor.ink3)
                             }
+                            // A whole-row hit area at a comfortable height:
+                            // the chevron promises a destination, so the row
+                            // has to behave like one.
+                            .frame(minHeight: 44)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
+
+                // Moved here from the Sensors tab. Pairing is rare but it is
+                // the one thing you cannot do anywhere else, so folding the
+                // tab away without bringing this along would have stranded
+                // it — the tab's whole reason to exist for a new user.
+                NemaraButton(
+                    "Add a sensor",
+                    variant: .secondary,
+                    size: .md,
+                    block: true,
+                    systemImage: "plus",
+                ) {
+                    showingAddCamera = true
+                }
+                .tutorialTarget(.addSensor)
             }
         }
     }

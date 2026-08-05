@@ -22,12 +22,16 @@ struct PatientShell: View {
     /// answer. Changeable later via the Settings `DataCollectionCard`.
     @State private var showConsent = false
 
-    /// Five tabs mirror the web dashboard's IA (Live grid +
-    /// per-camera + per-detector + events + patient-level settings).
-    /// Five is the practical max iOS allows in a bottom tab bar
-    /// without auto-collapsing to "More" — HIG-compliant.
+    /// Four tabs (2026-08-05, was five).
+    ///
+    /// Sensors folded into Live. It was a whole tab for a list you consult
+    /// when something is wrong and otherwise never open, and Live already
+    /// carried the same list underneath the feeds — the type was being said
+    /// twice. Live now owns the roster, the per-sensor rows and pairing;
+    /// nothing was lost, and the bar drops off the five-tab ceiling where
+    /// iOS starts threatening to collapse into "More".
     enum PatientTab: Hashable {
-        case live, events, cameras, detectors, settings
+        case live, events, detectors, settings
     }
 
     var body: some View {
@@ -57,18 +61,6 @@ struct PatientShell: View {
             }
             .tabItem { Label("Events", systemImage: "waveform.path") }
             .tag(PatientTab.events)
-
-            NavigationStack {
-                patientTab {
-                    PatientCamerasView(patientId: patientId).trackScreen("patient.sensors")
-                } header: {
-                    if let patient {
-                        PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
-                    }
-                }
-            }
-            .tabItem { Label("Sensors", systemImage: "camera.fill") }
-            .tag(PatientTab.cameras)
 
             NavigationStack {
                 patientTab {
