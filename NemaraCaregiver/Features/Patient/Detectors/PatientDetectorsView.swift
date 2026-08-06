@@ -43,11 +43,12 @@ struct PatientDetectorsView: View {
                 ) {
                     showingAddDetector = true
                 }
-                // Overlay, offset so it straddles the corner like a sticker.
-                // Not clipped: the parent VStack's 14pt spacing leaves room.
+                // Sits ON the top edge, inset from the corner rather than
+                // hanging off it. Solid terra so it reads at a glance; the
+                // parent VStack's 14pt spacing leaves room for the overhang.
                 .overlay(alignment: .topTrailing) {
-                    NemaraChip("BETA", tone: .terra)
-                        .offset(x: 6, y: -9)
+                    BetaBadge()
+                        .offset(x: -14, y: -11)
                 }
                 .padding(.horizontal, 16)
 

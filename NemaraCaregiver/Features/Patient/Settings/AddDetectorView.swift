@@ -113,6 +113,8 @@ struct AddDetectorView: View {
                         if stage == .review { inferredSection }
                     }
                     .padding(.horizontal, 20)
+                    // The eyebrow used to butt straight up against the header.
+                    .padding(.top, 22)
                     .padding(.bottom, 20)
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -171,10 +173,14 @@ struct AddDetectorView: View {
                 .kerning(-0.7)
                 .foregroundStyle(NemaraColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Describe it in plain words. Memoria figures out the rest — including whether it's a live alert or a daily/weekly check.")
+            Text("Describe it in plain words. Memoria figures out the rest, including whether it's a live alert or a daily or weekly check.")
                 .font(NemaraFont.bodySmall)
                 .foregroundStyle(NemaraColor.ink2)
                 .lineSpacing(2)
+            // The full reasoning belongs HERE, at the moment someone is
+            // about to create one, rather than as a caption on a badge.
+            CustomDetectorBetaNotice()
+                .padding(.top, 6)
         }
     }
 

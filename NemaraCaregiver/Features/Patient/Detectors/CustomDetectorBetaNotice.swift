@@ -47,3 +47,20 @@ struct CustomDetectorBetaNotice: View {
     }
 }
 
+/// Larger BETA badge for sticking onto a button. `NemaraChip` is 9pt mono,
+/// which disappears at that size against a full-width control, so this is
+/// its own thing rather than a chip with a bigger font.
+struct BetaBadge: View {
+    var body: some View {
+        Text("BETA")
+            .font(.system(size: 11, weight: .heavy))
+            .tracking(0.8)
+            .foregroundStyle(NemaraColor.terraInk)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous).fill(NemaraColor.terra)
+            )
+            .accessibilityLabel("Beta feature")
+    }
+}
