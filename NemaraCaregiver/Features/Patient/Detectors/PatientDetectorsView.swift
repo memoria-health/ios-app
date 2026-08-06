@@ -31,21 +31,10 @@ struct PatientDetectorsView: View {
                 // Add buttons sit at the TOP so they're reachable without
                 // scrolling past a long detector list (a patient can have 15+).
                 //
-                // The BETA marker lives HERE and on the CUSTOM section header,
-                // not on each row. Per-row it was repeated noise that said the
-                // same thing four times on this screen.
-                HStack(spacing: 8) {
-                    NemaraChip("BETA", tone: .terra)
-                    Text("Custom detectors are new, so accuracy can vary.")
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.ink3)
-                        // Wrap rather than widen: an unwrappable child is how
-                        // this screen ends up scrolling sideways.
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-
+                // The BETA marker is stuck ONTO this button rather than
+                // sitting on its own line, and repeats on the CUSTOM section
+                // header. Per-row it was repeated noise that said the same
+                // thing four times on one screen.
                 NemaraButton(
                     "Add a custom detector",
                     variant: .secondary,
@@ -53,6 +42,12 @@ struct PatientDetectorsView: View {
                     systemImage: "plus",
                 ) {
                     showingAddDetector = true
+                }
+                // Overlay, offset so it straddles the corner like a sticker.
+                // Not clipped: the parent VStack's 14pt spacing leaves room.
+                .overlay(alignment: .topTrailing) {
+                    NemaraChip("BETA", tone: .terra)
+                        .offset(x: 6, y: -9)
                 }
                 .padding(.horizontal, 16)
 
