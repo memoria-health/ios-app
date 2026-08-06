@@ -66,6 +66,7 @@ struct DetectorDetailSheet: View {
                     header
                     if let error { errorBanner(error) }
                     if detector.showsAccuracyCaveat { AccuracyCaveatNotice() }
+                    if detector.source == .custom { CustomDetectorBetaNotice() }
                     if !detector.isOn { draftBanner }
                     if isCustom { askedForCard }
                     criteriaCard

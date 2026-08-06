@@ -37,9 +37,12 @@ struct DetectorRow: View {
                 .frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(detector.name)
-                        .font(NemaraFont.bodySmallStrong)
-                        .foregroundStyle(NemaraColor.ink)
+                    HStack(spacing: 5) {
+                        Text(detector.name)
+                            .font(NemaraFont.bodySmallStrong)
+                            .foregroundStyle(NemaraColor.ink)
+                        if detector.source == .custom { BetaChip() }
+                    }
                     Text(detector.description)
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.ink2)
@@ -51,6 +54,12 @@ struct DetectorRow: View {
                     // the web list's inline notice.
                     if detector.showsAccuracyCaveat {
                         AccuracyCaveatNotice(compact: true)
+                            .padding(.top, 4)
+                    }
+                    // A detector can be both custom AND fine-detail; the two
+                    // notices answer different questions, so both may show.
+                    if detector.source == .custom {
+                        CustomDetectorBetaNotice(compact: true)
                             .padding(.top, 4)
                     }
                 }
