@@ -30,6 +30,22 @@ struct PatientDetectorsView: View {
             VStack(spacing: 14) {
                 // Add buttons sit at the TOP so they're reachable without
                 // scrolling past a long detector list (a patient can have 15+).
+                //
+                // The BETA marker lives HERE and on the CUSTOM section header,
+                // not on each row. Per-row it was repeated noise that said the
+                // same thing four times on this screen.
+                HStack(spacing: 8) {
+                    NemaraChip("BETA", tone: .terra)
+                    Text("Custom detectors are new, so accuracy can vary.")
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.ink3)
+                        // Wrap rather than widen: an unwrappable child is how
+                        // this screen ends up scrolling sideways.
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+
                 NemaraButton(
                     "Add a custom detector",
                     variant: .secondary,
@@ -111,6 +127,7 @@ struct PatientDetectorsView: View {
                 rows: customs,
                 isFirstSection: false,
                 emptyHint: "None yet. Add a custom detector with the button above.",
+                showsBeta: true,
             )
         }
     }
@@ -121,10 +138,15 @@ struct PatientDetectorsView: View {
         rows: [Detector],
         isFirstSection: Bool,
         emptyHint: String,
+        showsBeta: Bool = false,
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            NemaraEyebrow(title)
-                .padding(.horizontal, 16)
+            HStack(spacing: 8) {
+                NemaraEyebrow(title)
+                if showsBeta { NemaraChip("BETA", tone: .terra) }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
 
             if rows.isEmpty {
                 NemaraCard(padding: 14) {

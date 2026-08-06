@@ -29,11 +29,11 @@ struct CustomDetectorBetaNotice: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(NemaraColor.warning)
+                .foregroundStyle(NemaraColor.terra)
                 .padding(.top, 1)
             Text(compact ? Self.short : Self.full)
                 .font(NemaraFont.caption)
-                .foregroundStyle(compact ? NemaraColor.warning : NemaraColor.ink2)
+                .foregroundStyle(compact ? NemaraColor.terra : NemaraColor.ink2)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(compact ? 0 : 12)
@@ -42,24 +42,8 @@ struct CustomDetectorBetaNotice: View {
             compact
                 ? nil
                 : RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(NemaraColor.warning.opacity(0.12))
+                    .fill(NemaraColor.terra.opacity(0.12))
         )
     }
 }
 
-/// The small BETA chip that sits beside a custom detector's name.
-struct BetaChip: View {
-    var body: some View {
-        Text("BETA")
-            .font(.system(size: 9, weight: .bold))
-            .tracking(0.5)
-            .foregroundStyle(NemaraColor.warning)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(NemaraColor.warning.opacity(0.14))
-            )
-            .accessibilityLabel("Beta detector")
-    }
-}

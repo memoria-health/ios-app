@@ -37,12 +37,9 @@ struct DetectorRow: View {
                 .frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
-                        Text(detector.name)
-                            .font(NemaraFont.bodySmallStrong)
-                            .foregroundStyle(NemaraColor.ink)
-                        if detector.source == .custom { BetaChip() }
-                    }
+                    Text(detector.name)
+                        .font(NemaraFont.bodySmallStrong)
+                        .foregroundStyle(NemaraColor.ink)
                     Text(detector.description)
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.ink2)
@@ -54,12 +51,6 @@ struct DetectorRow: View {
                     // the web list's inline notice.
                     if detector.showsAccuracyCaveat {
                         AccuracyCaveatNotice(compact: true)
-                            .padding(.top, 4)
-                    }
-                    // A detector can be both custom AND fine-detail; the two
-                    // notices answer different questions, so both may show.
-                    if detector.source == .custom {
-                        CustomDetectorBetaNotice(compact: true)
                             .padding(.top, 4)
                     }
                 }
@@ -177,10 +168,18 @@ struct DetectorRow: View {
     // A single where·when pill. The trigger label was dropped to keep the row
     // minimal; it lives in the detail sheet.
     private var whereWhenPill: some View {
+        // The rooms label grows with every room a detector is scoped to
+        // (multi-room scoping, 2026-07-28). Unbounded, it makes this pill
+        // wider than the screen and the whole tab scrolls sideways, since
+        // nothing else in the row can absorb it. Truncate instead.
         HStack(spacing: 4) {
             Text(detector.roomsLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Text("·").foregroundStyle(NemaraColor.line)
             Text(whenLabel)
+                .lineLimit(1)
+                .fixedSize()
         }
         .font(NemaraFont.mono(size: 9.5, weight: .semibold))
         .tracking(0.5)

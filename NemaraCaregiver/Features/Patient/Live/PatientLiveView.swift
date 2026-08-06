@@ -635,7 +635,13 @@ struct PatientLiveView: View {
             ForEach(onlineCameras) { cam in
                 cameraTile(for: cam)
                     .tag(Optional(cam.id))
-                    .padding(.bottom, 32)   // headroom for the page-dot indicator
+                    // Headroom for the page-dot indicator, and ONLY when the
+                    // dots are actually shown — the same condition
+                    // `indexDisplayMode` uses below. With a single camera the
+                    // dots are hidden, so this was 32pt of dead space inside a
+                    // fixed-height TabView, reading as a large gap between the
+                    // feed and the sensors card underneath.
+                    .padding(.bottom, onlineCameras.count > 1 ? 32 : 0)
             }
         }
         .frame(height: tileHeight)
@@ -856,14 +862,13 @@ struct PatientLiveView: View {
                 Text("\(cam.room) is a private room")
                     .font(NemaraFont.bodySemibold)
                     .foregroundStyle(NemaraColor.ink)
+                // The title already says the room is private, so the body
+                // no longer repeats it. The guess-vs-fact distinction is
+                // kept, just carried by two words instead of a sentence.
                 Text(
                     cam.isSensitiveRoom
-                        ? "This camera looks like it's in a private room. Privacy "
-                            + "is on by default: no live view, and sensitive moments "
-                            + "in clips are always censored."
-                        : "This camera is in a private room. Privacy is on: "
-                            + "no live view, and sensitive moments in clips "
-                            + "are always censored."
+                        ? "Detected automatically. No live view, and sensitive moments in clips are censored."
+                        : "No live view, and sensitive moments in clips are censored."
                 )
                 .font(NemaraFont.caption)
                 .foregroundStyle(NemaraColor.ink3)
