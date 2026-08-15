@@ -21,19 +21,25 @@ struct PatientHomeView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NemaraSpacing.md) {
-            sensingLine
-            let sections = DashboardBuilder.sections(from: detectors)
-            if sections.isEmpty {
-                emptyState
-            } else {
-                ForEach(sections) { section in
-                    sectionView(section)
+        // ScrollView also keeps short content top-aligned — without it
+        // the shell's VStack centers a sparse dashboard mid-screen.
+        ScrollView {
+            VStack(alignment: .leading, spacing: NemaraSpacing.md) {
+                sensingLine
+                let sections = DashboardBuilder.sections(from: detectors)
+                if sections.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(sections) { section in
+                        sectionView(section)
+                    }
                 }
             }
+            .padding(.horizontal, 14)
+            .padding(.bottom, NemaraSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, NemaraSpacing.lg)
+        .refreshable { try? await env.api.refresh() }
     }
 
     // MARK: - Sensing line
@@ -95,13 +101,18 @@ struct PatientHomeView: View {
 
     // MARK: - Empty state
 
+    /// Clean nothing-to-see-here. Two situations land here, worded
+    /// apart: detectors exist but are all switched off, or none exist.
     private var emptyState: some View {
-        NemaraCard(tone: .alt) {
+        let hasDetectors = detectors.contains { $0.dashboardWidget != nil }
+        return NemaraCard(tone: .alt) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Memoria is learning")
+                Text("Nothing to see here yet")
                     .font(NemaraFont.title3)
                     .foregroundStyle(NemaraColor.ink)
-                Text("Turn on detectors to build this dashboard — each one earns its own chart here.")
+                Text(hasDetectors
+                     ? "All detectors are switched off. Turn one on in the Detectors tab and its chart appears here."
+                     : "Add detectors in the Detectors tab. Each one earns its own chart here.")
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
             }
