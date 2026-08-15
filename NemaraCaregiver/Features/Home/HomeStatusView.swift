@@ -259,14 +259,10 @@ struct HomeStatusView: View {
                     // outlive the facts it narrates
                     .task(id: statuses.map(\.factLine).joined()) { await fetchReport() }
             }
-            // streak chips ONLY when the numbers are unambiguous (one person);
-            // multi-patient numbers belong on each person's own page
-            if statuses.count == 1 {
-                let s = statuses[0]
-                if let d = s.daysWithoutFall {
-                    streakChip(d, d == "1" ? "day since a fall" : "days without a fall")
-                }
-            }
+            // Streak chips removed 2026-08-15: the patient Home tab's
+            // Falls tile owns streaks now, per patient, always — not
+            // just for single-patient accounts. daysWithoutFall still
+            // feeds the briefing sentence above.
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
@@ -330,18 +326,4 @@ struct HomeStatusView: View {
         return AttributedString(s.replacingOccurrences(of: "**", with: ""))
     }
 
-    private func streakChip(_ value: String, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value)
-                .font(.system(size: 27, weight: .semibold, design: .serif))
-                .foregroundStyle(NemaraColor.ink)
-            Text(label)
-                .font(.system(size: 12.5))
-                .foregroundStyle(NemaraColor.ink3)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(NemaraColor.line.opacity(0.6)))
-    }
 }
