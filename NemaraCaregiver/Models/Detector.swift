@@ -167,6 +167,9 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// Server-computed. Optional on the wire (older backends omit it);
     /// read through `showsAccuracyCaveat` which treats nil as false.
     var accuracyCaveat: Bool?
+    /// Compiled Home-tab widget spec (see `DashboardWidget`). Nil when
+    /// this detector has no widget or the spec failed tolerant decode.
+    var dashboardWidget: DashboardWidget?
     var createdAt: Date
     var updatedAt: Date
 
@@ -263,6 +266,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case refinements
         case doorConfig = "door_config"
         case accuracyCaveat = "accuracy_caveat"
+        case dashboardWidget = "dashboard_widget"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -301,6 +305,10 @@ extension Detector {
         refinements = try c.decodeIfPresent([String].self, forKey: .refinements)
         doorConfig = try c.decodeIfPresent(DoorConfig.self, forKey: .doorConfig)
         accuracyCaveat = try c.decodeIfPresent(Bool.self, forKey: .accuracyCaveat)
+        // Tolerant on purpose: a malformed or future-shaped widget spec
+        // costs us the widget, never the detector row.
+        dashboardWidget = (try? c.decodeIfPresent(
+            DashboardWidget.self, forKey: .dashboardWidget)) ?? nil
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
     }
