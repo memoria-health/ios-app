@@ -38,7 +38,8 @@ final class WidgetSnapshotTests: XCTestCase {
         snap(StatTileView(
             stat: "47",
             subtitle: "days since the last Fall (Jun 29) · longest gap 61d",
-            unavailable: nil, accent: NemaraColor.terra), width: 186, "1-streak")
+            unavailable: nil, accent: NemaraColor.terra,
+            noun: "Falls"), width: 186, "1-streak")
 
         snap(StatTileView(
             stat: nil, subtitle: nil,

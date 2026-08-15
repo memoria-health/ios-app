@@ -100,9 +100,15 @@ struct DashboardWidgetView: View {
                 failed = false
                 Task { await load() }
             } label: {
-                Text("Couldn't load — tap to retry")
-                    .font(NemaraFont.bodySmall)
-                    .foregroundStyle(NemaraColor.ink3)
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Couldn't load. Tap to retry")
+                }
+                .font(NemaraFont.bodySemibold)
+                .foregroundStyle(accent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(accent.opacity(0.1), in: Capsule())
             }
             .buttonStyle(.plain)
             .padding(.vertical, 6)
@@ -111,7 +117,8 @@ struct DashboardWidgetView: View {
             case "streak_tile":
                 StatTileView(stat: data?.statValue,
                              subtitle: data?.subtitle,
-                             unavailable: data?.unavailable, accent: accent)
+                             unavailable: data?.unavailable, accent: accent,
+                             noun: spec.title)
             case "ratio_tile", "delta_tile":
                 StatTileView(stat: data?.statValue,
                              subtitle: data?.subtitle,
@@ -119,12 +126,12 @@ struct DashboardWidgetView: View {
             case "hour_clock":
                 HourClockView(points: shapedPoints, domain: domainParam,
                               accent: accent)
-                caption(data?.subtitle)
+                caption(nightsCaption)
             case "dot_calendar":
-                DotCalendarView(points: shapedPoints,
-                                adherence: stringParam("mode") == "adherence",
+                let adherence = stringParam("mode") == "adherence"
+                DotCalendarView(points: shapedPoints, adherence: adherence,
                                 accent: accent)
-                caption(data?.subtitle)
+                caption(dotCaption(adherence: adherence))
             case "count_bars", "duration_bars":
                 CountBarsView(points: shapedPoints, accent: accent)
             case "trend_band":
@@ -145,6 +152,29 @@ struct DashboardWidgetView: View {
         }
     }
 
+    /// "nights with a matching event (2 of 14)" → "2 of the last 14
+    /// nights" — the server sentence, re-said like a person.
+    private var nightsCaption: String? {
+        guard let sub = data?.subtitle,
+              let m = sub.firstMatch(of: /\((\d+) of (\d+)\)/) else {
+            return data?.subtitle
+        }
+        let unit = sub.contains("nights") ? "nights" : "days"
+        return "\(m.1) of the last \(m.2) \(unit)"
+    }
+
+    /// "11 of the last 14 days" / "12 of 14 doses on time" — computed
+    /// from the rows so it can never disagree with the dots above it.
+    private func dotCaption(adherence: Bool) -> String? {
+        let points = shapedPoints
+        guard !points.isEmpty else { return nil }
+        let withEvent = points.filter { $0.value > 0 }.count
+        if adherence {
+            return "\(points.count - withEvent) of \(points.count) doses on time"
+        }
+        return "\(withEvent) of the last \(points.count) days"
+    }
+
     private func caption(_ text: String?) -> some View {
         Group {
             if let text {
@@ -160,10 +190,14 @@ struct DashboardWidgetView: View {
     private var deltaCaption: some View {
         if let stat = data?.statValue, let cur = Int(stat),
            case .number(let prev)? = data?.prevValue {
-            let arrow = cur > Int(prev) ? "▲" : cur < Int(prev) ? "▼" : "·"
-            Text("\(arrow) \(cur) this period · prior \(Int(prev))")
+            let up = cur > Int(prev)
+            let text = Int(prev) == 0
+                ? "\(cur) this period, none the period before"
+                : "\(up ? "▲" : cur < Int(prev) ? "▼" : "·") \(cur) this period · \(Int(prev)) before"
+            // More of a behaviour episode is worse; fewer is better.
+            Text(text)
                 .font(NemaraFont.caption)
-                .foregroundStyle(NemaraColor.ink3)
+                .foregroundStyle(up ? NemaraColor.terra : NemaraColor.sage)
         }
     }
 

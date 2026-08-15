@@ -29,9 +29,21 @@ enum WidgetDataShaper {
         }
     }
 
-    /// "2026-08-13" → "13", for sparse daily x-axis labels.
+    /// "2026-08-13" → "13" (dot calendars, tight spots).
     static func dayLabel(_ bucket: String) -> String {
         String(bucket.suffix(2))
+    }
+
+    private static let months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    /// "2026-08-13" → "Aug 13" — bare day numbers on an axis mean
+    /// nothing to a caregiver.
+    static func monthDay(_ bucket: String) -> String {
+        let parts = bucket.split(separator: "-")
+        guard parts.count == 3, let m = Int(parts[1]), (1...12).contains(m),
+              let d = Int(parts[2]) else { return bucket }
+        return "\(months[m]) \(d)"
     }
 
     /// "02:00" → 2. Hour buckets come back zero-padded 24h.
@@ -43,11 +55,11 @@ enum WidgetDataShaper {
     /// `.automatic(desiredCount:)` does NOT thin string axes, it mashes
     /// every label together. Pick ~5, always including the ends.
     static func sparseLabels(_ points: [SeriesPoint]) -> [String] {
-        guard points.count > 6 else { return points.map { dayLabel($0.bucket) } }
-        let step = max(1, points.count / 4)
+        guard points.count > 6 else { return points.map { monthDay($0.bucket) } }
+        let step = max(1, points.count / 3)
         var picks = Set(stride(from: 0, to: points.count, by: step))
         picks.insert(points.count - 1)
-        return picks.sorted().map { dayLabel(points[$0].bucket) }
+        return picks.sorted().map { monthDay(points[$0].bucket) }
     }
 }
 
@@ -59,16 +71,23 @@ struct StatTileView: View {
     let subtitle: String?
     let unavailable: String?
     let accent: Color
+    /// Widget title ("Falls") — the unit line derives from it so the
+    /// tile reads as English ("days since the last fall"), instead of
+    /// echoing the server's event-kind string verbatim.
+    var noun: String? = nil
 
-    /// The server subtitle is a full sentence ("days since the last
-    /// Fall (Aug 13) · longest gap 61d") — too long for a half-width
-    /// tile. Split on the separator and drop the parenthetical: unit
-    /// line + a small second line.
-    private var lines: [String] {
-        (subtitle ?? "").components(separatedBy: " · ").map {
-            $0.replacingOccurrences(of: #"\s*\([^)]*\)"#, with: "",
-                                    options: .regularExpression)
-        }.filter { !$0.isEmpty }
+    private var unitLine: String {
+        guard var n = noun?.lowercased() else { return "days since" }
+        if n.hasSuffix("s") && !n.hasSuffix("ss") { n = String(n.dropLast()) }
+        return "days since the last \(n)"
+    }
+
+    /// "longest gap 61d" from the server sentence; dropped when the
+    /// gap is 0 (a single event has no gap worth bragging about).
+    private var gapLine: String? {
+        let parts = (subtitle ?? "").components(separatedBy: " · ")
+        guard parts.count > 1, !parts[1].contains(" 0d") else { return nil }
+        return parts[1]
     }
 
     var body: some View {
@@ -78,14 +97,12 @@ struct StatTileView: View {
                     .font(NemaraFont.largeTitle)
                     .foregroundStyle(NemaraColor.ink)
                     .monospacedDigit()
-                if let unit = lines.first {
-                    Text(unit)
-                        .font(NemaraFont.bodySmall)
-                        .foregroundStyle(NemaraColor.ink2)
-                        .lineLimit(2)
-                }
-                if lines.count > 1 {
-                    Text(lines[1])
+                Text(unitLine)
+                    .font(NemaraFont.bodySmall)
+                    .foregroundStyle(NemaraColor.ink2)
+                    .lineLimit(2)
+                if let gapLine {
+                    Text(gapLine)
                         .font(NemaraFont.caption)
                         .foregroundStyle(NemaraColor.ink3)
                         .lineLimit(1)
@@ -120,7 +137,7 @@ struct CountBarsView: View {
         Chart {
             ForEach(points) { p in
                 BarMark(
-                    x: .value("Day", WidgetDataShaper.dayLabel(p.bucket)),
+                    x: .value("Day", WidgetDataShaper.monthDay(p.bucket)),
                     y: .value("Count", p.value),
                 )
                 .foregroundStyle(accent)
@@ -222,16 +239,27 @@ struct DotCalendarView: View {
         let columns = Array(
             repeating: GridItem(.flexible(), spacing: 6),
             count: min(max(points.count, 1), 14))
-        LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(points) { p in
-                Circle()
-                    .fill(filled(p.value) ? accent : .clear)
-                    .strokeBorder(
-                        filled(p.value) ? .clear : NemaraColor.ink4,
-                        lineWidth: 1.5)
-                    .frame(height: 10)
-                    .accessibilityLabel(
-                        "\(p.bucket): \(filled(p.value) ? "yes" : "no")")
+        VStack(alignment: .leading, spacing: 6) {
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(points) { p in
+                    Circle()
+                        .fill(filled(p.value) ? accent : .clear)
+                        .strokeBorder(
+                            filled(p.value) ? .clear : NemaraColor.ink4,
+                            lineWidth: 1.5)
+                        .frame(height: 10)
+                        .accessibilityLabel(
+                            "\(p.bucket): \(filled(p.value) ? "yes" : "no")")
+                }
+            }
+            if let first = points.first, points.count > 1 {
+                HStack {
+                    Text(WidgetDataShaper.monthDay(first.bucket))
+                    Spacer()
+                    Text("Today")
+                }
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
             }
         }
         .padding(.vertical, 4)
@@ -251,7 +279,7 @@ struct TrendBandView: View {
             if let baseline {
                 ForEach(points) { p in
                     AreaMark(
-                        x: .value("Day", WidgetDataShaper.dayLabel(p.bucket)),
+                        x: .value("Day", WidgetDataShaper.monthDay(p.bucket)),
                         yStart: .value("Low", baseline.lo),
                         yEnd: .value("High", baseline.hi),
                     )
@@ -260,7 +288,7 @@ struct TrendBandView: View {
             }
             ForEach(points) { p in
                 LineMark(
-                    x: .value("Day", WidgetDataShaper.dayLabel(p.bucket)),
+                    x: .value("Day", WidgetDataShaper.monthDay(p.bucket)),
                     y: .value("Value", p.value),
                 )
                 .foregroundStyle(accent)
@@ -269,7 +297,7 @@ struct TrendBandView: View {
             }
             if let last = points.last {
                 PointMark(
-                    x: .value("Day", WidgetDataShaper.dayLabel(last.bucket)),
+                    x: .value("Day", WidgetDataShaper.monthDay(last.bucket)),
                     y: .value("Value", last.value),
                 )
                 .foregroundStyle(accent)
