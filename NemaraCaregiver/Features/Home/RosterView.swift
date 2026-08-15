@@ -39,11 +39,9 @@ struct RosterView: View {
                             )
                         }
 
-                        // Dashboard-style briefing: verdict, streaks, feed —
-                        // the answer BEFORE the navigation.
-                        HomeStatusView()
-                            .padding(.bottom, 14)
-
+                        // Roster is just the rows (2026-08-15): the verdict
+                        // card + AI briefing moved out — per-patient insight
+                        // lives on each patient's Home tab now.
                         VStack(spacing: 10) {
                             // triage order: whoever needs eyes floats to the top
                             ForEach(env.api.patients.sorted { a, b in

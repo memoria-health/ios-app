@@ -38,6 +38,17 @@ enum WidgetDataShaper {
     static func hour(_ bucket: String) -> Int {
         Int(bucket.prefix(2)) ?? 0
     }
+
+    /// Sparse x-axis labels for categorical (string) day buckets:
+    /// `.automatic(desiredCount:)` does NOT thin string axes, it mashes
+    /// every label together. Pick ~5, always including the ends.
+    static func sparseLabels(_ points: [SeriesPoint]) -> [String] {
+        guard points.count > 6 else { return points.map { dayLabel($0.bucket) } }
+        let step = max(1, points.count / 4)
+        var picks = Set(stride(from: 0, to: points.count, by: step))
+        picks.insert(points.count - 1)
+        return picks.sorted().map { dayLabel(points[$0].bucket) }
+    }
 }
 
 // MARK: - Tiles
@@ -49,6 +60,17 @@ struct StatTileView: View {
     let unavailable: String?
     let accent: Color
 
+    /// The server subtitle is a full sentence ("days since the last
+    /// Fall (Aug 13) · longest gap 61d") — too long for a half-width
+    /// tile. Split on the separator and drop the parenthetical: unit
+    /// line + a small second line.
+    private var lines: [String] {
+        (subtitle ?? "").components(separatedBy: " · ").map {
+            $0.replacingOccurrences(of: #"\s*\([^)]*\)"#, with: "",
+                                    options: .regularExpression)
+        }.filter { !$0.isEmpty }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if let stat {
@@ -56,11 +78,17 @@ struct StatTileView: View {
                     .font(NemaraFont.largeTitle)
                     .foregroundStyle(NemaraColor.ink)
                     .monospacedDigit()
-                if let subtitle {
-                    Text(subtitle)
+                if let unit = lines.first {
+                    Text(unit)
                         .font(NemaraFont.bodySmall)
-                        .foregroundStyle(NemaraColor.ink3)
+                        .foregroundStyle(NemaraColor.ink2)
                         .lineLimit(2)
+                }
+                if lines.count > 1 {
+                    Text(lines[1])
+                        .font(NemaraFont.caption)
+                        .foregroundStyle(NemaraColor.ink3)
+                        .lineLimit(1)
                 }
             } else {
                 // daysSince with no events ever — the good outcome.
@@ -110,7 +138,7 @@ struct CountBarsView: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) {
+            AxisMarks(values: WidgetDataShaper.sparseLabels(points)) {
                 AxisValueLabel().font(NemaraFont.caption)
             }
         }
@@ -253,7 +281,7 @@ struct TrendBandView: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) {
+            AxisMarks(values: WidgetDataShaper.sparseLabels(points)) {
                 AxisValueLabel().font(NemaraFont.caption)
             }
         }

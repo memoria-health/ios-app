@@ -101,22 +101,42 @@ struct PatientHomeView: View {
 
     // MARK: - Empty state
 
-    /// Clean nothing-to-see-here. Two situations land here, worded
-    /// apart: detectors exist but are all switched off, or none exist.
     private var emptyState: some View {
-        let hasDetectors = detectors.contains { $0.dashboardWidget != nil }
-        return NemaraCard(tone: .alt) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Nothing to see here yet")
+        DashboardEmptyStateView(
+            hasDetectors: detectors.contains { $0.dashboardWidget != nil })
+    }
+}
+
+/// Centered middle-of-page empty state — an icon mark with a few words
+/// under it, no card. Worded apart for "all switched off" vs "none yet".
+struct DashboardEmptyStateView: View {
+    let hasDetectors: Bool
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(NemaraColor.card)
+                    .frame(width: 92, height: 92)
+                Circle()
+                    .strokeBorder(NemaraColor.line, lineWidth: 1)
+                    .frame(width: 92, height: 92)
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(NemaraColor.ink3)
+            }
+            VStack(spacing: 5) {
+                Text("Nothing to see yet")
                     .font(NemaraFont.title3)
                     .foregroundStyle(NemaraColor.ink)
                 Text(hasDetectors
-                     ? "All detectors are switched off. Turn one on in the Detectors tab and its chart appears here."
-                     : "Add detectors in the Detectors tab. Each one earns its own chart here.")
+                     ? "Turn on a detector and its chart appears here."
+                     : "Add a detector and its chart appears here.")
                     .font(NemaraFont.bodySmall)
-                    .foregroundStyle(NemaraColor.ink2)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, minHeight: 420)
     }
 }
