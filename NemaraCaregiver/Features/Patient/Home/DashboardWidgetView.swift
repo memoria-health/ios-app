@@ -16,7 +16,21 @@ struct DashboardWidgetView: View {
 
     init(entry: DashboardEntry) {
         self.entry = entry
-        _range = State(initialValue: entry.spec.ranges?.first ?? "")
+        // Seed the picker at the range matching the compiler's default
+        // window: a naive `.first` would seed "D" and fetch one day of
+        // data for a 30-day trend chart on first paint.
+        let days = WidgetDataShaper.number(entry.spec.params["days"])
+        let match: String? = switch days {
+        case 1: "D"
+        case 7: "W"
+        case 30: "M"
+        case 90: "3M"
+        default: nil
+        }
+        let ranges = entry.spec.ranges ?? []
+        _range = State(initialValue:
+            match.flatMap { ranges.contains($0) ? $0 : nil }
+            ?? ranges.first ?? "")
     }
 
     private var spec: DashboardWidget { entry.spec }

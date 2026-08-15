@@ -28,7 +28,6 @@ struct HomeStatusView: View {
         var headline: String?      // person-specific detail for the fold
         var factLine: String       // name-tagged fact for the AI briefing
         var daysWithoutFall: String?
-        var quietNights: Int
     }
 
     private static let seriousTerms = ["fall", "chok", "stroke", "heart", "seizure", "help"]
@@ -68,37 +67,27 @@ struct HomeStatusView: View {
                 daysWithoutFall = "\(max(1, Int(now.timeIntervalSince(oldest) / 86_400)))+"
             }
         }
-        var quiet = 0
-        let cal = Calendar.current
-        // no loaded events = no basis for ANY claim — a brand-new patient must
-        // not get credited with "30 quiet nights" they were never watched for
-        if oldest != nil { for back in 1...30 {
-            guard let dayStart = cal.date(byAdding: .day, value: -back, to: cal.startOfDay(for: now)) else { break }
-            let nightStart = dayStart.addingTimeInterval(22 * 3600 - 86_400)
-            let nightEnd = dayStart.addingTimeInterval(6 * 3600)
-            if events.contains(where: { $0.occurredAt >= nightStart && $0.occurredAt < nightEnd }) { break }
-            quiet = back
-            if let oldest, nightStart < oldest { break }
-        } }
+        // (quiet-nights streak removed with the roster chips 2026-08-15 —
+        // computed for years, rendered never; the Home tab owns streaks.)
 
         // severity, per person
         if let s = recent.first(where: { isSerious($0) && $0.occurredAt > now.addingTimeInterval(-3 * 3600) && !$0.reviewed }) {
             return PersonStatus(patient: p, name: name, level: .urgent,
                                 headline: humanize(s),
                                 factLine: "\(name): NEEDS ATTENTION — \(humanize(s)) at \(s.occurredAt.formatted(date: .omitted, time: .shortened))",
-                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+                                daysWithoutFall: daysWithoutFall)
         }
         if cameras.isEmpty {
             return PersonStatus(patient: p, name: name, level: .blind,
                                 headline: "no cameras set up yet",
                                 factLine: "\(name): no cameras set up yet",
-                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+                                daysWithoutFall: daysWithoutFall)
         }
         if !cameras.contains(where: { $0.online }) {
             return PersonStatus(patient: p, name: name, level: .blind,
                                 headline: "cameras are offline",
                                 factLine: "\(name): cameras offline",
-                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+                                daysWithoutFall: daysWithoutFall)
         }
         let unreviewed = recent.filter { !$0.reviewed }
         if !unreviewed.isEmpty {
@@ -106,12 +95,12 @@ struct HomeStatusView: View {
             return PersonStatus(patient: p, name: name, level: .attention,
                                 headline: "\(unreviewed.count) unreviewed moment\(unreviewed.count == 1 ? "" : "s")",
                                 factLine: "\(name): \(humanize(first)) — unreviewed",
-                                daysWithoutFall: daysWithoutFall, quietNights: quiet)
+                                daysWithoutFall: daysWithoutFall)
         }
         return PersonStatus(patient: p, name: name, level: .quiet,
                             headline: nil,
                             factLine: "\(name): quiet",
-                            daysWithoutFall: daysWithoutFall, quietNights: quiet)
+                            daysWithoutFall: daysWithoutFall)
     }
 
     private var statuses: [PersonStatus] {
