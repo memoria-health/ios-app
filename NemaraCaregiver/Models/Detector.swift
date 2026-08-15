@@ -170,6 +170,9 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
     /// Compiled Home-tab widget spec (see `DashboardWidget`). Nil when
     /// this detector has no widget or the spec failed tolerant decode.
     var dashboardWidget: DashboardWidget?
+    /// Server-side within-tick precedence; the Home tab orders widgets
+    /// inside a category by it, severe-first. Optional on the wire.
+    var severity: Int?
     var createdAt: Date
     var updatedAt: Date
 
@@ -267,6 +270,7 @@ struct Detector: Identifiable, Hashable, Sendable, Codable {
         case doorConfig = "door_config"
         case accuracyCaveat = "accuracy_caveat"
         case dashboardWidget = "dashboard_widget"
+        case severity
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -309,6 +313,7 @@ extension Detector {
         // costs us the widget, never the detector row.
         dashboardWidget = (try? c.decodeIfPresent(
             DashboardWidget.self, forKey: .dashboardWidget)) ?? nil
+        severity = try c.decodeIfPresent(Int.self, forKey: .severity)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
     }
