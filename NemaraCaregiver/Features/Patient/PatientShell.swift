@@ -11,7 +11,7 @@ struct PatientShell: View {
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
-    @State private var tab: PatientTab = .live
+    @State private var tab: PatientTab = .home
     /// Feedback form, reachable from every sub-tab's header via the "Feedback"
     /// pill. Presented once here (not per-tab) so there's a single sheet.
     @State private var showFeedback = false
@@ -22,22 +22,37 @@ struct PatientShell: View {
     /// answer. Changeable later via the Settings `DataCollectionCard`.
     @State private var showConsent = false
 
-    /// Four tabs (2026-08-05, was five).
+    /// Five tabs (2026-08-15; four since 2026-08-05).
     ///
-    /// Sensors folded into Live. It was a whole tab for a list you consult
-    /// when something is wrong and otherwise never open, and Live already
-    /// carried the same list underneath the feeds — the type was being said
-    /// twice. Live now owns the roster, the per-sensor rows and pairing;
-    /// nothing was lost, and the bar drops off the five-tab ceiling where
-    /// iOS starts threatening to collapse into "More".
+    /// Home is the per-patient insights dashboard — one compiled widget
+    /// per active detector, grouped by category — and the DEFAULT tab:
+    /// opening a patient should answer "how is she doing" before
+    /// offering the live feed. Alerts stay on the roster card and the
+    /// Events tab; Home never escalates.
+    ///
+    /// (Sensors folded into Live on 2026-08-05: it was a whole tab for
+    /// a list you consult when something is wrong, and Live already
+    /// carried the same list underneath the feeds.)
     enum PatientTab: Hashable {
-        case live, events, detectors, settings
+        case home, live, events, detectors, settings
     }
 
     var body: some View {
         let patient = env.api.patients.first(where: { $0.id == patientId })
 
         TabView(selection: $tab) {
+            NavigationStack {
+                patientTab {
+                    PatientHomeView(patientId: patientId).trackScreen("patient.home")
+                } header: {
+                    if let patient {
+                        PHeader(patient: patient, onFeedback: { showFeedback = true }) { dismiss() }
+                    }
+                }
+            }
+            .tabItem { Label("Home", systemImage: "square.grid.2x2.fill") }
+            .tag(PatientTab.home)
+
             NavigationStack {
                 patientTab {
                     PatientLiveView(patientId: patientId).trackScreen("patient.live")

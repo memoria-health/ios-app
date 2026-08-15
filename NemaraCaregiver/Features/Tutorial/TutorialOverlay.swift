@@ -168,16 +168,18 @@ enum TutorialStep: Int, CaseIterable {
         }
     }
 
-    /// Patient-shell tab-bar slot to highlight (Live 0 · Events 1 ·
-    /// Detectors 2 · Settings 3). Indices shifted left when Sensors folded
-    /// into Live (2026-08-05) — they are positional, so a stale number
-    /// rings the wrong tab rather than failing, which is why they live
-    /// beside the enum that defines the order.
+    /// Patient-shell tab-bar slot to highlight (Home 0 · Live 1 ·
+    /// Events 2 · Detectors 3 · Settings 4). Indices shifted right when
+    /// the Home dashboard became tab one (2026-08-15; previously shifted
+    /// left when Sensors folded into Live, 2026-08-05) — they are
+    /// positional, so a stale number rings the wrong tab rather than
+    /// failing, which is why they live beside the enum that defines the
+    /// order.
     var tabSlot: Int? {
         switch self {
-        case .liveTab: 0
-        case .events: 1
-        case .detectors: 2
+        case .liveTab: 1
+        case .events: 2
+        case .detectors: 3
         default: nil
         }
     }
