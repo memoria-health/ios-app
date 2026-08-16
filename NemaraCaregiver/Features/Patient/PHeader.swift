@@ -27,6 +27,8 @@ struct PHeader: View {
                 }
             }
             Spacer()
+            SupportIconButton()
+                .padding(.trailing, 10)
             if let onFeedback {
                 Button(action: onFeedback) {
                     HStack(spacing: 5) {

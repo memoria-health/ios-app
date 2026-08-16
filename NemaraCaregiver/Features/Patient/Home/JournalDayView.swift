@@ -39,15 +39,15 @@ struct DayStripView: View {
                         let x1 = max(x0 + 6, x(span[1], w))
                         Capsule()
                             .fill(accent)
-                            .frame(width: x1 - x0, height: 8)
-                            .offset(x: x0, y: 2)
+                            .frame(width: x1 - x0, height: 10)
+                            .offset(x: x0, y: 1)
                     }
                 }
                 ForEach(Array(strip.marks.enumerated()), id: \.offset) { _, mark in
                     Circle()
                         .fill(accent)
-                        .frame(width: 8, height: 8)
-                        .offset(x: x(mark, w) - 4, y: 2)
+                        .frame(width: 10, height: 10)
+                        .offset(x: x(mark, w) - 5, y: 1)
                 }
                 // Labels anchored to their own ticks.
                 Text(labels.0)
@@ -111,7 +111,7 @@ struct JournalEntryRow: View {
                     .fill(soft)
                     .frame(width: 30, height: 30)
                 Image(systemName: entry.icon ?? "circle.dashed")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(accent)
             }
             VStack(alignment: .leading, spacing: 3) {
@@ -178,12 +178,12 @@ struct RatioBarView: View {
         VStack(alignment: .leading, spacing: 3) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(NemaraColor.line.opacity(0.6))
+                    Capsule().fill(NemaraColor.line)
                     Capsule().fill(accent)
-                        .frame(width: max(8, geo.size.width * fraction))
+                        .frame(width: max(10, geo.size.width * fraction))
                 }
             }
-            .frame(height: 10)
+            .frame(height: 12)
             Text("of \(ratio.labeledMinutes / 60) h \(ratio.labeledMinutes % 60) m observed")
                 .font(NemaraFont.caption)
                 .foregroundStyle(NemaraColor.ink3)

@@ -14,7 +14,6 @@ struct RootView: View {
                 // PatientShell, since the patient is a fullScreenCover that
                 // would otherwise hide this presenter-level overlay.
                 MainTabView()
-                    .supportButtonOverlay()
                     // Welcome-tour spotlight overlay. Additive footprint-only
                     // host (same pattern as the support button); renders
                     // nothing unless the tour is active.

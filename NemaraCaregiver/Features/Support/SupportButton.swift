@@ -29,6 +29,31 @@ struct SupportButton: View {
     }
 }
 
+/// Compact header form of the same help entry — lives in the top bars
+/// (roster header, patient header) instead of floating over content.
+/// The perpetual bubble covered charts and review chips; help belongs
+/// in chrome, not on top of the patient's day.
+struct SupportIconButton: View {
+    @State private var showSheet = false
+
+    var body: some View {
+        Button {
+            showSheet = true
+        } label: {
+            Image(systemName: "message.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(NemaraColor.terra)
+                .frame(width: 30, height: 30)
+                .background(NemaraColor.terraSoft, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Get help")
+        .sheet(isPresented: $showSheet) {
+            HelpChatSheet()
+        }
+    }
+}
+
 /// Chat-widget styled help sheet: a greeting bubble up top and a message
 /// composer pinned to the bottom (like iMessage), so it reads as a live chat
 /// rather than a "leave us a message" form. Posts to the existing /v1/support.

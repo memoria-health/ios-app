@@ -19,6 +19,7 @@ struct RosterView: View {
                         roster_largeTitle(sub: "\(greeting), \(firstName)", title: "Today") {
                             AnyView(
                                 HStack(spacing: 12) {
+                                    SupportIconButton()
                                     Button { showingNewPatient = true } label: {
                                         Image(systemName: "plus")
                                             .font(.system(size: 20, weight: .semibold))

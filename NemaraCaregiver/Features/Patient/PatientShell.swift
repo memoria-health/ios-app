@@ -106,7 +106,6 @@ struct PatientShell: View {
         // fullScreenCover over MainTabView, which hides MainTabView's overlay.
         // The expanded single-camera live view (its own cover) intentionally
         // does NOT carry it.
-        .supportButtonOverlay()
         // Welcome-tour host must survive into the patient cover (which
         // hides RootView's overlay) — same reasoning as the support button.
         .tutorialOverlay(.patientShell)
