@@ -21,9 +21,7 @@ struct PatientLiveView: View {
     /// untouched. Deleting the asset (or building Release) reverts it.
     private func demoFrame(for cam: Camera) -> UIImage? {
         #if DEBUG
-        guard cam.livekitIdentity?.hasPrefix("cam_demo") == true else {
-            return nil
-        }
+        guard cam.livekitIdentity == "cam_demo_1" else { return nil }
         return UIImage(named: "DemoRoom")
         #else
         return nil
@@ -33,7 +31,7 @@ struct PatientLiveView: View {
     private var hasDemoCameras: Bool {
         #if DEBUG
         UIImage(named: "DemoRoom") != nil && allCameras.contains {
-            $0.livekitIdentity?.hasPrefix("cam_demo") == true
+            $0.livekitIdentity == "cam_demo_1"
         }
         #else
         false
@@ -660,8 +658,8 @@ struct PatientLiveView: View {
     /// shot must not depend on that race.
     private var carouselCameras: [Camera] {
         if hasDemoCameras {
-            let enabled = allCameras.filter { !$0.disabled }
-            return enabled.isEmpty ? onlineCameras : enabled
+            let demo = allCameras.filter { demoFrame(for: $0) != nil }
+            return demo + onlineCameras.filter { demoFrame(for: $0) == nil }
         }
         return onlineCameras
     }
@@ -1269,7 +1267,7 @@ struct PatientLiveView: View {
                     // lever (it cascades per-camera desired_state); it doesn't
                     // gate the feed, so a sensor can be live while it's true —
                     // labeling the whole list "PAUSED" contradicts reality.
-                    NemaraEyebrow("SENSORS · \(onlineCameras.count) ONLINE")
+                    NemaraEyebrow("SENSORS · \(onlineCameras.count + allCameras.filter { demoFrame(for: $0) != nil && !$0.online }.count) ONLINE")
                     Spacer()
                 }
                 // Roomier than it was (2026-08-05). This list absorbed the
@@ -1298,7 +1296,7 @@ struct PatientLiveView: View {
                                 // reconnect. Shows even while paused — a closed
                                 // app won't come back on Reconnect-all, so the
                                 // caregiver needs to see it in that state too.
-                                if cam.isAppClosed {
+                                if cam.isAppClosed && demoFrame(for: cam) == nil {
                                     Text("APP CLOSED")
                                         .font(NemaraFont.monoSmall)
                                         .foregroundStyle(NemaraColor.warning)
