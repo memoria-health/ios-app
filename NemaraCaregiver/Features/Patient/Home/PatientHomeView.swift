@@ -1,52 +1,155 @@
 import SwiftUI
 
-/// The patient Home tab — the Daily Journal (teardown placeholder).
+/// The patient Home tab — the Daily Journal.
 ///
-/// The chart dashboard was removed 2026-08-16 (see nemara-backend
-/// docs/plans/2026-08-16-daily-journal.md). The journal day page lands
-/// in the next commits; until then this renders the sensing line and
-/// the quiet empty state so the tab stays honest, never broken.
+/// One page per day (design: nemara-backend
+/// docs/plans/2026-08-16-daily-journal.md). Lands on "So far today",
+/// chevrons or a swipe walk back in time. Every line is computed
+/// server-side; this view renders and never composes. Alerts stay on
+/// the roster and the Events tab — the Review chip deep-links there.
 struct PatientHomeView: View {
     @Environment(AppEnvironment.self) private var env
 
     let patientId: UUID
 
-    private var cameras: [Camera] {
-        env.api.camerasByPatient[patientId] ?? []
-    }
+    /// 0 = today, 1 = yesterday, … capped at 30 days back for v1.
+    @State private var daysBack = 0
+    @State private var days: [String: JournalDay] = [:]
+    @State private var failedDate: String?
+
+    private static let maxBack = 30
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: NemaraSpacing.md) {
-                sensingLine
-                DashboardEmptyStateView(hasDetectors: true)
+            VStack(alignment: .leading, spacing: NemaraSpacing.sm) {
+                pager
+                content
             }
             .padding(.horizontal, 14)
             .padding(.bottom, NemaraSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .refreshable { try? await env.api.refresh() }
+        .refreshable {
+            days[dateString] = nil
+            await load()
+        }
+        .task(id: daysBack) { await load() }
+        .gesture(
+            DragGesture(minimumDistance: 30).onEnded { g in
+                if g.translation.width < -40, daysBack > 0 {
+                    daysBack -= 1
+                } else if g.translation.width > 40, daysBack < Self.maxBack {
+                    daysBack += 1
+                }
+            }
+        )
     }
 
-    /// One quiet row of camera truth; turns loud when coverage drops.
-    @ViewBuilder
-    private var sensingLine: some View {
-        let active = cameras.filter { !$0.disabled }
-        let online = active.filter(\.online).count
-        let allDark = !active.isEmpty && online == 0
-        HStack(spacing: 7) {
-            Circle()
-                .fill(allDark ? NemaraColor.terra : NemaraColor.sage)
-                .frame(width: 7, height: 7)
-            Text(active.isEmpty
-                 ? "No sensors yet"
-                 : allDark
-                 ? "All sensors offline"
-                 : "\(online) of \(active.count) sensor\(active.count == 1 ? "" : "s") watching")
-                .font(NemaraFont.bodySmall)
-                .foregroundStyle(allDark ? NemaraColor.terra : NemaraColor.ink3)
+    // MARK: - Day pager
+
+    private var date: Date {
+        Calendar.current.date(byAdding: .day, value: -daysBack, to: Date())!
+    }
+
+    private var dateString: String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
+    private var eyebrow: String {
+        switch daysBack {
+        case 0: return "So far today"
+        case 1: return "Yesterday"
+        default: return date.formatted(.dateTime.weekday(.wide))
         }
-        .padding(.top, 2)
+    }
+
+    private var pager: some View {
+        HStack {
+            chevron("chevron.left", enabled: daysBack < Self.maxBack) {
+                daysBack += 1
+            }
+            Spacer()
+            VStack(spacing: 1) {
+                Text(eyebrow.uppercased())
+                    .font(NemaraFont.captionStrong)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .kerning(1.2)
+                Text(date.formatted(.dateTime.month(.wide).day()))
+                    .font(NemaraFont.title2)
+                    .foregroundStyle(NemaraColor.ink)
+            }
+            Spacer()
+            chevron("chevron.right", enabled: daysBack > 0) {
+                daysBack -= 1
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func chevron(_ symbol: String, enabled: Bool,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(NemaraColor.ink2)
+                .frame(width: 38, height: 38)
+                .background(NemaraColor.card, in: Circle())
+                .overlay(Circle().strokeBorder(NemaraColor.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.3)
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        if let day = days[dateString] {
+            if day.sections.isEmpty {
+                DashboardEmptyStateView(hasDetectors: true)
+            } else {
+                JournalDayView(day: day) { eventId in
+                    // The shell watches focusEventId and jumps to Events.
+                    env.deepLink.focusEventId = eventId
+                }
+            }
+        } else if failedDate == dateString {
+            Button {
+                failedDate = nil
+                Task { await load() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Couldn't load this day. Tap to retry")
+                }
+                .font(NemaraFont.bodySemibold)
+                .foregroundStyle(NemaraColor.ink2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(NemaraColor.card, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: 200)
+        } else {
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 200)
+        }
+    }
+
+    private func load() async {
+        let key = dateString
+        // Completed days never change; today refetches on every visit.
+        if let cached = days[key], !cached.partial { return }
+        do {
+            days[key] = try await env.api.journal(patientId: patientId,
+                                                  date: key)
+            failedDate = nil
+        } catch {
+            if days[key] == nil { failedDate = key }
+        }
     }
 }
 
