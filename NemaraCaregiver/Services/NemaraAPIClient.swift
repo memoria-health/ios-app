@@ -1141,6 +1141,17 @@ final class NemaraAPIClient {
         try await sendNoBody(method: "GET", path: "/v1/patients/\(patientId.uuidString.lowercased())/last-presence")
     }
 
+    // MARK: - Daily Journal
+
+    /// One journal day. `date` is "YYYY-MM-DD" in the caregiver's
+    /// timezone (the server owns the day boundary).
+    func journal(patientId: UUID, date: String) async throws -> JournalDay {
+        try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/journal",
+            query: [URLQueryItem(name: "date", value: date)])
+    }
+
     // MARK: - HTTP plumbing
 
     private func makeRequest(
