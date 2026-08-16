@@ -41,10 +41,11 @@ struct SupportIconButton: View {
             showSheet = true
         } label: {
             Image(systemName: "message.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(NemaraColor.terra)
-                .frame(width: 30, height: 30)
-                .background(NemaraColor.terraSoft, in: Circle())
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(NemaraColor.ink)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(NemaraColor.paperDim))
+                .overlay(Circle().strokeBorder(NemaraColor.line, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Get help")

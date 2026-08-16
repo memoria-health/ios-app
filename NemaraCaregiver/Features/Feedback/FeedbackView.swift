@@ -171,7 +171,7 @@ struct FeedbackView: View {
                     }
                     Spacer()
                 }
-                Text("Tell us how we can improve. We respond to all inquiries within 2 business days. Feel free to also text us at 716 602 1101.")
+                Text("Tell us how we can improve. We respond to all inquiries within 2 business days.")
                     .font(NemaraFont.bodySmall)
                     .foregroundStyle(NemaraColor.ink2)
                     .lineSpacing(5)

@@ -1,5 +1,18 @@
 import SwiftUI
 
+/// Chart-grade steps of the category hues (the design artifact's
+/// validated palette). The asset-catalog tints are deliberately muted
+/// for washes; marks and bars need more chroma to carry.
+private func chartAccent(_ category: Detector.Category) -> Color {
+    switch category {
+    case .safety:    return Color(red: 0.757, green: 0.325, blue: 0.239)
+    case .routine:   return Color(red: 0.306, green: 0.557, blue: 0.824)
+    case .behaviour: return Color(red: 0.478, green: 0.271, blue: 0.565)
+    case .care:      return Color(red: 0.361, green: 0.541, blue: 0.275)
+    case .unknown:   return NemaraColor.ink3
+    }
+}
+
 /// The one visualization primitive of the Daily Journal: a 24-hour
 /// line that only PLACES recorded timestamps — dots for instants,
 /// capsules for recorded intervals. Ticks and labels share one
@@ -125,7 +138,9 @@ struct JournalEntryRow: View {
                 }
                 if let caption {
                     Text(entry.line.status == .ok ? "✓ \(caption)" : caption)
-                        .font(NemaraFont.bodySmall)
+                        .font(entry.line.status == .ok
+                              ? .system(size: 13, weight: .semibold)
+                              : NemaraFont.bodySmall)
                         .foregroundStyle(captionColor)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -158,7 +173,7 @@ struct JournalEntryRow: View {
             }
         case .ok where factLed:
             Text("✓ \(entry.line.meta ?? "")")
-                .font(NemaraFont.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(NemaraColor.sage)
         default:
             EmptyView()
@@ -172,21 +187,39 @@ struct RatioBarView: View {
     let ratio: JournalRatio
     let accent: Color
 
+    private func words(_ minutes: Int) -> String {
+        let h, m: Int
+        (h, m) = (minutes / 60, minutes % 60)
+        if h == 0 { return "\(m) m" }
+        return m == 0 ? "\(h) h" : "\(h) h \(m) m"
+    }
+
     var body: some View {
         let total = max(ratio.labeledMinutes, 1)
+        let rest = max(0, ratio.labeledMinutes - ratio.activeMinutes)
         let fraction = min(1, CGFloat(ratio.activeMinutes) / CGFloat(total))
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(NemaraColor.line)
+                HStack(spacing: 2) {
                     Capsule().fill(accent)
-                        .frame(width: max(10, geo.size.width * fraction))
+                        .frame(width: max(12, (geo.size.width - 2) * fraction))
+                    Capsule().fill(NemaraColor.ink4.opacity(0.45))
                 }
             }
             .frame(height: 12)
-            Text("of \(ratio.labeledMinutes / 60) h \(ratio.labeledMinutes % 60) m observed")
-                .font(NemaraFont.caption)
-                .foregroundStyle(NemaraColor.ink3)
+            HStack {
+                Label { Text("\(words(ratio.activeMinutes)) active") } icon: {
+                    Circle().fill(accent).frame(width: 7, height: 7)
+                }
+                Spacer()
+                Label { Text("\(words(rest)) resting") } icon: {
+                    Circle().fill(NemaraColor.ink4.opacity(0.45))
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .font(NemaraFont.caption)
+            .foregroundStyle(NemaraColor.ink3)
+            .labelStyle(.titleAndIcon)
         }
         .padding(.top, 3)
     }
@@ -228,7 +261,7 @@ struct JournalDayView: View {
                                 .padding(.leading, 54)
                         }
                         JournalEntryRow(entry: entry,
-                                        accent: section.category.accent,
+                                        accent: chartAccent(section.category),
                                         soft: section.category.soft,
                                         onReview: onReview)
                     }

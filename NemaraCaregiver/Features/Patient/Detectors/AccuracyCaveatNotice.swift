@@ -23,16 +23,22 @@ struct AccuracyCaveatNotice: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.system(size: 13, weight: .semibold))
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(NemaraColor.warning)
                 .padding(.top, 1)
+            // Ink on a warning-tinted wash, never yellow text — the
+            // same container language as the wandering activation hint.
             Text(compact ? Self.short : Self.full)
                 .font(NemaraFont.caption)
-                .foregroundStyle(compact ? NemaraColor.warning : NemaraColor.ink2)
+                .foregroundStyle(NemaraColor.ink2)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(compact ? 0 : 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(compact ? 10 : 12)
+        .background(NemaraColor.warning.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md,
+                                    style: .continuous))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             compact
