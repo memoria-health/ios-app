@@ -27,6 +27,9 @@ struct JournalSection: Decodable, Equatable, Identifiable {
 struct JournalEntry: Decodable, Equatable, Identifiable {
     var detectorId: UUID?
     var title: String
+    /// SF Symbol name from the detector row (sleep/activity get fixed
+    /// icons server-side). Pairs with the category tint on every row.
+    var icon: String?
     var category: Detector.Category
     var severity: Int?
     var kind: String
@@ -39,7 +42,7 @@ struct JournalEntry: Decodable, Equatable, Identifiable {
     var id: String { detectorId?.uuidString ?? title }
 
     enum CodingKeys: String, CodingKey {
-        case title, category, severity, kind, line, strip
+        case title, icon, category, severity, kind, line, strip
         case detectorId = "detector_id"
         case reviewEventId = "review_event_id"
     }

@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The one visualization primitive of the Daily Journal: a 24-hour
 /// line that only PLACES recorded timestamps — dots for instants,
-/// rounded spans for recorded intervals. It never aggregates.
+/// capsules for recorded intervals. Ticks and labels share one
+/// position function with the marks, so they cannot disagree.
 struct DayStripView: View {
     let strip: JournalStrip
     let accent: Color
@@ -11,110 +12,149 @@ struct DayStripView: View {
         strip.axis == .noon ? ("12p", "12a", "12p") : ("12a", "12p", "12a")
     }
 
+    /// One mapping for everything drawn: fractional hour → x.
+    private func x(_ t: Double, _ width: CGFloat) -> CGFloat {
+        let inset: CGFloat = 5
+        return inset + (width - 2 * inset) * CGFloat(min(max(t, 0), 24)) / 24
+    }
+
     var body: some View {
-        VStack(spacing: 3) {
-            GeometryReader { geo in
-                let w = geo.size.width
-                ZStack(alignment: .leading) {
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack(alignment: .topLeading) {
+                // Baseline + quarter ticks.
+                Rectangle()
+                    .fill(NemaraColor.line)
+                    .frame(width: w, height: 2)
+                    .offset(y: 5)
+                ForEach([0.0, 6, 12, 18, 24], id: \.self) { t in
                     Rectangle()
                         .fill(NemaraColor.line)
-                        .frame(height: 2)
-                        .frame(maxHeight: .infinity, alignment: .center)
-                    ForEach(Array(strip.spans.enumerated()), id: \.offset) { _, span in
-                        if span.count == 2 {
-                            let x0 = w * span[0] / 24
-                            let x1 = max(x0 + 5, w * span[1] / 24)
-                            Capsule()
-                                .fill(accent)
-                                .frame(width: x1 - x0, height: 9)
-                                .offset(x: x0)
-                        }
-                    }
-                    ForEach(Array(strip.marks.enumerated()), id: \.offset) { _, mark in
-                        Circle()
+                        .frame(width: 1, height: 5)
+                        .offset(x: x(t, w) - 0.5, y: 7)
+                }
+                ForEach(Array(strip.spans.enumerated()), id: \.offset) { _, span in
+                    if span.count == 2 {
+                        let x0 = x(span[0], w)
+                        let x1 = max(x0 + 6, x(span[1], w))
+                        Capsule()
                             .fill(accent)
-                            .frame(width: 9, height: 9)
-                            .offset(x: w * mark / 24 - 4.5)
+                            .frame(width: x1 - x0, height: 8)
+                            .offset(x: x0, y: 2)
                     }
                 }
-            }
-            .frame(height: 12)
-            HStack {
+                ForEach(Array(strip.marks.enumerated()), id: \.offset) { _, mark in
+                    Circle()
+                        .fill(accent)
+                        .frame(width: 8, height: 8)
+                        .offset(x: x(mark, w) - 4, y: 2)
+                }
+                // Labels anchored to their own ticks.
                 Text(labels.0)
-                Spacer()
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .offset(x: x(0, w) - 2, y: 14)
                 Text(labels.1)
-                Spacer()
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .frame(width: 40)
+                    .offset(x: x(12, w) - 20, y: 14)
                 Text(labels.2)
+                    .font(NemaraFont.caption)
+                    .foregroundStyle(NemaraColor.ink3)
+                    .frame(width: 40, alignment: .trailing)
+                    .offset(x: x(24, w) - 38, y: 14)
             }
-            .font(NemaraFont.caption)
-            .foregroundStyle(NemaraColor.ink3)
         }
-        .padding(.top, 2)
+        .frame(height: 30)
+        .padding(.top, 4)
     }
 }
 
-/// One journal entry row — title-led or fact-led per the line's shape.
+/// One journal entry row. Hierarchy carried by size and ink, not
+/// weight: small tinted icon says the category, a quiet title names
+/// the detector, the fact below it wraps at full width, and the only
+/// emphasis on the page is a status chip.
 struct JournalEntryRow: View {
     let entry: JournalEntry
     let accent: Color
+    let soft: Color
     let onReview: (UUID) -> Void
 
-    /// Quiet point lines ("No falls") lead with the fact; everything
-    /// else leads with the detector's name and puts the fact trailing.
-    private var factLed: Bool { entry.line.primary.hasPrefix("No ") }
+    /// Eventful lines read in full ink; quiet/record lines recede.
+    private var eventful: Bool {
+        entry.line.status == .review || !(entry.strip?.marks.isEmpty ?? true)
+    }
+
+    /// Quiet point lines ("No falls") already ARE the fact — showing
+    /// title + "No falls" would say it twice.
+    private var value: String {
+        let primary = entry.line.primary == entry.title ? nil : entry.line.primary
+        let meta = entry.line.status == .ok && entry.line.primary.hasPrefix("No ")
+            ? nil : entry.line.meta
+        return [primary, meta].compactMap(\.self).joined(separator: " · ")
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(factLed ? entry.line.primary : entry.title)
-                    .font(NemaraFont.bodySemibold)
-                    .foregroundStyle(NemaraColor.ink)
-                    .lineLimit(1)
-                if entry.line.status == .ok, factLed, let meta = entry.line.meta {
-                    Text("✓ \(meta)")
-                        .font(NemaraFont.captionStrong)
-                        .foregroundStyle(NemaraColor.sage)
-                }
-                Spacer(minLength: 8)
-                if entry.line.status == .review, let eventId = entry.reviewEventId {
-                    Button { onReview(eventId) } label: {
-                        Text("Review")
-                            .font(NemaraFont.captionStrong)
-                            .foregroundStyle(NemaraColor.terra)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 3)
-                            .background(NemaraColor.terraSoft, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                } else if !factLed {
-                    Text(trailing)
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(soft)
+                    .frame(width: 30, height: 30)
+                Image(systemName: entry.icon ?? "circle.dashed")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(accent)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(entry.title)
                         .font(NemaraFont.bodySmall)
-                        .foregroundStyle(entry.line.status == .ok
-                                         ? NemaraColor.sage : NemaraColor.ink3)
-                        .lineLimit(1)
+                        .foregroundStyle(NemaraColor.ink3)
+                    Spacer(minLength: 8)
+                    trailingChip
                 }
-            }
-            if entry.line.status == .review {
-                Text(trailing)
-                    .font(NemaraFont.bodySmall)
-                    .foregroundStyle(NemaraColor.ink2)
-            }
-            if let strip = entry.strip {
-                DayStripView(strip: strip, accent: accent)
+                if !value.isEmpty {
+                    Text(value)
+                        .font(NemaraFont.bodyLarge)
+                        .foregroundStyle(eventful ? NemaraColor.ink : NemaraColor.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let strip = entry.strip {
+                    DayStripView(strip: strip, accent: accent)
+                }
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 11)
     }
 
-    private var trailing: String {
-        if factLed { return entry.line.meta ?? "" }
-        let ok = entry.line.status == .ok ? "✓ " : ""
-        // An event row's primary is often just the detector name again —
-        // repeating it under the title reads like a stutter.
-        let primary = entry.line.primary == entry.title ? nil : entry.line.primary
-        let parts = [primary, entry.line.meta].compactMap(\.self)
-        return ok + parts.joined(separator: " · ")
+    @ViewBuilder
+    private var trailingChip: some View {
+        switch entry.line.status {
+        case .review:
+            if let eventId = entry.reviewEventId {
+                Button { onReview(eventId) } label: {
+                    Text("Review")
+                        .font(NemaraFont.captionStrong)
+                        .foregroundStyle(NemaraColor.terra)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(NemaraColor.terraSoft, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        case .ok:
+            HStack(spacing: 3) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .semibold))
+                if entry.line.primary.hasPrefix("No "), let meta = entry.line.meta {
+                    Text(meta).font(NemaraFont.caption)
+                }
+            }
+            .foregroundStyle(NemaraColor.sage)
+        case .none:
+            EmptyView()
+        }
     }
 }
 
@@ -133,24 +173,30 @@ struct JournalDayView: View {
     }
 
     private func sectionView(_ section: JournalSection) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 7) {
-                RoundedRectangle(cornerRadius: 2.5)
+        VStack(alignment: .leading, spacing: 7) {
+            // Section names are real headings — serif, larger than any
+            // body text — with the category swatch as reinforcement.
+            HStack(spacing: 8) {
+                Circle()
                     .fill(section.category.accent)
-                    .frame(width: 8, height: 8)
-                NemaraEyebrow(section.category.displayName.uppercased(),
-                              color: section.category.accent)
+                    .frame(width: 9, height: 9)
+                Text(section.category.displayName)
+                    .font(NemaraFont.title3)
+                    .foregroundStyle(NemaraColor.ink)
             }
             .padding(.horizontal, 4)
-            .padding(.top, 6)
+            .padding(.top, 10)
             NemaraCard(tone: .default, padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(Array(section.entries.enumerated()), id: \.element.id) { i, entry in
                         if i > 0 {
-                            Divider().overlay(NemaraColor.line.opacity(0.55))
+                            Divider()
+                                .overlay(NemaraColor.line.opacity(0.45))
+                                .padding(.leading, 54)
                         }
                         JournalEntryRow(entry: entry,
                                         accent: section.category.accent,
+                                        soft: section.category.soft,
                                         onReview: onReview)
                     }
                 }

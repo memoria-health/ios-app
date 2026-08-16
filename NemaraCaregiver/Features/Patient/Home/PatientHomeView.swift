@@ -31,10 +31,7 @@ struct PatientHomeView: View {
             .padding(.bottom, NemaraSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .refreshable {
-            days[dateString] = nil
-            await load()
-        }
+        .refreshable { await load(force: true) }
         .task(id: "\(daysBack)-\(dayTick)") { await load() }
         // Midnight/timezone rollover: without this, an app left open on
         // "So far today" keeps showing yesterday labeled as today.
@@ -42,19 +39,8 @@ struct PatientHomeView: View {
             for: UIApplication.significantTimeChangeNotification)) { _ in
             dayTick += 1
         }
-        // simultaneousGesture + horizontal dominance so day-paging never
-        // competes with the ScrollView's vertical pan.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 30).onEnded { g in
-                guard abs(g.translation.width) > abs(g.translation.height) * 2
-                else { return }
-                if g.translation.width < -40, daysBack > 0 {
-                    daysBack -= 1
-                } else if g.translation.width > 40, daysBack < Self.maxBack {
-                    daysBack += 1
-                }
-            }
-        )
+        // Day paging is chevron-only (Aryaman, Aug 16): even a
+        // dominance-gated swipe competed with vertical scrolling.
     }
 
     // MARK: - Day pager
@@ -93,13 +79,13 @@ struct PatientHomeView: View {
                 daysBack += 1
             }
             Spacer()
-            VStack(spacing: 1) {
+            VStack(spacing: 2) {
                 Text(eyebrow.uppercased())
                     .font(NemaraFont.captionStrong)
-                    .foregroundStyle(NemaraColor.ink3)
-                    .kerning(1.2)
+                    .foregroundStyle(NemaraColor.terra)
+                    .kerning(1.4)
                 Text(date.formatted(.dateTime.month(.wide).day()))
-                    .font(NemaraFont.title2)
+                    .font(NemaraFont.largeTitle)
                     .foregroundStyle(NemaraColor.ink)
             }
             Spacer()
@@ -161,14 +147,19 @@ struct PatientHomeView: View {
         }
     }
 
-    private func load() async {
+    private func load(force: Bool = false) async {
         let key = dateString
         // Completed days never change; today refetches on every visit.
-        if let cached = days[key], !cached.partial { return }
+        if !force, let cached = days[key], !cached.partial { return }
         do {
             days[key] = try await env.api.journal(patientId: patientId,
                                                   date: key)
             failedDate = nil
+        } catch is CancellationError {
+            // Pull-to-refresh dismissing cancels the request — that is
+            // not a failure, and flashing the retry face for it made
+            // every other pull look broken.
+        } catch let e as URLError where e.code == .cancelled {
         } catch {
             if days[key] == nil { failedDate = key }
         }
