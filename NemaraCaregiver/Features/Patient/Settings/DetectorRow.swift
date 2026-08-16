@@ -47,12 +47,6 @@ struct DetectorRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                     whereWhenPill
                         .padding(.top, 4)
-                    // Compact accuracy caveat for fine-detail detectors, matching
-                    // the web list's inline notice.
-                    if detector.showsAccuracyCaveat {
-                        AccuracyCaveatNotice(compact: true)
-                            .padding(.top, 4)
-                    }
                 }
                 Spacer()
                 NemaraToggle(isOn: Binding(
@@ -109,6 +103,15 @@ struct DetectorRow: View {
             // Sensitivity now lives in the detail sheet (edit sheet only),
             // matching the web dashboard. The wandering activation hint still
             // shows here while the detector is on.
+            // Any message under a detector shares ONE container: full
+            // row width, same inset, same wash — the caveat and the
+            // wandering hint must be indistinguishable in geometry.
+            if detector.showsAccuracyCaveat {
+                AccuracyCaveatNotice(compact: true)
+                    .padding(.leading, 44)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, detector.isOn && isWandering ? 4 : 12)
+            }
             if detector.isOn && isWandering {
                 wanderingActivationHint
                     .padding(.horizontal, 14)
