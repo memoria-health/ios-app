@@ -15,14 +15,28 @@ import SwiftUI
 /// also handles room switching when the caregiver navigates from one
 /// patient to another (`connect` calls `disconnect` first).
 struct PatientLiveView: View {
-    /// DEBUG demo mode: when the DemoRoom asset is bundled, its frame
-    /// paints the video slot and state pills hide — deck screenshots
-    /// only. Deleting the asset (or building Release) reverts all of it.
-    private var demoFrame: UIImage? {
+    /// DEBUG demo mode, scoped to SEEDED demo sensors only (identity
+    /// prefix "cam_demo"): their tiles paint the DemoRoom frame, hide
+    /// state pills, and read green — real patients' cameras are
+    /// untouched. Deleting the asset (or building Release) reverts it.
+    private func demoFrame(for cam: Camera) -> UIImage? {
         #if DEBUG
-        UIImage(named: "DemoRoom")
+        guard cam.livekitIdentity?.hasPrefix("cam_demo") == true else {
+            return nil
+        }
+        return UIImage(named: "DemoRoom")
         #else
-        nil
+        return nil
+        #endif
+    }
+
+    private var hasDemoCameras: Bool {
+        #if DEBUG
+        UIImage(named: "DemoRoom") != nil && allCameras.contains {
+            $0.livekitIdentity?.hasPrefix("cam_demo") == true
+        }
+        #else
+        false
         #endif
     }
 
@@ -131,7 +145,7 @@ struct PatientLiveView: View {
                 // the sensor, the web, or here) always appears, regardless of
                 // the bulk-button state. (Disconnect-all simply leaves no live
                 // cameras → the empty card.)
-                if onlineCameras.isEmpty && demoFrame == nil {
+                if onlineCameras.isEmpty && !hasDemoCameras {
                     // A camera counts as "online" if THIS device has its track OR
                     // the backend says it's live + intended-connected (see
                     // `onlineCameras`). The latter keeps a camera in the carousel
@@ -645,7 +659,7 @@ struct PatientLiveView: View {
     /// seeded cameras offline on every backend restart, and the deck
     /// shot must not depend on that race.
     private var carouselCameras: [Camera] {
-        if demoFrame != nil {
+        if hasDemoCameras {
             let enabled = allCameras.filter { !$0.disabled }
             return enabled.isEmpty ? onlineCameras : enabled
         }
@@ -696,7 +710,7 @@ struct PatientLiveView: View {
         return ZStack {
             VStack {
                 HStack {
-                    if demoFrame == nil {
+                    if demoFrame(for: cam) == nil {
                         statePill(for: cam, connectivity: connectivity)
                     }
                     // Beside the LIVE pill, only for cameras whose own AI is
@@ -805,10 +819,10 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
         .background {
             ZStack {
-                if let demoFrame {
+                if let demo = demoFrame(for: cam) {
                     // Deck demo: the recorded frame paints the video slot
                     // no matter what state the sensor is in.
-                    Image(uiImage: demoFrame)
+                    Image(uiImage: demo)
                         .resizable()
                         .scaledToFill()
                 } else if cam.privacyEnabled {
@@ -1038,7 +1052,7 @@ struct PatientLiveView: View {
     /// which is why resuming AI never has to "turn it back green," it never left.
     private func cameraStatusDot(for cam: Camera) -> some View {
         let color: Color = {
-            if demoFrame != nil { return NemaraColor.success }
+            if demoFrame(for: cam) != nil { return NemaraColor.success }
             // 0) Deliberately disconnected → rust, and it WINS over a lagging
             //    `online` flag. The backend's stale-online sweeper takes a few
             //    seconds to write online=false after a sensor leaves, so checking
