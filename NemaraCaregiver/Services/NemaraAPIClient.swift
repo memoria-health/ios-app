@@ -119,6 +119,10 @@ final class NemaraAPIClient {
         isLoading = true
         defer { isLoading = false }
 
+        // Fire-and-forget: the journal's day boundary depends on it,
+        // but sign-in must never block on it.
+        Task { await self.syncTimezone() }
+
         try await loadPatients()
 
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -290,6 +294,17 @@ final class NemaraAPIClient {
         try await sendJSON(
             method: "PATCH", path: "/v1/me",
             body: UpdateCaregiverRequest(displayName: displayName, phone: phone),
+        )
+    }
+
+    /// Keep the server's caregiver timezone matched to the device. The
+    /// journal computes its day boundary from this column; without it,
+    /// iOS-only accounts sit on the server default forever and every
+    /// journal page splits on the wrong midnight. Best-effort.
+    func syncTimezone() async {
+        let _: Caregiver? = try? await sendJSON(
+            method: "PATCH", path: "/v1/me",
+            body: UpdateCaregiverRequest(timezone: TimeZone.current.identifier),
         )
     }
 

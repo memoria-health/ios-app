@@ -16,6 +16,8 @@ struct PatientHomeView: View {
     @State private var daysBack = 0
     @State private var days: [String: JournalDay] = [:]
     @State private var failedDate: String?
+    /// Bumped on significant-time-change so the day pager rolls over.
+    @State private var dayTick = 0
 
     private static let maxBack = 30
 
@@ -33,9 +35,19 @@ struct PatientHomeView: View {
             days[dateString] = nil
             await load()
         }
-        .task(id: daysBack) { await load() }
-        .gesture(
+        .task(id: "\(daysBack)-\(dayTick)") { await load() }
+        // Midnight/timezone rollover: without this, an app left open on
+        // "So far today" keeps showing yesterday labeled as today.
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.significantTimeChangeNotification)) { _ in
+            dayTick += 1
+        }
+        // simultaneousGesture + horizontal dominance so day-paging never
+        // competes with the ScrollView's vertical pan.
+        .simultaneousGesture(
             DragGesture(minimumDistance: 30).onEnded { g in
+                guard abs(g.translation.width) > abs(g.translation.height) * 2
+                else { return }
                 if g.translation.width < -40, daysBack > 0 {
                     daysBack -= 1
                 } else if g.translation.width > 40, daysBack < Self.maxBack {
@@ -51,10 +63,20 @@ struct PatientHomeView: View {
         Calendar.current.date(byAdding: .day, value: -daysBack, to: Date())!
     }
 
-    private var dateString: String {
+    private static let dayFormatter: DateFormatter = {
+        // POSIX locale + Gregorian: a device set to the Buddhist
+        // calendar would otherwise emit year 2569 and query a day 543
+        // years in the future.
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = TimeZone.current
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        return f
+    }()
+
+    private var dateString: String {
+        Self.dayFormatter.string(from: date)
     }
 
     private var eyebrow: String {

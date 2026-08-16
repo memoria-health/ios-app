@@ -67,10 +67,15 @@ struct CreateCaregiverRequest: Encodable, Sendable {
 struct UpdateCaregiverRequest: Encodable, Sendable {
     var displayName: String?
     var phone: String?
+    /// IANA timezone. The journal's day boundary lives server-side on
+    /// this column; iOS keeps it synced to the device (the web client
+    /// already does the same from the browser).
+    var timezone: String?
 
     enum CodingKeys: String, CodingKey {
         case displayName = "display_name"
         case phone
+        case timezone
     }
 
     func encode(to encoder: Encoder) throws {
