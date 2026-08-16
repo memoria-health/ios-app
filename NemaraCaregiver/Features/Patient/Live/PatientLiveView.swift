@@ -802,7 +802,20 @@ struct PatientLiveView: View {
                     // waiting on the subscribe). Pure-SwiftUI spinner so it
                     // doesn't fight the nil→track UIView swap; see
                     // NemaraCamFeedPlaceholder.
+                    #if DEBUG
+                    // Demo builds only: a real recorded frame stands in for
+                    // the stream so deck screenshots show a live-looking
+                    // room. Never compiled into release.
+                    if let demo = UIImage(named: "DemoRoom") {
+                        Image(uiImage: demo)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        NemaraCamFeedPlaceholder(hue: 30, loading: true)
+                    }
+                    #else
                     NemaraCamFeedPlaceholder(hue: 30, loading: true)
+                    #endif
                 }
                 // Bottom scrim drawn INTO the feed — NOT into the padded content.
                 // Because it lives in the background layer it bleeds all the way
