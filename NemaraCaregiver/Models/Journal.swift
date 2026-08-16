@@ -35,6 +35,9 @@ struct JournalEntry: Decodable, Equatable, Identifiable {
     var kind: String
     var line: JournalLine
     var strip: JournalStrip?
+    /// Activity's two-color tug-of-war: active minutes vs observed,
+    /// labeled minutes. A ratio, not a timeline.
+    var ratio: JournalRatio?
     var reviewEventId: UUID?
 
     /// Sections can hold entries without a detector id (sleep/activity
@@ -42,7 +45,7 @@ struct JournalEntry: Decodable, Equatable, Identifiable {
     var id: String { detectorId?.uuidString ?? title }
 
     enum CodingKeys: String, CodingKey {
-        case title, icon, category, severity, kind, line, strip
+        case title, icon, category, severity, kind, line, strip, ratio
         case detectorId = "detector_id"
         case reviewEventId = "review_event_id"
     }
@@ -61,6 +64,16 @@ struct JournalLine: Decodable, Equatable {
     var primary: String
     var meta: String?
     var status: Status
+}
+
+struct JournalRatio: Decodable, Equatable {
+    var activeMinutes: Int
+    var labeledMinutes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case activeMinutes = "active_minutes"
+        case labeledMinutes = "labeled_minutes"
+    }
 }
 
 struct JournalStrip: Decodable, Equatable {

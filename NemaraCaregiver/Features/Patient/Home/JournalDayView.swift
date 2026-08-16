@@ -71,28 +71,37 @@ struct DayStripView: View {
     }
 }
 
-/// One journal entry row. Hierarchy carried by size and ink, not
-/// weight: small tinted icon says the category, a quiet title names
-/// the detector, the fact below it wraps at full width, and the only
-/// emphasis on the page is a status chip.
+/// One journal entry row — the artifact's grammar: exactly one
+/// semibold lead per row, one short caption beneath it, and at most
+/// one chip. Never more.
 struct JournalEntryRow: View {
     let entry: JournalEntry
     let accent: Color
     let soft: Color
     let onReview: (UUID) -> Void
 
-    /// Eventful lines read in full ink; quiet/record lines recede.
-    private var eventful: Bool {
-        entry.line.status == .review || !(entry.strip?.marks.isEmpty ?? true)
+    /// Quiet point lines ("No falls") lead with the fact itself.
+    private var factLed: Bool {
+        entry.line.status == .ok && entry.line.primary.hasPrefix("No ")
     }
 
-    /// Quiet point lines ("No falls") already ARE the fact — showing
-    /// title + "No falls" would say it twice.
-    private var value: String {
+    private var lead: String { factLed ? entry.line.primary : entry.title }
+
+    /// One short caption. Records join their two short parts; event
+    /// and absence rows show just the meta or the outcome.
+    private var caption: String? {
+        if factLed { return nil }
         let primary = entry.line.primary == entry.title ? nil : entry.line.primary
-        let meta = entry.line.status == .ok && entry.line.primary.hasPrefix("No ")
-            ? nil : entry.line.meta
-        return [primary, meta].compactMap(\.self).joined(separator: " · ")
+        let parts = [primary, entry.line.meta].compactMap(\.self)
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    private var captionColor: Color {
+        switch entry.line.status {
+        case .ok: return NemaraColor.sage
+        case .review: return NemaraColor.ink2
+        case .none: return NemaraColor.ink3
+        }
     }
 
     var body: some View {
@@ -105,19 +114,23 @@ struct JournalEntryRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(accent)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(entry.title)
-                        .font(NemaraFont.bodySmall)
-                        .foregroundStyle(NemaraColor.ink3)
+                    Text(lead)
+                        .font(NemaraFont.bodySemibold)
+                        .foregroundStyle(NemaraColor.ink)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     trailingChip
                 }
-                if !value.isEmpty {
-                    Text(value)
-                        .font(NemaraFont.bodyLarge)
-                        .foregroundStyle(eventful ? NemaraColor.ink : NemaraColor.ink2)
+                if let caption {
+                    Text(entry.line.status == .ok ? "✓ \(caption)" : caption)
+                        .font(NemaraFont.bodySmall)
+                        .foregroundStyle(captionColor)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let ratio = entry.ratio {
+                    RatioBarView(ratio: ratio, accent: accent)
                 }
                 if let strip = entry.strip {
                     DayStripView(strip: strip, accent: accent)
@@ -143,18 +156,39 @@ struct JournalEntryRow: View {
                 }
                 .buttonStyle(.plain)
             }
-        case .ok:
-            HStack(spacing: 3) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .semibold))
-                if entry.line.primary.hasPrefix("No "), let meta = entry.line.meta {
-                    Text(meta).font(NemaraFont.caption)
-                }
-            }
-            .foregroundStyle(NemaraColor.sage)
-        case .none:
+        case .ok where factLed:
+            Text("✓ \(entry.line.meta ?? "")")
+                .font(NemaraFont.captionStrong)
+                .foregroundStyle(NemaraColor.sage)
+        default:
             EmptyView()
         }
+    }
+}
+
+/// Activity's tug-of-war: active minutes (accent) vs the rest of the
+/// observed day. A ratio has no axis to misread.
+struct RatioBarView: View {
+    let ratio: JournalRatio
+    let accent: Color
+
+    var body: some View {
+        let total = max(ratio.labeledMinutes, 1)
+        let fraction = min(1, CGFloat(ratio.activeMinutes) / CGFloat(total))
+        VStack(alignment: .leading, spacing: 3) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(NemaraColor.line.opacity(0.6))
+                    Capsule().fill(accent)
+                        .frame(width: max(8, geo.size.width * fraction))
+                }
+            }
+            .frame(height: 10)
+            Text("of \(ratio.labeledMinutes / 60) h \(ratio.labeledMinutes % 60) m observed")
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
+        }
+        .padding(.top, 3)
     }
 }
 
@@ -174,15 +208,14 @@ struct JournalDayView: View {
 
     private func sectionView(_ section: JournalSection) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            // Section names are real headings — serif, larger than any
-            // body text — with the category swatch as reinforcement.
-            HStack(spacing: 8) {
-                Circle()
+            // The artifact's section heading: category-colored eyebrow
+            // with its swatch. Colour + label together, never alone.
+            HStack(spacing: 7) {
+                RoundedRectangle(cornerRadius: 2.5)
                     .fill(section.category.accent)
-                    .frame(width: 9, height: 9)
-                Text(section.category.displayName)
-                    .font(NemaraFont.title3)
-                    .foregroundStyle(NemaraColor.ink)
+                    .frame(width: 8, height: 8)
+                NemaraEyebrow(section.category.displayName.uppercased(),
+                              color: section.category.accent)
             }
             .padding(.horizontal, 4)
             .padding(.top, 10)
