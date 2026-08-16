@@ -131,7 +131,7 @@ struct PatientLiveView: View {
                 // the sensor, the web, or here) always appears, regardless of
                 // the bulk-button state. (Disconnect-all simply leaves no live
                 // cameras → the empty card.)
-                if onlineCameras.isEmpty {
+                if onlineCameras.isEmpty && demoFrame == nil {
                     // A camera counts as "online" if THIS device has its track OR
                     // the backend says it's live + intended-connected (see
                     // `onlineCameras`). The latter keeps a camera in the carousel
@@ -641,9 +641,20 @@ struct PatientLiveView: View {
 
     // MARK: - Tiles
 
+    /// Demo mode ignores backend liveness entirely — the sweep flips
+    /// seeded cameras offline on every backend restart, and the deck
+    /// shot must not depend on that race.
+    private var carouselCameras: [Camera] {
+        if demoFrame != nil {
+            let enabled = allCameras.filter { !$0.disabled }
+            return enabled.isEmpty ? onlineCameras : enabled
+        }
+        return onlineCameras
+    }
+
     private var cameraCarousel: some View {
         TabView(selection: tabSelectionBinding) {
-            ForEach(onlineCameras) { cam in
+            ForEach(carouselCameras) { cam in
                 cameraTile(for: cam)
                     .tag(Optional(cam.id))
                     // Headroom for the page-dot indicator, and ONLY when the
@@ -1027,6 +1038,7 @@ struct PatientLiveView: View {
     /// which is why resuming AI never has to "turn it back green," it never left.
     private func cameraStatusDot(for cam: Camera) -> some View {
         let color: Color = {
+            if demoFrame != nil { return NemaraColor.success }
             // 0) Deliberately disconnected → rust, and it WINS over a lagging
             //    `online` flag. The backend's stale-online sweeper takes a few
             //    seconds to write online=false after a sensor leaves, so checking
