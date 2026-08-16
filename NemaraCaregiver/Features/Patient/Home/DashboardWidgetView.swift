@@ -192,8 +192,8 @@ struct DashboardWidgetView: View {
            case .number(let prev)? = data?.prevValue {
             let up = cur > Int(prev)
             let text = Int(prev) == 0
-                ? "\(cur) this period, none the period before"
-                : "\(up ? "▲" : cur < Int(prev) ? "▼" : "·") \(cur) this period · \(Int(prev)) before"
+                ? "\(cur) this week, none last week"
+                : "\(up ? "▲" : cur < Int(prev) ? "▼" : "·") \(cur) this week · \(Int(prev)) last week"
             // More of a behaviour episode is worse; fewer is better.
             Text(text)
                 .font(NemaraFont.caption)

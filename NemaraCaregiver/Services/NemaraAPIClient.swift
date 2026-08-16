@@ -1213,7 +1213,8 @@ final class NemaraAPIClient {
     func sleepNights(patientId: UUID, days: Int = 7) async throws -> [SleepNight] {
         let resp: SleepNightsResponse = try await sendNoBody(
             method: "GET",
-            path: "/v1/patients/\(patientId.uuidString.lowercased())/sleep-nights?days=\(days)")
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/sleep-nights",
+            query: [URLQueryItem(name: "days", value: String(days))])
         return resp.nights
     }
 
@@ -1235,7 +1236,8 @@ final class NemaraAPIClient {
     func activityDays(patientId: UUID, days: Int = 30) async throws -> [ActivityDay] {
         let resp: ActivityDaysResponse = try await sendNoBody(
             method: "GET",
-            path: "/v1/patients/\(patientId.uuidString.lowercased())/activity-days?days=\(days)")
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/activity-days",
+            query: [URLQueryItem(name: "days", value: String(days))])
         return resp.days
     }
 

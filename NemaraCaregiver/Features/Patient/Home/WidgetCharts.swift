@@ -56,10 +56,11 @@ enum WidgetDataShaper {
     /// every label together. Pick ~5, always including the ends.
     static func sparseLabels(_ points: [SeriesPoint]) -> [String] {
         guard points.count > 6 else { return points.map { monthDay($0.bucket) } }
+        // Interior picks only: labels on the first/last category clip at
+        // the plot edges on narrow cards.
         let step = max(1, points.count / 3)
-        var picks = Set(stride(from: 0, to: points.count, by: step))
-        picks.insert(points.count - 1)
-        return picks.sorted().map { monthDay(points[$0].bucket) }
+        let picks = stride(from: step / 2, to: points.count - 1, by: step)
+        return picks.map { monthDay(points[$0].bucket) }
     }
 }
 
@@ -301,7 +302,7 @@ struct TrendBandView: View {
                     y: .value("Value", last.value),
                 )
                 .foregroundStyle(accent)
-                .annotation(position: .topTrailing) {
+                .annotation(position: .topLeading) {
                     Text("\(Int(last.value))\(unit ?? "")")
                         .font(NemaraFont.captionStrong)
                         .foregroundStyle(NemaraColor.ink2)
