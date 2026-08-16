@@ -85,7 +85,9 @@ struct DashboardWidgetView: View {
     }
 
     private var collectingFace: some View {
-        Text("Watching \(spec.title.lowercased()). First look in \(spec.minDays) day\(spec.minDays == 1 ? "" : "s").")
+        let elapsed = Int(Date().timeIntervalSince(entry.detector.createdAt) / 86_400)
+        let left = max(1, spec.minDays - elapsed)
+        return Text("Watching \(spec.title.lowercased()). First look in \(left) day\(left == 1 ? "" : "s").")
             .font(NemaraFont.bodySmall)
             .foregroundStyle(NemaraColor.ink3)
             .padding(.vertical, 6)

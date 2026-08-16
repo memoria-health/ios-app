@@ -434,6 +434,13 @@ struct WeekHeatmapView: View {
                 }
             }
         }
+        .overlay(alignment: .topTrailing) {
+            Text("darker = more")
+                .font(NemaraFont.caption)
+                .foregroundStyle(NemaraColor.ink3)
+                .offset(y: -16)
+        }
+        .padding(.top, 16)
     }
 }
 
