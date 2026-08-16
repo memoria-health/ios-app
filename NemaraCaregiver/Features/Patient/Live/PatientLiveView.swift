@@ -15,6 +15,17 @@ import SwiftUI
 /// also handles room switching when the caregiver navigates from one
 /// patient to another (`connect` calls `disconnect` first).
 struct PatientLiveView: View {
+    /// DEBUG demo mode: when the DemoRoom asset is bundled, its frame
+    /// paints the video slot and state pills hide — deck screenshots
+    /// only. Deleting the asset (or building Release) reverts all of it.
+    private var demoFrame: UIImage? {
+        #if DEBUG
+        UIImage(named: "DemoRoom")
+        #else
+        nil
+        #endif
+    }
+
     let patientId: UUID
     @Environment(AppEnvironment.self) private var env
     // Device-local "Blur people" preference; when on, tiles render through
@@ -674,7 +685,9 @@ struct PatientLiveView: View {
         return ZStack {
             VStack {
                 HStack {
-                    statePill(for: cam, connectivity: connectivity)
+                    if demoFrame == nil {
+                        statePill(for: cam, connectivity: connectivity)
+                    }
                     // Beside the LIVE pill, only for cameras whose own AI is
                     // paused. Driven by `cam.aiPaused` (per-camera), which
                     // updates live via the cameras realtime channel — pause
@@ -781,7 +794,13 @@ struct PatientLiveView: View {
         .aspectRatio(16/9, contentMode: .fit)
         .background {
             ZStack {
-                if cam.privacyEnabled {
+                if let demoFrame {
+                    // Deck demo: the recorded frame paints the video slot
+                    // no matter what state the sensor is in.
+                    Image(uiImage: demoFrame)
+                        .resizable()
+                        .scaledToFill()
+                } else if cam.privacyEnabled {
                     // Private room: the live feed for THIS camera is severed
                     // server-side, so never render video even if a stale
                     // track lingers. Show the dignity placard instead —
@@ -802,20 +821,7 @@ struct PatientLiveView: View {
                     // waiting on the subscribe). Pure-SwiftUI spinner so it
                     // doesn't fight the nil→track UIView swap; see
                     // NemaraCamFeedPlaceholder.
-                    #if DEBUG
-                    // Demo builds only: a real recorded frame stands in for
-                    // the stream so deck screenshots show a live-looking
-                    // room. Never compiled into release.
-                    if let demo = UIImage(named: "DemoRoom") {
-                        Image(uiImage: demo)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        NemaraCamFeedPlaceholder(hue: 30, loading: true)
-                    }
-                    #else
                     NemaraCamFeedPlaceholder(hue: 30, loading: true)
-                    #endif
                 }
                 // Bottom scrim drawn INTO the feed — NOT into the padded content.
                 // Because it lives in the background layer it bleeds all the way
