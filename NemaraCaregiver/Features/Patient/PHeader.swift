@@ -29,29 +29,10 @@ struct PHeader: View {
             Spacer()
             SupportIconButton()
                 .padding(.trailing, 10)
-            if let onFeedback {
-                Button(action: onFeedback) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "bubble.left.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Feedback")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    .foregroundStyle(NemaraColor.ink)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Capsule(style: .continuous).fill(NemaraColor.paperDim))
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .strokeBorder(NemaraColor.line, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Give feedback")
-                // Deliberate gap so Feedback and Home are well separated and
-                // not easily fat-fingered together (12 here + HStack's 12 = 24pt).
-                .padding(.trailing, 12)
-            }
+            // Feedback pill removed from the header (Aryaman, Aug 17) —
+            // product feedback lives in Patient Settings; the header
+            // keeps only help and Home.
+
             Button(action: onHome) {
                 Image(systemName: "house.fill")
                     .font(.system(size: 18, weight: .semibold))
