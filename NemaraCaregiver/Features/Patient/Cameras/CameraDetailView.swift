@@ -510,7 +510,7 @@ struct CameraDetailView: View {
 
             HStack {
                 Spacer()
-                InfoDot("Applies to this camera only — other cameras are independent. The master switch lives on the detector.")
+                InfoDot("Applies to this camera only, other cameras are independent. The master switch lives on the detector.")
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)

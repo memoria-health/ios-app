@@ -184,8 +184,14 @@ struct DetectorLibraryView: View {
                 if !recommended.isEmpty {
                     section(title: "RECOMMENDED", entries: recommended)
                 }
-                if !more.isEmpty {
-                    section(title: "MORE DETECTORS", entries: more)
+                // The rest, segregated by category in the palette order
+                // (Aryaman 2026-08-17) — one flat MORE DETECTORS pile made
+                // safety and routine reads compete.
+                ForEach(Detector.Category.selectable, id: \.self) { cat in
+                    let rows = more.filter { $0.category == cat }
+                    if !rows.isEmpty {
+                        section(title: cat.displayName.uppercased(), entries: rows)
+                    }
                 }
                 // Honest empty-camera note (matches the backend behaviour:
                 // detectors start running when the first camera is paired).

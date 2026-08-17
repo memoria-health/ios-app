@@ -19,19 +19,11 @@ struct PatientSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingFeedback = false
 
-    // Photo upload state. selectedItem drives PhotosPicker, which fires
-    // .onChange when the caregiver picks something; the upload runs on
-    // the main actor and surfaces failures via photoUploadError.
-    @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var photoUploadError: String?
-    @State private var isUploadingPhoto = false
-    // Profile edit mode (2026-08-17): the Edit button shipped with an
-    // EMPTY action closure — it did nothing. It now toggles this mode,
-    // which is also the only place photo change/remove appear.
-    @State private var isEditingProfile = false
-    @State private var editFullName = ""
-    @State private var editPreferredName = ""
-    @State private var isSavingProfile = false
+    // Profile editing (2026-08-17): the Edit button shipped with an
+    // EMPTY action closure. It now presents EditPatientSheet — one
+    // labeled form for everything the add-patient first page collects,
+    // photo included (no photo affordances on the card itself).
+    @State private var showingEditProfile = false
 
     // Patient deletion state. Two-step (confirm + execute) so a single
     // mis-tap can't cascade-delete a patient's entire history. The
@@ -223,169 +215,32 @@ struct PatientSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 14) {
                     if let p = patient {
-                        ZStack(alignment: .bottomTrailing) {
-                            PatientAvatar(patient: p, size: 56)
-                            // Photo actions live behind Edit — a
-                            // permanent camera badge next to a broken
-                            // Edit button read as two competing edit
-                            // affordances (Aryaman 2026-08-17).
-                            if isEditingProfile {
-                                PhotosPicker(
-                                    selection: $selectedPhotoItem,
-                                    matching: .images,
-                                    photoLibrary: .shared(),
-                                ) {
-                                    Image(systemName: "camera.fill")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundStyle(NemaraColor.actionInk)
-                                        .frame(width: 22, height: 22)
-                                        .background(NemaraColor.action)
-                                        .clipShape(Circle())
-                                        .overlay(
-                                            Circle().strokeBorder(NemaraColor.paper, lineWidth: 2),
-                                        )
-                                }
-                                .accessibilityLabel("Change photo")
-                                .disabled(isUploadingPhoto)
-                            }
-                        }
+                        PatientAvatar(patient: p, size: 56)
                     } else {
                         NemaraAvatar(letter: "?", size: 56)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        if isEditingProfile {
-                            TextField("Full name", text: $editFullName)
-                                .font(NemaraFont.bodySemibold)
-                                .foregroundStyle(NemaraColor.ink)
-                                .textFieldStyle(.plain)
-                                .padding(6)
-                                .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            TextField("Goes by", text: $editPreferredName)
-                                .font(NemaraFont.bodySmall)
-                                .foregroundStyle(NemaraColor.ink)
-                                .textFieldStyle(.plain)
-                                .padding(6)
-                                .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        } else {
-                            Text(patient?.fullName ?? "")
-                                .font(NemaraFont.title2)
-                                .foregroundStyle(NemaraColor.ink)
-                                .kerning(-0.4)
-                            if let p = patient {
-                                Text("\(p.relation.displayName) · Goes by \(p.preferredName) · \(p.age) yrs")
-                                    .font(NemaraFont.caption)
-                                    .foregroundStyle(NemaraColor.ink3)
-                            }
+                        Text(patient?.fullName ?? "")
+                            .font(NemaraFont.title2)
+                            .foregroundStyle(NemaraColor.ink)
+                            .kerning(-0.4)
+                        if let p = patient {
+                            Text("\(p.relation.displayName) \u{00B7} Goes by \(p.preferredName) \u{00B7} \(p.age) yrs")
+                                .font(NemaraFont.caption)
+                                .foregroundStyle(NemaraColor.ink3)
                         }
                     }
                     Spacer()
-                    if isEditingProfile {
-                        NemaraButton(
-                            isSavingProfile ? "Saving…" : "Save",
-                            variant: .primary, size: .sm,
-                        ) {
-                            Task { await saveProfileEdits() }
-                        }
-                        .disabled(isSavingProfile
-                                  || editFullName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    } else {
-                        NemaraButton("Edit", variant: .ghost, size: .sm, systemImage: "pencil") {
-                            editFullName = patient?.fullName ?? ""
-                            editPreferredName = patient?.preferredName ?? ""
-                            photoUploadError = nil
-                            isEditingProfile = true
-                        }
+                    NemaraButton("Edit", variant: .ghost, size: .sm, systemImage: "pencil") {
+                        showingEditProfile = true
                     }
-                }
-                if isEditingProfile {
-                    HStack(spacing: 10) {
-                        if patient?.photoStorageKey != nil {
-                            NemaraButton(
-                                "Remove photo",
-                                variant: .ghost,
-                                size: .sm,
-                                systemImage: "trash",
-                            ) {
-                                Task { await removePhoto() }
-                            }
-                        }
-                        Spacer()
-                        NemaraButton("Cancel", variant: .ghost, size: .sm) {
-                            isEditingProfile = false
-                        }
-                        .disabled(isSavingProfile)
-                    }
-                }
-                if let err = photoUploadError {
-                    Text(err)
-                        .font(NemaraFont.caption)
-                        .foregroundStyle(NemaraColor.terra)
                 }
             }
         }
         .padding(.horizontal, 16)
-        .onChange(of: selectedPhotoItem) { _, newItem in
-            guard let newItem else { return }
-            Task { await uploadPickedPhoto(newItem) }
-        }
-    }
-
-    // MARK: - Photo upload
-
-    /// Load the picked item as JPEG bytes (down-sampling to ≤1024px
-    /// longest edge), then upload via the API. Errors land in
-    /// `photoUploadError` for inline display.
-    private func uploadPickedPhoto(_ item: PhotosPickerItem) async {
-        guard let patient else { return }
-        isUploadingPhoto = true
-        photoUploadError = nil
-        defer { isUploadingPhoto = false; selectedPhotoItem = nil }
-        do {
-            guard let raw = try await item.loadTransferable(type: Data.self) else {
-                photoUploadError = "Couldn't read the selected photo."
-                return
-            }
-            let jpeg = Self.downsampledJPEG(from: raw, maxDimension: 1024, quality: 0.8)
-            guard let jpeg else {
-                photoUploadError = "That image format isn't supported."
-                return
-            }
-            try await env.api.uploadPatientPhoto(
-                patient.id, imageData: jpeg, contentType: "image/jpeg",
-            )
-        } catch {
-            photoUploadError = error.localizedDescription
-        }
-    }
-
-    /// PATCH the edited names, then leave edit mode. The API client
-    /// swaps the updated patient into its store, so `patient` (computed
-    /// off the store) reflects the change with no manual refresh.
-    private func saveProfileEdits() async {
-        guard let patient else { return }
-        isSavingProfile = true
-        defer { isSavingProfile = false }
-        photoUploadError = nil
-        do {
-            let full = editFullName.trimmingCharacters(in: .whitespaces)
-            let preferred = editPreferredName.trimmingCharacters(in: .whitespaces)
-            _ = try await env.api.updatePatient(patient.id, UpdatePatientRequest(
-                fullName: full,
-                preferredName: preferred.isEmpty ? full : preferred,
-            ))
-            isEditingProfile = false
-        } catch {
-            photoUploadError = error.localizedDescription
-        }
-    }
-
-    private func removePhoto() async {
-        guard let patient else { return }
-        photoUploadError = nil
-        do {
-            try await env.api.deletePatientPhoto(patient.id)
-        } catch {
-            photoUploadError = error.localizedDescription
+        .sheet(isPresented: $showingEditProfile) {
+            EditPatientSheet(patientId: patientId)
+                .environment(env)
         }
     }
 
@@ -407,7 +262,7 @@ struct PatientSettingsView: View {
     /// Down-sample to a max-longest-edge box and re-encode as JPEG.
     /// 1024px is comfortably above the on-screen size and small
     /// enough to fit the backend's 1 MiB cap with room to spare.
-    private static func downsampledJPEG(
+    static func downsampledJPEG(
         from data: Data, maxDimension: CGFloat, quality: CGFloat,
     ) -> Data? {
         guard let image = UIImage(data: data) else { return nil }
