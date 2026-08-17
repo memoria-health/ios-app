@@ -13,13 +13,17 @@ struct AccuracyCaveatNotice: View {
     /// the default (enroll flow + detail sheet).
     var compact: Bool = false
 
+    // Reworded 2026-08-17 (Aryaman): lead with the plain expectation
+    // ("100% accuracy is not guaranteed") instead of the mechanism
+    // ("reads small, fine details") — the old wording also misdescribed
+    // whole-person detectors like choking, which now carry this notice.
     private static let full =
-        "This detector reads small, fine details, so how reliably it works "
-        + "depends on how far away the camera is, the lighting, and the angle. "
-        + "It can miss events or misread them. Treat any alert as a reason to "
-        + "check in, not a guarantee that something did or did not happen."
+        "100% accuracy is not guaranteed. How well this detector works "
+        + "depends on camera distance, lighting, and angle, and it can miss "
+        + "events or misread them. Treat any alert as a reason to check in, "
+        + "not as proof that something did or did not happen."
     private static let short =
-        "Reads fine detail. Accuracy depends on camera distance, lighting, and angle."
+        "100% accuracy not guaranteed. Depends on camera distance, lighting, and angle."
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {

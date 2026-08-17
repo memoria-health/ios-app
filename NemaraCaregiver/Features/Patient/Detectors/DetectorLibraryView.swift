@@ -229,9 +229,13 @@ struct DetectorLibraryView: View {
             toggle(e)
         } label: {
             HStack(spacing: 12) {
+                // Category accent, not a hardcoded hue — this row serves
+                // BOTH the library page and the first-time onboarding
+                // picker, and the icon colour must match the category
+                // palette everywhere (Aryaman 2026-08-17).
                 Image(systemName: e.iconName)
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(NemaraColor.terra)
+                    .foregroundStyle(e.category.accent)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(e.name)

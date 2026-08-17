@@ -50,7 +50,10 @@ struct PatientShell: View {
                     }
                 }
             }
-            .tabItem { Label("Home", systemImage: "square.grid.2x2.fill") }
+            // "Overview", not "Home" — the app-level tab bar already has
+            // a Home tab, and two Homes at different navigation depths
+            // read as the same place (Aryaman 2026-08-17).
+            .tabItem { Label("Overview", systemImage: "square.grid.2x2.fill") }
             .tag(PatientTab.home)
 
             NavigationStack {

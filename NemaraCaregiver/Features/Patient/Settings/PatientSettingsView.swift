@@ -25,6 +25,13 @@ struct PatientSettingsView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var photoUploadError: String?
     @State private var isUploadingPhoto = false
+    // Profile edit mode (2026-08-17): the Edit button shipped with an
+    // EMPTY action closure — it did nothing. It now toggles this mode,
+    // which is also the only place photo change/remove appear.
+    @State private var isEditingProfile = false
+    @State private var editFullName = ""
+    @State private var editPreferredName = ""
+    @State private var isSavingProfile = false
 
     // Patient deletion state. Two-step (confirm + execute) so a single
     // mis-tap can't cascade-delete a patient's entire history. The
@@ -54,7 +61,7 @@ struct PatientSettingsView: View {
                 PatientEmailAlertsCard(patientId: patientId)
                 accuracySection
                 privacySection
-                DataCollectionCard(patientId: patientId)
+                dataSection
                 feedbackEntry
 
                 NemaraButton(
@@ -218,49 +225,95 @@ struct PatientSettingsView: View {
                     if let p = patient {
                         ZStack(alignment: .bottomTrailing) {
                             PatientAvatar(patient: p, size: 56)
-                            PhotosPicker(
-                                selection: $selectedPhotoItem,
-                                matching: .images,
-                                photoLibrary: .shared(),
-                            ) {
-                                Image(systemName: "camera.fill")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(NemaraColor.actionInk)
-                                    .frame(width: 22, height: 22)
-                                    .background(NemaraColor.action)
-                                    .clipShape(Circle())
-                                    .overlay(
-                                        Circle().strokeBorder(NemaraColor.paper, lineWidth: 2),
-                                    )
+                            // Photo actions live behind Edit — a
+                            // permanent camera badge next to a broken
+                            // Edit button read as two competing edit
+                            // affordances (Aryaman 2026-08-17).
+                            if isEditingProfile {
+                                PhotosPicker(
+                                    selection: $selectedPhotoItem,
+                                    matching: .images,
+                                    photoLibrary: .shared(),
+                                ) {
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(NemaraColor.actionInk)
+                                        .frame(width: 22, height: 22)
+                                        .background(NemaraColor.action)
+                                        .clipShape(Circle())
+                                        .overlay(
+                                            Circle().strokeBorder(NemaraColor.paper, lineWidth: 2),
+                                        )
+                                }
+                                .accessibilityLabel("Change photo")
+                                .disabled(isUploadingPhoto)
                             }
-                            .accessibilityLabel("Change photo")
-                            .disabled(isUploadingPhoto)
                         }
                     } else {
                         NemaraAvatar(letter: "?", size: 56)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(patient?.fullName ?? "")
-                            .font(NemaraFont.title2)
-                            .foregroundStyle(NemaraColor.ink)
-                            .kerning(-0.4)
-                        if let p = patient {
-                            Text("\(p.relation.displayName) · Goes by \(p.preferredName) · \(p.age) yrs")
-                                .font(NemaraFont.caption)
-                                .foregroundStyle(NemaraColor.ink3)
+                        if isEditingProfile {
+                            TextField("Full name", text: $editFullName)
+                                .font(NemaraFont.bodySemibold)
+                                .foregroundStyle(NemaraColor.ink)
+                                .textFieldStyle(.plain)
+                                .padding(6)
+                                .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            TextField("Goes by", text: $editPreferredName)
+                                .font(NemaraFont.bodySmall)
+                                .foregroundStyle(NemaraColor.ink)
+                                .textFieldStyle(.plain)
+                                .padding(6)
+                                .background(NemaraColor.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        } else {
+                            Text(patient?.fullName ?? "")
+                                .font(NemaraFont.title2)
+                                .foregroundStyle(NemaraColor.ink)
+                                .kerning(-0.4)
+                            if let p = patient {
+                                Text("\(p.relation.displayName) · Goes by \(p.preferredName) · \(p.age) yrs")
+                                    .font(NemaraFont.caption)
+                                    .foregroundStyle(NemaraColor.ink3)
+                            }
                         }
                     }
                     Spacer()
-                    NemaraButton("Edit", variant: .ghost, size: .sm, systemImage: "pencil") {}
+                    if isEditingProfile {
+                        NemaraButton(
+                            isSavingProfile ? "Saving…" : "Save",
+                            variant: .primary, size: .sm,
+                        ) {
+                            Task { await saveProfileEdits() }
+                        }
+                        .disabled(isSavingProfile
+                                  || editFullName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    } else {
+                        NemaraButton("Edit", variant: .ghost, size: .sm, systemImage: "pencil") {
+                            editFullName = patient?.fullName ?? ""
+                            editPreferredName = patient?.preferredName ?? ""
+                            photoUploadError = nil
+                            isEditingProfile = true
+                        }
+                    }
                 }
-                if patient?.photoStorageKey != nil {
-                    NemaraButton(
-                        "Remove photo",
-                        variant: .ghost,
-                        size: .sm,
-                        systemImage: "trash",
-                    ) {
-                        Task { await removePhoto() }
+                if isEditingProfile {
+                    HStack(spacing: 10) {
+                        if patient?.photoStorageKey != nil {
+                            NemaraButton(
+                                "Remove photo",
+                                variant: .ghost,
+                                size: .sm,
+                                systemImage: "trash",
+                            ) {
+                                Task { await removePhoto() }
+                            }
+                        }
+                        Spacer()
+                        NemaraButton("Cancel", variant: .ghost, size: .sm) {
+                            isEditingProfile = false
+                        }
+                        .disabled(isSavingProfile)
                     }
                 }
                 if let err = photoUploadError {
@@ -300,6 +353,27 @@ struct PatientSettingsView: View {
             try await env.api.uploadPatientPhoto(
                 patient.id, imageData: jpeg, contentType: "image/jpeg",
             )
+        } catch {
+            photoUploadError = error.localizedDescription
+        }
+    }
+
+    /// PATCH the edited names, then leave edit mode. The API client
+    /// swaps the updated patient into its store, so `patient` (computed
+    /// off the store) reflects the change with no manual refresh.
+    private func saveProfileEdits() async {
+        guard let patient else { return }
+        isSavingProfile = true
+        defer { isSavingProfile = false }
+        photoUploadError = nil
+        do {
+            let full = editFullName.trimmingCharacters(in: .whitespaces)
+            let preferred = editPreferredName.trimmingCharacters(in: .whitespaces)
+            _ = try await env.api.updatePatient(patient.id, UpdatePatientRequest(
+                fullName: full,
+                preferredName: preferred.isEmpty ? full : preferred,
+            ))
+            isEditingProfile = false
         } catch {
             photoUploadError = error.localizedDescription
         }
@@ -378,6 +452,17 @@ struct PatientSettingsView: View {
                 .padding(.horizontal, 16)
             PeopleBlurCard(patientId: patientId)
             AudioCaptureCard(patientId: patientId)
+        }
+    }
+
+    /// Data-sharing choices, under their own header so "Contribute
+    /// recordings to research" reads as a DATA setting rather than
+    /// floating unlabeled below privacy (Aryaman 2026-08-17).
+    private var dataSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NemaraEyebrow("DATA")
+                .padding(.horizontal, 16)
+            DataCollectionCard(patientId: patientId)
         }
     }
 

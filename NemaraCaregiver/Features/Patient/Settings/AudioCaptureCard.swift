@@ -42,7 +42,7 @@ struct AudioCaptureCard: View {
 
                             .foregroundStyle(NemaraColor.ink)
 
-                        InfoDot("On: cameras capture sound for live audio, clips, and speech alerts. Off: no sound is captured, recorded, or analyzed - required for care facilities.")
+                        InfoDot("Cameras capture sound for live audio, clips, and speech alerts. Turn off to stop all sound capture.")
 
                     }
                     if let errorText {
