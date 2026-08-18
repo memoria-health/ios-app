@@ -139,6 +139,11 @@ targets:
       Release: NemaraCaregiver/Defaults.xcconfig
     settings:
       base:
+        # Pinned so xcodegen regeneration can never reset signing to a
+        # personal team: this is the Darda and Cui org team that owns
+        # the App Store app record.
+        DEVELOPMENT_TEAM: 2RM3SKJN35
+        PRODUCT_BUNDLE_IDENTIFIER: co.sunny.nemara.caregiver
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # System tint reads the same canonical token as the in-app
