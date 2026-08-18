@@ -15,7 +15,7 @@ struct WelcomeView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("The other 99.9% of care.")
                         .font(NemaraFont.display)
-                        .foregroundStyle(NemaraColor.ink)
+                        .foregroundStyle(NemaraColor.terra)
                         .kerning(-1.5)
                         .lineSpacing(-2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -72,8 +72,8 @@ private func nemaraPrimaryLabel(_ title: String) -> some View {
         .tracking(-0.1)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .foregroundStyle(NemaraColor.actionInk)
-        .background(NemaraColor.action)
+        .foregroundStyle(.white)
+        .background(NemaraColor.ink)
         .clipShape(RoundedRectangle(cornerRadius: NemaraRadius.md, style: .continuous))
 }
 
