@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The Memoria brand mark — the terra-rust square with the cream "m",
-/// mirroring the app icon. Using an image instead of live-rendering Text keeps
-/// the in-app mark in pixel-parity with AppIcon at every size and removes any
-/// runtime font-registration risk.
+/// The Memoria brand mark — the black square with the white "m"
+/// monogram (brand refresh 2026-08-18; source SVG in Resources/
+/// memoria-monogram.svg). An image rather than live-rendered Text so
+/// the mark stays in pixel parity at every size.
 struct NemaraMark: View {
     let size: CGFloat
 

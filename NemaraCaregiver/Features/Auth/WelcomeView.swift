@@ -10,7 +10,13 @@ struct WelcomeView: View {
             Spacer(minLength: 0)
 
             VStack(alignment: .leading, spacing: 22) {
-                NemaraMark(size: 56)
+                HStack(spacing: 14) {
+                    NemaraMark(size: 56)
+                    Text("memoria")
+                        .font(.custom("PlusJakartaSans-ExtraBold", size: 30))
+                        .tracking(-0.03 * 30)
+                        .foregroundStyle(NemaraColor.ink)
+                }
 
                 VStack(alignment: .leading, spacing: 18) {
                     Text("The other 99.9% of care.")
