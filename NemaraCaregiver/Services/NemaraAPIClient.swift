@@ -647,6 +647,43 @@ final class NemaraAPIClient {
         )
     }
 
+    // MARK: - Which room to join to see a patient
+
+    /// The LiveKit room to join in order to watch `pid`, plus any of
+    /// their cameras that room does not contain.
+    ///
+    /// This used to be `patient_<pid>` and that was wrong from the
+    /// moment a camera could watch two people (2026-08-20). A camera
+    /// publishes into exactly ONE room, so a shared lounge lives in
+    /// one resident's room and the other resident's tab has to join
+    /// THAT room to see it. Guessing their own room connects
+    /// successfully and shows an empty grid, which reads to the
+    /// caregiver as a broken camera.
+    ///
+    /// A patient whose cameras span more than one room cannot be shown
+    /// in full, because the client holds one room at a time. That
+    /// needs a patient to own both a private camera and a shared one;
+    /// it returns the room covering the most of their cameras and
+    /// names the rest as `unreachable` so the caller can say so
+    /// instead of rendering a permanently blank tile.
+    func liveRoom(forPatient pid: UUID) -> (room: String, unreachable: [Camera]) {
+        let ownRoom = "patient_\(pid.uuidString.lowercased())"
+        let cams = camerasByPatient[pid] ?? []
+        let grouped = Dictionary(grouping: cams.filter { $0.livekitRoom != nil }) {
+            $0.livekitRoom!
+        }
+        guard !grouped.isEmpty else { return (ownRoom, []) }
+        // Most cameras wins; the patient's own room breaks a tie, then
+        // the name, so the choice never depends on dictionary order.
+        let chosen = grouped.keys.max { a, b in
+            (grouped[a]!.count, a == ownRoom ? 1 : 0, b)
+                < (grouped[b]!.count, b == ownRoom ? 1 : 0, a)
+        }!
+        return (chosen, cams.filter {
+            $0.livekitRoom != nil && $0.livekitRoom != chosen
+        })
+    }
+
     // MARK: - Cameras (GET / DELETE / POST pairing-code)
 
     func loadCameras(forPatient pid: UUID) async throws {
@@ -1056,7 +1093,7 @@ final class NemaraAPIClient {
             throw APIError.unauthorized
         }
         let body = MintTokenRequest(
-            room: "patient_\(pid.uuidString.lowercased())",
+            room: liveRoom(forPatient: pid).room,
             // LiveKit treats `identity` as a unique participant key per
             // room. The web dashboard uses `caregiver_<uuid>_web`; this
             // app uses `caregiver_<uuid>_ios` — keeping them distinct

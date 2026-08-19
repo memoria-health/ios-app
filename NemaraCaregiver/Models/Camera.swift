@@ -121,6 +121,17 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     /// as the canonical "this row is a real paired camera" check
     /// (more reliable than `online`, which lies for unpaired rows).
     var livekitIdentity: String?
+
+    /// The LiveKit room this camera PUBLISHES INTO — the address to
+    /// join in order to see it.
+    ///
+    /// Do NOT reconstruct this as `patient_<viewed patient id>`. A
+    /// camera that watches two residents publishes into exactly one
+    /// room, so for the second resident that guess names a room the
+    /// camera never appears in: the tab connects fine and shows
+    /// nothing, forever, with no error to explain it. Nil only on
+    /// older backends that don't send the field.
+    var livekitRoom: String?
     var createdAt: Date
 
     /// True once the wall phone has completed the /pair handshake.
@@ -159,6 +170,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case roomClassifiedAt = "room_classified_at"
         case privacyEnabled = "privacy_enabled"
         case livekitIdentity = "livekit_identity"
+        case livekitRoom = "livekit_room"
         case createdAt = "created_at"
         case paired
         case appPresent = "app_present"
@@ -202,6 +214,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         roomClassifiedAt = try c.decodeIfPresent(Date.self, forKey: .roomClassifiedAt)
         privacyEnabled = try c.decodeIfPresent(Bool.self, forKey: .privacyEnabled) ?? false
         livekitIdentity = try c.decodeIfPresent(String.self, forKey: .livekitIdentity)
+        livekitRoom = try c.decodeIfPresent(String.self, forKey: .livekitRoom)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         if let explicit = try c.decodeIfPresent(Bool.self, forKey: .paired) {
             paired = explicit
@@ -245,6 +258,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         try c.encodeIfPresent(roomClassifiedAt, forKey: .roomClassifiedAt)
         try c.encode(privacyEnabled, forKey: .privacyEnabled)
         try c.encodeIfPresent(livekitIdentity, forKey: .livekitIdentity)
+        try c.encodeIfPresent(livekitRoom, forKey: .livekitRoom)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(paired, forKey: .paired)
         try c.encodeIfPresent(appPresent, forKey: .appPresent)
@@ -269,6 +283,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         iconName: String,
         online: Bool,
         livekitIdentity: String?,
+        livekitRoom: String? = nil,
         createdAt: Date,
         paired: Bool,
         appPresent: Bool? = nil,
@@ -288,6 +303,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         self.iconName = iconName
         self.online = online
         self.livekitIdentity = livekitIdentity
+        self.livekitRoom = livekitRoom
         self.createdAt = createdAt
         self.paired = paired
         self.appPresent = appPresent

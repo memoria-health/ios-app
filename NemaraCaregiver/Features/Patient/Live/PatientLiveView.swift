@@ -371,7 +371,12 @@ struct PatientLiveView: View {
         // simply receive no tracks and show the empty card. Gating the
         // connection on camerasPaused meant a camera that came back online
         // while "paused" had nowhere to surface (we weren't even in the room).
-        let expectedRoom = "patient_\(patientId.uuidString.lowercased())"
+        // The room the patient's CAMERAS publish into, which is not
+        // necessarily `patient_<patientId>`: a camera watching two
+        // residents lives in one of their rooms, and the other
+        // resident's tab must join that one or it connects to an empty
+        // room and shows nothing (2026-08-20).
+        let expectedRoom = env.api.liveRoom(forPatient: patientId).room
 
         // Sub-tab return path: room is already up for this patient,
         // skip the mint+connect entirely. This is what makes
