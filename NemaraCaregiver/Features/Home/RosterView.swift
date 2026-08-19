@@ -8,6 +8,7 @@ struct RosterView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var showingNewPatient = false
     @State private var showingEditProfile = false
+    @State private var showingSensors = false
 
     var body: some View {
         Group {
@@ -20,6 +21,12 @@ struct RosterView: View {
                             AnyView(
                                 HStack(spacing: 12) {
                                     SupportIconButton()
+                                    Button { showingSensors = true } label: {
+                                        Image(systemName: "web.camera")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundStyle(NemaraColor.ink)
+                                    }
+                                    .buttonStyle(.plain)
                                     Button { showingNewPatient = true } label: {
                                         Image(systemName: "plus")
                                             .font(.system(size: 20, weight: .semibold))
@@ -83,6 +90,11 @@ struct RosterView: View {
         .sheet(isPresented: $showingNewPatient) {
             NewPatientView()
                 .trackScreen("new_patient")
+        }
+        .sheet(isPresented: $showingSensors) {
+            AssignSensorSheet()
+                .environment(env)
+                .trackScreen("assign_sensor")
         }
         .sheet(isPresented: $showingEditProfile) {
             EditProfileView()

@@ -611,6 +611,42 @@ final class NemaraAPIClient {
         eventsByPatient.removeValue(forKey: id)
     }
 
+    // MARK: - Account cameras (assignment)
+
+    /// Every camera on the account, assigned or not. The unassigned ones
+    /// are what the sensor sheet offers to set up.
+    func fetchAccountCameras() async throws -> [AccountCamera] {
+        try await sendNoBody(method: "GET", path: "/v1/cameras")
+    }
+
+    /// Name a camera and say which patients it watches. The first is the
+    /// primary — the one whose room it publishes into.
+    func assignCamera(
+        _ cameraId: UUID,
+        room: String?,
+        iconName: String?,
+        primary: UUID,
+        also: [UUID],
+    ) async throws {
+        try await sendJSONVoid(
+            method: "POST",
+            path: "/v1/cameras/\(cameraId.uuidString.lowercased())/coverage",
+            body: CoverageBody(
+                room: room, iconName: iconName,
+                primaryPatientId: primary, alsoPatientIds: also,
+            ),
+        )
+    }
+
+    /// Take a camera off every patient. It stays on the account and stops
+    /// streaming; the footage it already produced is untouched.
+    func unassignCamera(_ cameraId: UUID) async throws {
+        try await sendNoBodyVoid(
+            method: "DELETE",
+            path: "/v1/cameras/\(cameraId.uuidString.lowercased())/coverage",
+        )
+    }
+
     // MARK: - Cameras (GET / DELETE / POST pairing-code)
 
     func loadCameras(forPatient pid: UUID) async throws {

@@ -470,3 +470,44 @@ struct SetCameraDetectorsRequest: Encodable, Sendable {
         case detectorIds = "detector_ids"
     }
 }
+
+/// A camera as the ACCOUNT sees it, including ones no patient owns yet.
+///
+/// The installer provisions a camera against the account; who it watches
+/// is decided here, in the app. `unassigned` rows are what the sensor
+/// sheet lists as ready to set up — they are NOT discovered over the
+/// local network, so the caregiver can be anywhere.
+struct AccountCamera: Identifiable, Hashable, Sendable, Codable {
+    let id: UUID
+    let room: String
+    let iconName: String
+    let online: Bool
+    let sourceType: String
+    /// Everyone this camera watches, primary first. Empty = unassigned.
+    let patientIds: [UUID]
+    let primaryPatientId: UUID?
+    let unassigned: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, room, online, unassigned
+        case iconName = "icon_name"
+        case sourceType = "source_type"
+        case patientIds = "patient_ids"
+        case primaryPatientId = "primary_patient_id"
+    }
+}
+
+/// Body for `POST /v1/cameras/{id}/coverage`.
+struct CoverageBody: Encodable {
+    let room: String?
+    let iconName: String?
+    let primaryPatientId: UUID
+    let alsoPatientIds: [UUID]
+
+    enum CodingKeys: String, CodingKey {
+        case room
+        case iconName = "icon_name"
+        case primaryPatientId = "primary_patient_id"
+        case alsoPatientIds = "also_patient_ids"
+    }
+}
