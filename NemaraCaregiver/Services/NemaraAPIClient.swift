@@ -673,12 +673,15 @@ final class NemaraAPIClient {
             $0.livekitRoom!
         }
         guard !grouped.isEmpty else { return (ownRoom, []) }
-        // Most cameras wins; the patient's own room breaks a tie, then
-        // the name, so the choice never depends on dictionary order.
-        let chosen = grouped.keys.max { a, b in
-            (grouped[a]!.count, a == ownRoom ? 1 : 0, b)
-                < (grouped[b]!.count, b == ownRoom ? 1 : 0, a)
-        }!
+        // Rank: most cameras first, then the patient's own room, then
+        // the name. Sorting on an explicit key rather than a clever
+        // comparator, so "why did it pick that one" is readable and the
+        // result never depends on dictionary order.
+        let chosen = grouped.keys.sorted { a, b in
+            let ka = (-grouped[a]!.count, a == ownRoom ? 0 : 1, a)
+            let kb = (-grouped[b]!.count, b == ownRoom ? 0 : 1, b)
+            return ka < kb
+        }.first!
         return (chosen, cams.filter {
             $0.livekitRoom != nil && $0.livekitRoom != chosen
         })

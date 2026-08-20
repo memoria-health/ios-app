@@ -152,7 +152,17 @@ struct PatientLiveView: View {
         .navigationDestination(for: UUID.self) { cameraId in
             CameraDetailView(cameraId: cameraId, patientId: patientId)
         }
-        .task(id: patientId) { await bootstrap() }
+        // Keyed on the RESOLVED room, not just the patient. The room
+        // comes from this patient's cameras, so on a cold open it can
+        // resolve before the camera list has loaded — falling back to
+        // `patient_<patientId>`, which for a resident whose only camera
+        // is shared is a room that camera never publishes into. Keying
+        // on it means the task re-fires and reconnects the moment the
+        // real room is known, instead of sitting in an empty room until
+        // something else forces a rebootstrap.
+        .task(id: "\(patientId)|\(env.api.liveRoom(forPatient: patientId).room)") {
+            await bootstrap()
+        }
         .onChange(of: patient?.camerasPaused) { oldValue, newValue in
             // Reconnect-all. `.task` keys on patientId, so it never
             // re-fires when the kill switch flips back on, and a camera
