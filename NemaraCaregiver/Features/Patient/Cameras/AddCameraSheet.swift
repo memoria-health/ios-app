@@ -274,7 +274,7 @@ private struct PhoneCameraTab: View {
         let taken = (env.api.camerasByPatient[patientId] ?? [])
             .contains { !$0.disabled && $0.room.compare(trimmed, options: .caseInsensitive) == .orderedSame }
         if taken {
-            state = .error("A camera named “\(trimmed)” already exists for this patient. Pick a different name.")
+            state = .error("A sensor named “\(trimmed)” already exists for this patient. Pick a different name.")
             return
         }
         state = .generating

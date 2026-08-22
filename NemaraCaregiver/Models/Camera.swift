@@ -499,9 +499,12 @@ struct AccountCamera: Identifiable, Hashable, Sendable, Codable {
     let iconName: String
     let online: Bool
     let sourceType: String
-    /// Everyone this camera watches, primary first. Empty = unassigned.
+    /// Everyone this camera watches, as equals, oldest assignment
+    /// first. Empty = unassigned. There is no primary any more: the
+    /// backend dropped `camera_patients.is_primary` (2026-08-22)
+    /// because a camera no longer publishes into a patient's room, so
+    /// there was nothing left for "first" to decide.
     let patientIds: [UUID]
-    let primaryPatientId: UUID?
     let unassigned: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -509,21 +512,20 @@ struct AccountCamera: Identifiable, Hashable, Sendable, Codable {
         case iconName = "icon_name"
         case sourceType = "source_type"
         case patientIds = "patient_ids"
-        case primaryPatientId = "primary_patient_id"
     }
 }
 
-/// Body for `POST /v1/cameras/{id}/coverage`.
+/// Body for `POST /v1/cameras/{id}/coverage`. An EMPTY `patientIds` is
+/// legal and means "watched by nobody yet" — assignment is pure
+/// attribution now, it never starts or stops the video.
 struct CoverageBody: Encodable {
     let room: String?
     let iconName: String?
-    let primaryPatientId: UUID
-    let alsoPatientIds: [UUID]
+    let patientIds: [UUID]
 
     enum CodingKeys: String, CodingKey {
         case room
         case iconName = "icon_name"
-        case primaryPatientId = "primary_patient_id"
-        case alsoPatientIds = "also_patient_ids"
+        case patientIds = "patient_ids"
     }
 }

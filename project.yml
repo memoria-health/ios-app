@@ -94,7 +94,7 @@ targets:
         # private IPs like 10.0.0.x — the Mac's LAN address during dev.
         # Without it the OS silently blocks the connection and surfaces
         # it as "Internet connection appears to be offline" in the SDK.
-        NSLocalNetworkUsageDescription: Memoria uses your local network to find and set up nearby camera devices on the same Wi-Fi.
+        NSLocalNetworkUsageDescription: Memoria uses your local network to find and set up nearby sensors on the same Wi-Fi.
         # `nemara://reset-password?code=…` — the Supabase password-reset
         # deep link. This IS live: NemaraCaregiverApp.onOpenURL routes it
         # into ResetPasswordView. (The old comment here said "not handled
@@ -121,7 +121,7 @@ targets:
         # the patient's wall phone. (Without this string, iOS treats
         # setMicrophone(enabled: true) as an unauthorized access and
         # crashes the process before the user even sees a prompt.)
-        NSMicrophoneUsageDescription: Memoria uses the microphone so you can speak live to the person you care for through their paired camera.
+        NSMicrophoneUsageDescription: Memoria uses the microphone so you can speak live to the person you care for through their paired sensor.
         UIAppFonts:
           - Fraunces144Soft-Regular.ttf
           - Fraunces144Soft-Medium.ttf

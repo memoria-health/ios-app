@@ -35,7 +35,7 @@ struct WanderingDoorPickerView: View {
         var box: [Double]   // [x,y,w,h]
     }
 
-    @State private var phase: Phase = .loading("Loading the camera view…")
+    @State private var phase: Phase = .loading("Loading the sensor view…")
     @State private var loaded: WanderingDoorCache.Frame?
     @State private var detectedDoors: [DetectedDoor] = []
     @State private var detectingDoors = false
@@ -311,7 +311,7 @@ struct WanderingDoorPickerView: View {
     // MARK: - Load (cache-backed)
 
     private func load(reload: Bool) async {
-        phase = .loading(reload ? "Getting a fresh view…" : "Loading the camera view…")
+        phase = .loading(reload ? "Getting a fresh view…" : "Loading the sensor view…")
         // FRAME first — fast, no LLM. The picker becomes usable immediately.
         let outcome = reload
             ? await cache.reloadFrame(cameraId: cameraId, api: env.api)

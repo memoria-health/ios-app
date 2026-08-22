@@ -1,14 +1,16 @@
 import SwiftUI
 
-/// Set up a camera that is on the account but not yet watching anyone.
+/// Set up a sensor that is on the account but not yet watching anyone.
 ///
-/// The installer provisions cameras against the account; this is where the
+/// The installer provisions sensors against the account; this is where the
 /// caregiver names one, gives it an icon, and says who it watches. It can
-/// cover more than one person — a shared lounge is one camera, not one per
-/// resident — in which case the first pick is the primary.
+/// cover more than one person — a shared lounge is one sensor, not one per
+/// resident — and everyone it covers is an equal: there is no primary, and
+/// picking nobody at all is a valid save. Coverage is attribution only, so
+/// the sensor streams either way.
 ///
 /// Nothing here is network discovery: the list comes from the backend, so
-/// the caregiver can be anywhere when they set a camera up.
+/// the caregiver can be anywhere when they set a sensor up.
 struct AssignSensorSheet: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
@@ -130,11 +132,6 @@ struct AssignSensorSheet: View {
                         HStack {
                             Text(p.preferredName)
                             Spacer()
-                            if watchers.first == p.id {
-                                Text("Primary")
-                                    .font(.caption)
-                                    .foregroundStyle(NemaraColor.ink3)
-                            }
                             if watchers.contains(p.id) {
                                 Image(systemName: "checkmark")
                             }
@@ -147,7 +144,7 @@ struct AssignSensorSheet: View {
             } footer: {
                 Text(watchers.count > 1
                      ? "Shared sensors need face setup for each person before personal routines are recorded. Safety alerts work either way."
-                     : "Pick everyone this sensor can see.")
+                     : "Pick everyone this sensor can see. You can leave this empty and come back to it — the sensor still runs.")
             }
 
             if let saveError {
@@ -155,8 +152,12 @@ struct AssignSensorSheet: View {
             }
 
             Section {
+                // No `watchers.isEmpty` gate: an empty pick is now a real
+                // choice ("watched by nobody yet"), and blocking Save on it
+                // would leave the caregiver stuck on this screen with no way
+                // to just name the sensor.
                 Button(saving ? "Saving…" : "Save") { Task { await save(cam) } }
-                    .disabled(watchers.isEmpty || name.isEmpty || saving)
+                    .disabled(name.isEmpty || saving)
                 Button("Back") { selected = nil }
             }
         }
@@ -171,7 +172,9 @@ struct AssignSensorSheet: View {
         let names = cam.patientIds.compactMap { id in
             env.api.patients.first { $0.id == id }?.preferredName
         }
-        return names.joined(separator: ", ")
+        // "Nobody yet" instead of a blank trailing label: covering no one
+        // is a legal state now, so this row can genuinely have no names.
+        return names.isEmpty ? "Nobody yet" : names.joined(separator: ", ")
     }
 
     private func load() async {
@@ -186,13 +189,11 @@ struct AssignSensorSheet: View {
     }
 
     private func save(_ cam: AccountCamera) async {
-        guard let primary = watchers.first else { return }
         saving = true
         defer { saving = false }
         do {
             try await env.api.assignCamera(
-                cam.id, room: name, iconName: icon,
-                primary: primary, also: Array(watchers.dropFirst()),
+                cam.id, room: name, iconName: icon, patientIds: watchers,
             )
             for pid in watchers { try? await env.api.loadCameras(forPatient: pid) }
             dismiss()

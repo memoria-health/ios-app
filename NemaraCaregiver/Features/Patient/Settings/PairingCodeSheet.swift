@@ -110,7 +110,7 @@ struct PairingCodeSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             label("1.", "Open MemoriaSensor on the wall phone.")
             label("2.", "Enter the code above when prompted.")
-            label("3.", "The camera will appear here once it's paired.")
+            label("3.", "The sensor will appear here once it's paired.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)

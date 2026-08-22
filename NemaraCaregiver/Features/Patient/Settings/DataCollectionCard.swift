@@ -56,7 +56,7 @@ struct DataCollectionCard: View {
                     Text("Contribute recordings to research")
                         .font(NemaraFont.bodySemibold)
                         .foregroundStyle(NemaraColor.ink)
-                    InfoDot("Securely stores video and audio clips to help improve understanding of elderly health. Private-room cameras are always excluded.")
+                    InfoDot("Securely stores video and audio clips to help improve understanding of elderly health. Private-room sensors are always excluded.")
                 }
             }
             Spacer()

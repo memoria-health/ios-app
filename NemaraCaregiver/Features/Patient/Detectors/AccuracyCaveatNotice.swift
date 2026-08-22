@@ -19,11 +19,11 @@ struct AccuracyCaveatNotice: View {
     // whole-person detectors like choking, which now carry this notice.
     private static let full =
         "100% accuracy is not guaranteed. How well this detector works "
-        + "depends on camera distance, lighting, and angle, and it can miss "
+        + "depends on sensor distance, lighting, and angle, and it can miss "
         + "events or misread them. Treat any alert as a reason to check in, "
         + "not as proof that something did or did not happen."
     private static let short =
-        "100% accuracy not guaranteed. Depends on camera distance, lighting, and angle."
+        "100% accuracy not guaranteed. Depends on sensor distance, lighting, and angle."
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {

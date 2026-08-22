@@ -278,8 +278,8 @@ struct JournalDayView: View {
                 .fill(dark ? NemaraColor.terra : NemaraColor.sage)
                 .frame(width: 7, height: 7)
             Text(dark
-                 ? "Cameras were not watching this day"
-                 : "Cameras watched \(day.coverageHours) of 24 hours")
+                 ? "Sensors were not watching this day"
+                 : "Sensors watched \(day.coverageHours) of 24 hours")
                 .font(NemaraFont.caption)
                 .foregroundStyle(dark ? NemaraColor.terra : NemaraColor.ink3)
         }

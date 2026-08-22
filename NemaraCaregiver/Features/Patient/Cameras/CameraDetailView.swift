@@ -163,7 +163,7 @@ struct CameraDetailView: View {
         } message: {
             Text(
                 "The paired phone returns to its pairing screen. This "
-                + "camera's room, detectors, and history are kept — pair a "
+                + "sensor's room, detectors, and history are kept — pair a "
                 + "phone back to it any time with a fresh code."
             )
         }
@@ -510,7 +510,7 @@ struct CameraDetailView: View {
 
             HStack {
                 Spacer()
-                InfoDot("Applies to this camera only, other cameras are independent. The master switch lives on the detector.")
+                InfoDot("Applies to this sensor only, other sensors are independent. The master switch lives on the detector.")
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
