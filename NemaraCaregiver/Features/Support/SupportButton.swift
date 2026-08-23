@@ -40,12 +40,16 @@ struct SupportIconButton: View {
         Button {
             showSheet = true
         } label: {
+            // Metrics from NemaraHeaderIcon, so this cannot drift away
+            // from the actions it sits beside. It used to be a bordered
+            // 12pt chip in both headers while every neighbour was a bare
+            // 20pt glyph, which read as a different KIND of control
+            // rather than a peer.
             Image(systemName: "message.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(NemaraColor.ink)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(NemaraColor.paperDim))
-                .overlay(Circle().strokeBorder(NemaraColor.line, lineWidth: 1))
+                .frame(width: NemaraHeaderIcon.hit, height: NemaraHeaderIcon.hit)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Get help")

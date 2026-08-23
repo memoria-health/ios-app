@@ -19,20 +19,22 @@ struct RosterView: View {
                     VStack(spacing: 0) {
                         roster_largeTitle(sub: "\(greeting), \(firstName)", title: "Today") {
                             AnyView(
-                                HStack(spacing: 12) {
+                                // Four peers: same glyph size, same 32pt hit
+                                // frame, same gap. They were three loose
+                                // 20pt glyphs plus one bordered chip at 12pt,
+                                // packed 12pt apart — different sizes AND
+                                // different shapes, so nothing read as a set.
+                                HStack(spacing: NemaraHeaderIcon.gap) {
                                     SupportIconButton()
-                                    Button { showingSensors = true } label: {
-                                        Image(systemName: "web.camera")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundStyle(NemaraColor.ink)
+                                    NemaraHeaderIcon(
+                                        // `web.camera` is an obscure glyph for
+                                        // "the sensors on this account".
+                                        "sensor.tag.radiowaves.forward",
+                                        label: "Sensors",
+                                    ) { showingSensors = true }
+                                    NemaraHeaderIcon("plus", label: "Add a patient") {
+                                        showingNewPatient = true
                                     }
-                                    .buttonStyle(.plain)
-                                    Button { showingNewPatient = true } label: {
-                                        Image(systemName: "plus")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundStyle(NemaraColor.ink)
-                                    }
-                                    .buttonStyle(.plain)
                                     // Welcome-tour anchor for replays: with
                                     // patients present the empty-state button
                                     // doesn't exist, so "add a patient" points
@@ -41,8 +43,12 @@ struct RosterView: View {
                                     .tutorialTarget(.addPatient)
                                     Button { showingEditProfile = true } label: {
                                         NemaraAvatar(letter: firstName, size: 28)
+                                            .frame(width: NemaraHeaderIcon.hit,
+                                                   height: NemaraHeaderIcon.hit)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityLabel("Your profile")
                                 }
                             )
                         }

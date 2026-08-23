@@ -24,10 +24,7 @@ struct DataCollectionConsentSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Capsule()
-                .fill(NemaraColor.line)
-                .frame(width: 36, height: 4)
-                .padding(.top, 8)
+            NemaraSheetHandle()
 
             VStack(spacing: 6) {
                 Text("DATA COLLECTION").nemaraEyebrow()

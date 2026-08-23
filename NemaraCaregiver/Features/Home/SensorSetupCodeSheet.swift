@@ -28,18 +28,14 @@ struct SensorSetupCodeSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Capsule()
-                .fill(NemaraColor.line)
-                .frame(width: 36, height: 4)
-                .padding(.top, 8)
+            NemaraSheetHandle()
 
-            VStack(spacing: 6) {
+            VStack(spacing: 8) {
                 Text("ADD A SENSOR").nemaraEyebrow()
                 Text("Read this to your installer")
                     .font(NemaraFont.title3)
                     .foregroundStyle(NemaraColor.ink)
             }
-            .padding(.top, 8)
 
             Spacer(minLength: 12)
 
