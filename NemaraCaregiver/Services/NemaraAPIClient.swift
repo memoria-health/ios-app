@@ -736,17 +736,27 @@ final class NemaraAPIClient {
         )
     }
 
+    /// Mint a wall-phone pairing code against the ACCOUNT.
+    ///
+    /// `patientIds` is coverage, and empty is legal: paired from the
+    /// sensor roster the phone arrives unassigned, exactly like an
+    /// installed sensor; paired from a resident's Live view it arrives
+    /// watching them. The old per-patient route made the caller name
+    /// somebody before a code could exist at all, which is why the
+    /// roster used to ask "who is this for?" before it could help.
     func createPairingCode(
-        forPatient pid: UUID,
         room: String,
         iconName: String = "tv",
+        patientIds: [UUID] = [],
     ) async throws -> CreatePairingCodeResponse {
         let response: CreatePairingCodeResponse = try await sendJSON(
             method: "POST",
-            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/pairing-code",
-            body: CreatePairingCodeRequest(room: room, iconName: iconName),
+            path: "/v1/cameras/pairing-code",
+            body: CreateAccountPairingCodeRequest(
+                room: room, iconName: iconName, patientIds: patientIds,
+            ),
         )
-        try await loadCameras(forPatient: pid)
+        for pid in patientIds { try await loadCameras(forPatient: pid) }
         return response
     }
 
@@ -763,42 +773,6 @@ final class NemaraAPIClient {
         )
     }
 
-    /// List sensor cameras that have announced themselves to the
-    /// backend but have not yet been paired to a patient. Drives the
-    /// "Sensor Camera" tab of the add-camera sheet. The backend
-    /// filters to recently-seen (within 5 minutes) unclaimed rows.
-    func listDiscoveredCameras() async throws -> [DiscoveredCamera] {
-        let resp: DiscoveredCamerasResponse = try await sendNoBody(
-            method: "GET", path: "/v1/cameras/discovered",
-        )
-        return resp.pis
-    }
-
-    /// Pair a discovered sensor camera to this patient. The discovery
-    /// ID comes from `listDiscoveredCameras`; the backend looks up
-    /// the URL from the discovery record, creates a `cameras` row
-    /// with `source_type='pi'`, and marks the discovery claimed so
-    /// it disappears from subsequent `listDiscoveredCameras` calls.
-    /// We refresh the patient's camera list so the new row shows
-    /// up immediately.
-    func provisionSensorCamera(
-        forPatient pid: UUID,
-        room: String,
-        iconName: String = "tv",
-        discoveryId: UUID,
-    ) async throws -> ProvisionSensorCameraResponse {
-        let response: ProvisionSensorCameraResponse = try await sendJSON(
-            method: "POST",
-            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/pi-provision",
-            body: ProvisionSensorCameraRequest(
-                room: room,
-                iconName: iconName,
-                discoveryId: discoveryId,
-            ),
-        )
-        try await loadCameras(forPatient: pid)
-        return response
-    }
 
     func deleteCamera(_ id: UUID) async throws {
         try await sendNoBodyVoid(method: "DELETE", path: "/v1/cameras/\(id.uuidString.lowercased())")
@@ -1076,16 +1050,44 @@ final class NemaraAPIClient {
     /// with 409 `clip_not_ready` — caregiver app shows the
     /// "processing…" placeholder until Realtime flips `has_clip=true`).
     /// Throws on any other error.
+    /// Returns a LOCAL file URL, having fetched the bytes under the
+    /// caregiver's token.
+    ///
+    /// The backend used to hand back a storage-signed URL built from its
+    /// OWN address for Supabase (`host.docker.internal` in Docker, a LAN
+    /// IP natively), which a phone cannot resolve — the player just never
+    /// started, looking exactly like a corrupt clip. It now serves the
+    /// bytes itself, so they need our Authorization header, and
+    /// `AVPlayer(url:)` sends none.
+    ///
+    /// Downloaded whole rather than streamed with a resource-loader
+    /// delegate: clips are capped at 25MB server-side, and this uses only
+    /// documented API instead of the undocumented
+    /// `AVURLAssetHTTPHeaderFieldsKey` that the streaming approach needs.
     func clipURL(forEvent eventId: UUID) async throws -> URL? {
+        let id = eventId.uuidString.lowercased()
         do {
-            let response: ClipURLResponse = try await sendNoBody(
-                method: "GET",
-                path: "/v1/events/\(eventId.uuidString.lowercased())/clip-url",
+            // Still asked first: it is the call that distinguishes
+            // "processing" (409) from "gone" (404).
+            let _: ClipURLResponse = try await sendNoBody(
+                method: "GET", path: "/v1/events/\(id)/clip-url",
             )
-            return response.url
         } catch APIError.conflict {
             return nil
         }
+
+        let request = try await makeRequest(
+            method: "GET", path: "/v1/events/\(id)/clip",
+        )
+        let (data, response) = try await runDataTask(request)
+        try mapStatus(response: response, data: data)
+
+        // Named by event id so re-opening the same clip overwrites rather
+        // than filling the caches directory with copies.
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clip-\(id).mp4")
+        try data.write(to: file, options: .atomic)
+        return file
     }
 
     func updateEvent(_ id: UUID, _ body: UpdateEventRequest) async throws -> DetectionEvent {

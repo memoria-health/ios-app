@@ -356,6 +356,21 @@ struct CreatePairingCodeRequest: Encodable, Sendable {
     }
 }
 
+/// Body for `POST /v1/cameras/pairing-code`. Coverage rather than a
+/// patient in the path: empty means the phone arrives unassigned, the
+/// same state an installed sensor arrives in.
+struct CreateAccountPairingCodeRequest: Encodable, Sendable {
+    var room: String
+    var iconName: String
+    var patientIds: [UUID]
+
+    enum CodingKeys: String, CodingKey {
+        case room
+        case iconName = "icon_name"
+        case patientIds = "patient_ids"
+    }
+}
+
 /// Response from the same. Caregiver app displays the code +
 /// countdown to expiry.
 /// The code an installer types to attach a new sensor to this account.
@@ -390,77 +405,6 @@ struct CreatePairingCodeResponse: Decodable, Sendable {
         case pairingCode = "pairing_code"
         case expiresAt = "expires_at"
         case cameraId = "camera_id"
-    }
-}
-
-/// One sensor camera the backend has heard from but no caregiver has
-/// claimed yet. Populates the "Sensor Camera" tab of the add-camera
-/// sheet. Mirrors `nemara-backend/src/schemas/pi_discovery.py`
-/// `DiscoveredPi`.
-struct DiscoveredCamera: Identifiable, Sendable, Decodable {
-    var id: UUID { discoveryId }
-
-    let discoveryId: UUID
-    let hardwareId: String
-    let deviceLabel: String
-    let currentUrl: String
-    let currentAudioUrl: String?
-    let firstSeenAt: Date
-    let lastSeenAt: Date
-
-    enum CodingKeys: String, CodingKey {
-        case discoveryId = "discovery_id"
-        case hardwareId = "hardware_id"
-        case deviceLabel = "device_label"
-        case currentUrl = "current_url"
-        case currentAudioUrl = "current_audio_url"
-        case firstSeenAt = "first_seen_at"
-        case lastSeenAt = "last_seen_at"
-    }
-}
-
-/// Top-level shape of `GET /v1/cameras/discovered`. Caregiver-facing
-/// picker iterates `pis`.
-struct DiscoveredCamerasResponse: Decodable, Sendable {
-    let pis: [DiscoveredCamera]
-}
-
-/// Body for `POST /v1/patients/{id}/cameras/pi-provision`, discovery
-/// mode. Binds an already-announced sensor camera to a patient + room.
-/// The direct-URL mode is intentionally not surfaced to the app
-/// (operators use it via curl for testing).
-struct ProvisionSensorCameraRequest: Encodable, Sendable {
-    var room: String
-    var iconName: String
-    var discoveryId: UUID
-
-    enum CodingKeys: String, CodingKey {
-        case room
-        case iconName = "icon_name"
-        case discoveryId = "discovery_id"
-    }
-}
-
-/// Response from `pi-provision`. The app uses `cameraId` to navigate
-/// to the new camera's detail view post-pairing.
-///
-/// The backend's push refactor removed `pi_stream_url` and
-/// `pi_audio_url` from this response: in push mode the Pi opens an
-/// outbound connection to the backend rather than the backend
-/// pulling from a Pi-served URL, so those fields are meaningless.
-/// The Pi's ingest bearer token is delivered separately via the
-/// next `/v1/cameras/pi-announce` response, not here.
-struct ProvisionSensorCameraResponse: Decodable, Sendable {
-    let cameraId: UUID
-    let patientId: UUID
-    let livekitIdentity: String
-    let livekitRoom: String
-
-    enum CodingKeys: String, CodingKey {
-        case cameraId = "camera_id"
-        case patientId = "patient_id"
-        case livekitIdentity = "livekit_identity"
-        case livekitRoom = "livekit_room"
     }
 }
 
