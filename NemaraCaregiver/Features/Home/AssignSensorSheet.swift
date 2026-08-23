@@ -15,6 +15,7 @@ struct AssignSensorSheet: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
 
+    @State private var showingSetupCode = false
     @State private var cameras: [AccountCamera] = []
     @State private var loading = true
     @State private var loadError: String?
@@ -43,9 +44,29 @@ struct AssignSensorSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
+                // Reachable from the EMPTY state too: the first sensor a
+                // caregiver ever adds is added when the list is empty,
+                // which is exactly when a button hidden behind a row
+                // would not exist.
+                if selected == nil {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { showingSetupCode = true } label: {
+                            Label("Add a sensor", systemImage: "plus")
+                        }
+                    }
+                }
             }
         }
         .task { await load() }
+        .sheet(isPresented: $showingSetupCode, onDismiss: {
+            // The installer may have redeemed it while the sheet was up.
+            Task { await load() }
+        }) {
+            SensorSetupCodeSheet()
+                .environment(env)
+                .presentationDetents([.medium, .large])
+                .trackScreen("sensor_setup_code")
+        }
     }
 
     // MARK: - Pick a camera
@@ -61,7 +82,7 @@ struct AssignSensorSheet: View {
                     Text("No sensors waiting to be set up.")
                         .foregroundStyle(NemaraColor.ink3)
                 } footer: {
-                    Text("A sensor appears here once it has been installed for your account.")
+                    Text("A sensor appears here once it has been installed for your account. Tap Add a sensor for the code your installer needs.")
                 }
             } else {
                 Section("Ready to set up") {

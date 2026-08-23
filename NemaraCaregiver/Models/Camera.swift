@@ -358,6 +358,29 @@ struct CreatePairingCodeRequest: Encodable, Sendable {
 
 /// Response from the same. Caregiver app displays the code +
 /// countdown to expiry.
+/// The code an installer types to attach a new sensor to this account.
+///
+/// Separate from `CreatePairingCodeResponse` because it names no camera:
+/// the sensor does not exist until the installer redeems this, whereas a
+/// wall-phone code is minted against a row that already does.
+///
+/// The backend sends a DURATION rather than an instant, so a clock skew
+/// between phone and server cannot make a live code look expired or an
+/// expired one look live.
+struct SensorSetupCodeResponse: Decodable, Sendable {
+    let pairingCode: String     // 6 digits
+    let expiresInSeconds: Int
+
+    /// When this code dies, measured on THIS device.
+    var expiresAt: Date { Date().addingTimeInterval(TimeInterval(expiresInSeconds)) }
+
+    enum CodingKeys: String, CodingKey {
+        case pairingCode = "pairing_code"
+        case expiresInSeconds = "expires_in_seconds"
+    }
+}
+
+
 struct CreatePairingCodeResponse: Decodable, Sendable {
     let pairingCode: String  // 6 digits, 100000–999999
     let expiresAt: Date

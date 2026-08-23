@@ -717,6 +717,25 @@ final class NemaraAPIClient {
     /// optimistically refresh the patient's camera list so the
     /// placeholder row appears (it'll flip to `online=true` once the
     /// phone connects, via Realtime).
+    /// A body with no fields. The setup-code endpoint takes none — the
+    /// account comes from the caller's own session — but the JSON helper
+    /// wants something Encodable.
+    private struct EmptyBody: Encodable {}
+
+    /// Mint the code an installer types to attach a new sensor.
+    ///
+    /// Account-scoped, not patient-scoped: a sensor belongs to the
+    /// ACCOUNT and is assigned to people afterwards, so asking which
+    /// patient it is for before it exists would be asking a question
+    /// that has no answer yet.
+    func createSensorSetupCode() async throws -> SensorSetupCodeResponse {
+        try await sendJSON(
+            method: "POST",
+            path: "/v1/gateway/pairing-code",
+            body: EmptyBody(),
+        )
+    }
+
     func createPairingCode(
         forPatient pid: UUID,
         room: String,
