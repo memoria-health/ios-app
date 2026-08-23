@@ -1082,12 +1082,40 @@ final class NemaraAPIClient {
         let (data, response) = try await runDataTask(request)
         try mapStatus(response: response, data: data)
 
-        // Named by event id so re-opening the same clip overwrites rather
-        // than filling the caches directory with copies.
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("clip-\(id).mp4")
+        // Named by event id so re-opening the same clip overwrites its
+        // own file. That alone is not enough: every DISTINCT event left a
+        // file behind forever, so a few days of reviewing events grew the
+        // app's footprint without bound. Sweep the older ones first.
+        let dir = FileManager.default.temporaryDirectory
+        Self.pruneClipCache(in: dir, keeping: id)
+
+        let file = dir.appendingPathComponent("clip-\(id).mp4")
+        // .atomic: a failed or interrupted write must not leave a partial
+        // file that the player would then try to open.
         try data.write(to: file, options: .atomic)
         return file
+    }
+
+    /// Keep the clip cache small. Clips are capped at 25MB server-side,
+    /// so a handful is plenty — a caregiver reviews one at a time.
+    private static func pruneClipCache(in dir: URL, keeping id: String, limit: Int = 5) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+        ) else { return }
+        let clips = files
+            .filter { $0.lastPathComponent.hasPrefix("clip-") }
+            .filter { $0.lastPathComponent != "clip-\(id).mp4" }
+            .sorted {
+                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                return a > b
+            }
+        for stale in clips.dropFirst(limit) {
+            try? fm.removeItem(at: stale)
+        }
     }
 
     func updateEvent(_ id: UUID, _ body: UpdateEventRequest) async throws -> DetectionEvent {

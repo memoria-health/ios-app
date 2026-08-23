@@ -369,12 +369,31 @@ struct AssignSensorSheet: View {
     /// a Save button; auto-saving on every toggle, that would throw the
     /// caregiver out of the sheet mid-edit.
     private func saveNow(_ cam: AccountCamera) async {
-        guard !name.isEmpty else { return }
+        // The name is allowed to be empty MID-EDIT; coverage is not
+        // allowed to be lost because of it.
+        //
+        // This used to `guard !name.isEmpty else { return }`, and every
+        // toggle and icon tap calls straight through here. So clearing
+        // the field to retype it, or touching coverage on a sensor the
+        // installer never named, dropped the write silently: the toggle
+        // lit up, nothing persisted, no error appeared, and the
+        // onDisappear flush hit the same guard on the way out. Coverage
+        // decides which resident an event is filed against, so losing it
+        // quietly is the worst failure this screen has.
+        //
+        // Fall back to the sensor's stored name instead of skipping. If
+        // there is genuinely no name anywhere, say so rather than
+        // pretending the tap worked.
+        let effectiveName = name.isEmpty ? cam.room : name
+        guard !effectiveName.isEmpty else {
+            saveError = "Give this sensor a name first."
+            return
+        }
         saving = true
         defer { saving = false }
         do {
             try await env.api.assignCamera(
-                cam.id, room: name, iconName: icon, patientIds: watchers,
+                cam.id, room: effectiveName, iconName: icon, patientIds: watchers,
             )
             // Refresh everyone who could be affected — including patients
             // just REMOVED from coverage, whose camera list is now stale.
