@@ -113,7 +113,7 @@ struct PatientLiveView: View {
     /// shown on that camera's tile after the trigger fires.
     @State private var capturingCameraId: UUID? = nil
     /// Pairing sheet, moved here with the Sensors tab.
-    @State private var showingAddCamera = false
+    @State private var showingSensors = false
     @State private var captureNote: (cameraId: UUID, text: String)? = nil
 
     var body: some View {
@@ -159,10 +159,18 @@ struct PatientLiveView: View {
             .padding(.bottom, 16)
         }
         .background(NemaraColor.paper)
-        .sheet(isPresented: $showingAddCamera) {
-            AddCameraSheet(patientId: patientId)
-                .presentationDetents([.large])
-                .trackScreen("add_camera")
+        // The same destination the roster's Sensors button opens, not a
+        // second screen that does a slice of it (Aryaman 2026-08-25).
+        // This used to open the pairing sheet directly, pre-assigned to
+        // whichever patient's page you happened to be on — so a sensor
+        // silently picked up its coverage from the navigation path. The
+        // roster sheet lists every sensor, lets you rename and choose who
+        // each one watches, and reaches the same pairing sheet from its
+        // own + button, so nothing is lost by coming through it.
+        .sheet(isPresented: $showingSensors) {
+            AssignSensorSheet()
+                .environment(env)
+                .trackScreen("assign_sensor")
         }
         .navigationDestination(for: UUID.self) { cameraId in
             CameraDetailView(cameraId: cameraId, patientId: patientId)
@@ -1356,7 +1364,7 @@ struct PatientLiveView: View {
                     block: true,
                     systemImage: "plus",
                 ) {
-                    showingAddCamera = true
+                    showingSensors = true
                 }
                 .tutorialTarget(.addSensor)
             }
