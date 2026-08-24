@@ -1299,6 +1299,20 @@ final class NemaraAPIClient {
             query: [URLQueryItem(name: "date", value: date)])
     }
 
+    /// Folded nights for the Home sleep card.
+    ///
+    /// `days` is small on purpose: the card shows last night and needs a
+    /// little history only to say whether it was better or worse than
+    /// usual. Asking for 90 would download a season to render one line.
+    func sleepNights(patientId: UUID, days: Int = 14) async throws -> [SleepNight] {
+        struct Wrapper: Decodable { let nights: [SleepNight] }
+        let w: Wrapper = try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/sleep-nights",
+            query: [URLQueryItem(name: "days", value: String(days))])
+        return w.nights
+    }
+
     // MARK: - HTTP plumbing
 
     private func makeRequest(

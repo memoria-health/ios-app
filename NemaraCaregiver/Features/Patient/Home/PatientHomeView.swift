@@ -16,6 +16,10 @@ struct PatientHomeView: View {
     @State private var daysBack = 0
     @State private var days: [String: JournalDay] = [:]
     @State private var failedDate: String?
+    /// Recent folded nights. Loaded once per visit, independent of the
+    /// day pager: the card always shows LAST NIGHT, not the night of
+    /// whichever day you happen to have paged to.
+    @State private var nights: [SleepNight] = []
     /// Bumped on significant-time-change so the day pager rolls over.
     @State private var dayTick = 0
 
@@ -25,6 +29,12 @@ struct PatientHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: NemaraSpacing.sm) {
                 pager
+                // Above the journal, and only on today. Paging back to
+                // last Tuesday should not put last night's sleep at the
+                // top of it.
+                if daysBack == 0, let last = nights.last {
+                    SleepCard(night: last, history: nights)
+                }
                 content
             }
             .padding(.horizontal, 14)
@@ -33,6 +43,7 @@ struct PatientHomeView: View {
         }
         .refreshable { await load(force: true) }
         .task(id: "\(daysBack)-\(dayTick)") { await load() }
+        .task(id: "sleep-\(patientId)-\(dayTick)") { await loadNights() }
         // Midnight/timezone rollover: without this, an app left open on
         // "So far today" keeps showing yesterday labeled as today.
         .onReceive(NotificationCenter.default.publisher(
@@ -144,6 +155,15 @@ struct PatientHomeView: View {
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 200)
+        }
+    }
+
+    /// Never surfaces an error. A missing sleep card is a card that is
+    /// not there; a red banner over the top of Home because a summary
+    /// endpoint blipped is worse than saying nothing.
+    private func loadNights() async {
+        if let got = try? await env.api.sleepNights(patientId: patientId) {
+            nights = got
         }
     }
 
