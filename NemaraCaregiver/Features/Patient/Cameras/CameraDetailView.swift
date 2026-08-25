@@ -163,23 +163,23 @@ struct CameraDetailView: View {
         } message: {
             Text(
                 "The paired phone returns to its pairing screen. This "
-                + "camera's room, detectors, and history are kept — pair a "
+                + "sensor's room, detectors, and history are kept — pair a "
                 + "phone back to it any time with a fresh code."
             )
         }
         .alert(
-            "Delete this sensor?",
+            "Remove this sensor?",
             isPresented: $showingDeleteConfirm,
         ) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
+            Button("Remove", role: .destructive) {
                 Task { await deleteCamera() }
             }
         } message: {
             Text(
-                "The wall phone will unpair on its next poll. "
-                + "Its event history is preserved. You can pair "
-                + "a new phone to this patient any time."
+                "It stops watching this patient and stops recording. "
+                + "Everything it already recorded is kept, and you can "
+                + "set it up again from Sensors on the home screen."
             )
         }
         .alert(
@@ -510,7 +510,7 @@ struct CameraDetailView: View {
 
             HStack {
                 Spacer()
-                InfoDot("Applies to this camera only, other cameras are independent. The master switch lives on the detector.")
+                InfoDot("Applies to this sensor only, other sensors are independent. The master switch lives on the detector.")
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
@@ -747,9 +747,9 @@ struct CameraDetailView: View {
                 showingDeleteConfirm = true
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "trash")
+                    Image(systemName: "minus.circle")
                         .font(.system(size: 14, weight: .semibold))
-                    Text(deleting ? "Deleting…" : "Delete sensor")
+                    Text(deleting ? "Removing…" : "Remove from this patient")
                         .font(NemaraFont.bodySmallStrong)
                     Spacer()
                 }
@@ -770,7 +770,7 @@ struct CameraDetailView: View {
         actionError = nil
         defer { deleting = false }
         do {
-            try await env.api.deleteCamera(cameraId)
+            try await env.api.unassignCamera(cameraId)
             // Pop back to the parent (Cameras list) immediately; the
             // realtime DELETE event will also remove the row from
             // env.api.camerasByPatient so the list updates.

@@ -195,7 +195,7 @@ struct DetectorLibraryView: View {
                 }
                 // Honest empty-camera note (matches the backend behaviour:
                 // detectors start running when the first camera is paired).
-                Text("These start watching as soon as you add a camera.")
+                Text("These start watching as soon as you add a sensor.")
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
                     .padding(.horizontal, 16)
@@ -445,12 +445,12 @@ private struct WanderingRoomsSheet: View {
                         }
                     }
                 } header: {
-                    Text("Which cameras should watch for wandering?")
+                    Text("Which sensors should watch for wandering?")
                 } footer: {
-                    Text("Exit-door setup will only appear on these cameras. Leave empty for all cameras.")
+                    Text("Exit-door setup will only appear on these sensors. Leave empty for all sensors.")
                 }
             }
-            .navigationTitle("Wandering cameras")
+            .navigationTitle("Wandering sensors")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { onDone() } } }
         }

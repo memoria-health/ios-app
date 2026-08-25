@@ -293,7 +293,7 @@ struct DetectorDetailSheet: View {
                 }
             }
             if opts.isEmpty {
-                Text("No cameras yet. This runs everywhere once you pair one.")
+                Text("No sensors yet. This runs everywhere once you pair one.")
                     .font(NemaraFont.caption)
                     .foregroundStyle(NemaraColor.ink3)
             }

@@ -41,9 +41,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Memoria uses the camera to take a quick profile photo of the person you care for.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Memoria uses your local network to find and set up nearby camera devices on the same Wi-Fi.</string>
+	<string>Memoria uses your local network to find and set up nearby sensors on the same Wi-Fi.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Memoria uses the microphone so you can speak live to the person you care for through their paired camera.</string>
+	<string>Memoria uses the microphone so you can speak live to the person you care for through their paired sensor.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Memoria uses photos you choose to personalize the profile of the person you care for.</string>
 	<key>UIAppFonts</key>

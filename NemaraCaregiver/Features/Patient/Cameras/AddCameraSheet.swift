@@ -1,25 +1,33 @@
 import SwiftUI
 
-/// Bottom sheet for adding a new camera under a patient. A segmented
-/// picker at the top toggles between the two device classes (both
-/// branded "Memoria Sensor"):
+/// Bottom sheet for adding a sensor, reached from the patient's Live view.
+/// Two device classes, and the split is about WHO does the setup:
 ///
-///   Phone (existing flow):
+///   Spare phone:
 ///     A phone running the MemoriaSensor app. Caregiver types a room
 ///     name + icon, taps "Generate code", the sheet shows a 6-digit
-///     pairing code with a live countdown. The wall phone enters the
-///     code in the MemoriaSensor app and the placeholder cameras row
-///     flips to online via Realtime.
+///     pairing code with a live countdown. The wall phone enters it and
+///     the placeholder cameras row flips online via Realtime. Bound to
+///     the ACCOUNT like everything else since 2026-08-23; naming a
+///     resident is coverage, and optional.
 ///
-///   Native (our purpose-built Raspberry-Pi hardware):
-///     Mounts `SensorSetupWizard` — a linear 4-step flow that joins the
-///     camera's setup Wi-Fi, opens the captive portal for home Wi-Fi
-///     credentials, polls discovery until the camera appears, then
-///     assigns it to a room and provisions it.
+///   Memoria Sensor:
+///     Our own hardware, and anything an installer puts in (gateway
+///     camera, hosted bridge). Also a 6-digit code, but it binds to the
+///     ACCOUNT, so the sensor arrives unassigned and streaming and is
+///     given its residents afterwards in Sensors. One flow for every
+///     installed sensor, whatever the vendor.
 ///
-/// Replaces the prior alert-then-sheet pattern in PatientCamerasView.
+/// The Raspberry-Pi wizard that used to live in the second tab is gone
+/// (2026-08-23). Its backend (pi_discovery and pi-provision) was deleted
+/// with the Pi path, so every step of it 404'd. It was a live button
+/// wired to nothing.
 struct AddCameraSheet: View {
-    let patientId: UUID
+    /// Nil when opened from the account roster, where no patient is in
+    /// context. Neither tab needs one: a phone paired with no resident
+    /// named arrives unassigned, exactly like an installed sensor, and
+    /// is given coverage in Sensors.
+    let patientId: UUID?
 
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
@@ -31,38 +39,53 @@ struct AddCameraSheet: View {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .phone: "Phone"
-            // "Native" was dev jargon for the purpose-built hardware. The ™
-            // signals it's our own dedicated device, distinct from the
-            // spare-phone option.
-            case .sensor: "Memoria™ Sensor"
+            case .phone: "Spare phone"
+            case .sensor: "Memoria Sensor"
             }
         }
     }
 
     var body: some View {
         VStack(spacing: 16) {
-            Capsule()
-                .fill(NemaraColor.line)
-                .frame(width: 36, height: 4)
-                .padding(.top, 8)
+            NemaraSheetHandle()
 
             Text("ADD A SENSOR").nemaraEyebrow()
 
-            Picker("Sensor type", selection: $tab) {
+            // Hand-styled rather than `.pickerStyle(.segmented)`: the
+            // system control brings its own greys, font and corner radius
+            // and cannot be told to use ours, so it read as a piece of
+            // iOS dropped into a Memoria sheet.
+            HStack(spacing: 6) {
                 ForEach(SourceTab.allCases) { t in
-                    Text(t.label).tag(t)
+                    Button { tab = t } label: {
+                        Text(t.label)
+                            .font(NemaraFont.bodySmallStrong)
+                            .foregroundStyle(tab == t ? NemaraColor.actionInk : NemaraColor.ink2)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: NemaraRadius.sm)
+                                    .fill(tab == t ? NemaraColor.action : Color.clear)
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(tab == t ? [.isSelected] : [])
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: NemaraRadius.md)
+                    .fill(NemaraColor.paperDim)
+            )
+            .padding(.horizontal, 20)
 
             Group {
                 switch tab {
                 case .phone:
                     PhoneCameraTab(patientId: patientId, onDone: { dismiss() })
                 case .sensor:
-                    SensorSetupWizard(patientId: patientId, onFinished: { dismiss() })
+                    InstalledSensorTab()
                         .trackScreen("sensor_setup")
                 }
             }
@@ -73,6 +96,55 @@ struct AddCameraSheet: View {
         // Welcome-tour host: this sheet renders above the patient shell, so
         // the generate-code / pairing steps need their own layer here.
         .tutorialOverlay(.addCameraSheet)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Memoria Sensor tab.
+//
+// Deliberately thin: it hands out a code and says what happens next.
+// It takes no patientId because an installed sensor belongs to the
+// ACCOUNT. Binding it to whoever's screen you happen to be on is the
+// exact assumption this migration removed. Coverage is chosen later,
+// in Sensors, where one sensor can watch several residents.
+// ─────────────────────────────────────────────────────────────
+
+private struct InstalledSensorTab: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var showingCode = false
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 54, weight: .light))
+                .foregroundStyle(NemaraColor.ink3)
+                .padding(.top, 14)
+
+            Text("Your installer sets these up")
+                .font(NemaraFont.title2)
+                .foregroundStyle(NemaraColor.ink)
+                .multilineTextAlignment(.center)
+
+            Text("Give them a setup code. The sensor starts streaming right away, and you choose who it watches in Sensors.")
+                .font(NemaraFont.body)
+                .foregroundStyle(NemaraColor.ink2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            NemaraButton("Get a setup code", variant: .primary, size: .lg) {
+                showingCode = true
+            }
+            .padding(.top, 2)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .sheet(isPresented: $showingCode) {
+            SensorSetupCodeSheet()
+                .environment(env)
+                .presentationDetents([.medium, .large])
+                .trackScreen("sensor_setup_code")
+        }
     }
 }
 
@@ -88,7 +160,9 @@ struct AddCameraSheet: View {
 // ─────────────────────────────────────────────────────────────
 
 private struct PhoneCameraTab: View {
-    let patientId: UUID
+    /// Nil from the sensor roster. Coverage, not identity: a phone with
+    /// no resident named arrives unassigned and is given one in Sensors.
+    let patientId: UUID?
     let onDone: () -> Void
 
     @Environment(AppEnvironment.self) private var env
@@ -150,7 +224,10 @@ private struct PhoneCameraTab: View {
         // via Supabase Realtime; when it does, close the sheet so the
         // caregiver doesn't have to tap "Done". Scoped to OUR camera id, so an
         // unrelated camera's update can never dismiss this sheet.
-        .onChange(of: env.api.camerasByPatient[patientId]) { _, cameras in
+        // Only watchable when a resident is named. From the roster the
+        // phone has no patient list to appear in, so the sheet closes on
+        // the caregiver's Done instead of auto-dismissing.
+        .onChange(of: patientId.flatMap { env.api.camerasByPatient[$0] }) { _, cameras in
             guard let id = generatedCameraId,
                   let cam = cameras?.first(where: { $0.id == id }),
                   cam.paired
@@ -271,16 +348,18 @@ private struct PhoneCameraTab: View {
         // Room names must be unique per patient: duplicates make every
         // name-scoped feature ambiguous (wandering rooms, the Home report,
         // the info panel all key on the name).
-        let taken = (env.api.camerasByPatient[patientId] ?? [])
+        let known = patientId.flatMap { env.api.camerasByPatient[$0] } ?? []
+        let taken = known
             .contains { !$0.disabled && $0.room.compare(trimmed, options: .caseInsensitive) == .orderedSame }
         if taken {
-            state = .error("A camera named “\(trimmed)” already exists for this patient. Pick a different name.")
+            state = .error("A sensor named “\(trimmed)” already exists. Pick a different name.")
             return
         }
         state = .generating
         do {
             let response = try await env.api.createPairingCode(
-                forPatient: patientId, room: trimmed, iconName: icon,
+                room: trimmed, iconName: icon,
+                patientIds: patientId.map { [$0] } ?? [],
             )
             generatedCameraId = response.cameraId
             // Welcome-tour: let the tour's keypad illustration show this

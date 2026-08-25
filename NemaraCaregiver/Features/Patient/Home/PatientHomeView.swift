@@ -16,6 +16,10 @@ struct PatientHomeView: View {
     @State private var daysBack = 0
     @State private var days: [String: JournalDay] = [:]
     @State private var failedDate: String?
+    /// Recent folded nights. Loaded once per visit, independent of the
+    /// day pager: the card always shows LAST NIGHT, not the night of
+    /// whichever day you happen to have paged to.
+    @State private var nights: [SleepNight] = []
     /// Bumped on significant-time-change so the day pager rolls over.
     @State private var dayTick = 0
 
@@ -25,6 +29,10 @@ struct PatientHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: NemaraSpacing.sm) {
                 pager
+                // No standalone sleep card: sleep already has a detector
+                // surface, and the numbers this showed were wrong.
+                // SleepCard.swift is kept, unused, for that surface to
+                // adopt once the signal can be trusted.
                 content
             }
             .padding(.horizontal, 14)
@@ -33,6 +41,7 @@ struct PatientHomeView: View {
         }
         .refreshable { await load(force: true) }
         .task(id: "\(daysBack)-\(dayTick)") { await load() }
+        .task(id: "sleep-\(patientId)-\(dayTick)") { await loadNights() }
         // Midnight/timezone rollover: without this, an app left open on
         // "So far today" keeps showing yesterday labeled as today.
         .onReceive(NotificationCenter.default.publisher(
@@ -144,6 +153,15 @@ struct PatientHomeView: View {
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 200)
+        }
+    }
+
+    /// Never surfaces an error. A missing sleep card is a card that is
+    /// not there; a red banner over the top of Home because a summary
+    /// endpoint blipped is worse than saying nothing.
+    private func loadNights() async {
+        if let got = try? await env.api.sleepNights(patientId: patientId) {
+            nights = got
         }
     }
 

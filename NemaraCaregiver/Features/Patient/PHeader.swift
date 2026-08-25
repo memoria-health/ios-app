@@ -27,19 +27,18 @@ struct PHeader: View {
                 }
             }
             Spacer()
-            SupportIconButton()
-                .padding(.trailing, 10)
             // Feedback pill removed from the header (Aryaman, Aug 17) —
             // product feedback lives in Patient Settings; the header
             // keeps only help and Home.
-
-            Button(action: onHome) {
-                Image(systemName: "house.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(NemaraColor.ink)
+            //
+            // Same two components and the same gap as the roster header:
+            // help was a bordered 12pt chip beside a bare 18pt glyph,
+            // separated by an ad-hoc trailing pad rather than the shared
+            // spacing, so the pair matched neither each other nor Home.
+            HStack(spacing: NemaraHeaderIcon.gap) {
+                SupportIconButton()
+                NemaraHeaderIcon("house.fill", label: "Home", action: onHome)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Home")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

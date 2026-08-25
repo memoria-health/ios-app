@@ -794,7 +794,7 @@ private struct TutorialHost: View {
         case .openPatient:
             return "Tap \(patientFirstName)'s card to open their space."
         case .addSensor:
-            return "Tap Add a sensor to connect your first camera."
+            return "Tap Add a sensor to connect your first one."
         case .generateCode:
             if target == .generateCode { return "Great — now tap Generate code." }
             return "Name the room in the highlighted field (like \u{201C}Living room\u{201D}) — pause for a moment when you're done."
@@ -809,7 +809,7 @@ private struct TutorialHost: View {
                 return "This is where live video appears once a sensor is paired — each room gets its own tile. You don't need to keep the app open; Memoria works in the background."
             }
             if target == .reconnectAll {
-                return "Tap Reconnect all sensors to bring your camera online."
+                return "Tap Reconnect all sensors to bring it back online."
             }
             return "This is the live view — your sensor's room shows up here as a tile you can tap to expand. You don't need to keep it open; Memoria keeps working in the background."
         case .detectors:

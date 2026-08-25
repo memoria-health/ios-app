@@ -80,7 +80,7 @@ struct PatientSettingsView: View {
         } message: {
             if let p = patient {
                 Text(
-                    "\(p.preferredName)'s cameras, detectors, and event history "
+                    "\(p.preferredName)'s sensors, detectors, and event history "
                     + "will be permanently removed. This cannot be undone.",
                 )
             } else {

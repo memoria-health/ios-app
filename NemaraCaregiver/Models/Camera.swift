@@ -121,6 +121,17 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
     /// as the canonical "this row is a real paired camera" check
     /// (more reliable than `online`, which lies for unpaired rows).
     var livekitIdentity: String?
+
+    /// The LiveKit room this camera PUBLISHES INTO — the address to
+    /// join in order to see it.
+    ///
+    /// Do NOT reconstruct this as `patient_<viewed patient id>`. A
+    /// camera that watches two residents publishes into exactly one
+    /// room, so for the second resident that guess names a room the
+    /// camera never appears in: the tab connects fine and shows
+    /// nothing, forever, with no error to explain it. Nil only on
+    /// older backends that don't send the field.
+    var livekitRoom: String?
     var createdAt: Date
 
     /// True once the wall phone has completed the /pair handshake.
@@ -159,6 +170,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         case roomClassifiedAt = "room_classified_at"
         case privacyEnabled = "privacy_enabled"
         case livekitIdentity = "livekit_identity"
+        case livekitRoom = "livekit_room"
         case createdAt = "created_at"
         case paired
         case appPresent = "app_present"
@@ -202,6 +214,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         roomClassifiedAt = try c.decodeIfPresent(Date.self, forKey: .roomClassifiedAt)
         privacyEnabled = try c.decodeIfPresent(Bool.self, forKey: .privacyEnabled) ?? false
         livekitIdentity = try c.decodeIfPresent(String.self, forKey: .livekitIdentity)
+        livekitRoom = try c.decodeIfPresent(String.self, forKey: .livekitRoom)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         if let explicit = try c.decodeIfPresent(Bool.self, forKey: .paired) {
             paired = explicit
@@ -245,6 +258,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         try c.encodeIfPresent(roomClassifiedAt, forKey: .roomClassifiedAt)
         try c.encode(privacyEnabled, forKey: .privacyEnabled)
         try c.encodeIfPresent(livekitIdentity, forKey: .livekitIdentity)
+        try c.encodeIfPresent(livekitRoom, forKey: .livekitRoom)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(paired, forKey: .paired)
         try c.encodeIfPresent(appPresent, forKey: .appPresent)
@@ -269,6 +283,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         iconName: String,
         online: Bool,
         livekitIdentity: String?,
+        livekitRoom: String? = nil,
         createdAt: Date,
         paired: Bool,
         appPresent: Bool? = nil,
@@ -288,6 +303,7 @@ struct Camera: Identifiable, Hashable, Sendable, Codable {
         self.iconName = iconName
         self.online = online
         self.livekitIdentity = livekitIdentity
+        self.livekitRoom = livekitRoom
         self.createdAt = createdAt
         self.paired = paired
         self.appPresent = appPresent
@@ -340,8 +356,46 @@ struct CreatePairingCodeRequest: Encodable, Sendable {
     }
 }
 
+/// Body for `POST /v1/cameras/pairing-code`. Coverage rather than a
+/// patient in the path: empty means the phone arrives unassigned, the
+/// same state an installed sensor arrives in.
+struct CreateAccountPairingCodeRequest: Encodable, Sendable {
+    var room: String
+    var iconName: String
+    var patientIds: [UUID]
+
+    enum CodingKeys: String, CodingKey {
+        case room
+        case iconName = "icon_name"
+        case patientIds = "patient_ids"
+    }
+}
+
 /// Response from the same. Caregiver app displays the code +
 /// countdown to expiry.
+/// The code an installer types to attach a new sensor to this account.
+///
+/// Separate from `CreatePairingCodeResponse` because it names no camera:
+/// the sensor does not exist until the installer redeems this, whereas a
+/// wall-phone code is minted against a row that already does.
+///
+/// The backend sends a DURATION rather than an instant, so a clock skew
+/// between phone and server cannot make a live code look expired or an
+/// expired one look live.
+struct SensorSetupCodeResponse: Decodable, Sendable {
+    let pairingCode: String     // 6 digits
+    let expiresInSeconds: Int
+
+    /// When this code dies, measured on THIS device.
+    var expiresAt: Date { Date().addingTimeInterval(TimeInterval(expiresInSeconds)) }
+
+    enum CodingKeys: String, CodingKey {
+        case pairingCode = "pairing_code"
+        case expiresInSeconds = "expires_in_seconds"
+    }
+}
+
+
 struct CreatePairingCodeResponse: Decodable, Sendable {
     let pairingCode: String  // 6 digits, 100000–999999
     let expiresAt: Date
@@ -351,77 +405,6 @@ struct CreatePairingCodeResponse: Decodable, Sendable {
         case pairingCode = "pairing_code"
         case expiresAt = "expires_at"
         case cameraId = "camera_id"
-    }
-}
-
-/// One sensor camera the backend has heard from but no caregiver has
-/// claimed yet. Populates the "Sensor Camera" tab of the add-camera
-/// sheet. Mirrors `nemara-backend/src/schemas/pi_discovery.py`
-/// `DiscoveredPi`.
-struct DiscoveredCamera: Identifiable, Sendable, Decodable {
-    var id: UUID { discoveryId }
-
-    let discoveryId: UUID
-    let hardwareId: String
-    let deviceLabel: String
-    let currentUrl: String
-    let currentAudioUrl: String?
-    let firstSeenAt: Date
-    let lastSeenAt: Date
-
-    enum CodingKeys: String, CodingKey {
-        case discoveryId = "discovery_id"
-        case hardwareId = "hardware_id"
-        case deviceLabel = "device_label"
-        case currentUrl = "current_url"
-        case currentAudioUrl = "current_audio_url"
-        case firstSeenAt = "first_seen_at"
-        case lastSeenAt = "last_seen_at"
-    }
-}
-
-/// Top-level shape of `GET /v1/cameras/discovered`. Caregiver-facing
-/// picker iterates `pis`.
-struct DiscoveredCamerasResponse: Decodable, Sendable {
-    let pis: [DiscoveredCamera]
-}
-
-/// Body for `POST /v1/patients/{id}/cameras/pi-provision`, discovery
-/// mode. Binds an already-announced sensor camera to a patient + room.
-/// The direct-URL mode is intentionally not surfaced to the app
-/// (operators use it via curl for testing).
-struct ProvisionSensorCameraRequest: Encodable, Sendable {
-    var room: String
-    var iconName: String
-    var discoveryId: UUID
-
-    enum CodingKeys: String, CodingKey {
-        case room
-        case iconName = "icon_name"
-        case discoveryId = "discovery_id"
-    }
-}
-
-/// Response from `pi-provision`. The app uses `cameraId` to navigate
-/// to the new camera's detail view post-pairing.
-///
-/// The backend's push refactor removed `pi_stream_url` and
-/// `pi_audio_url` from this response: in push mode the Pi opens an
-/// outbound connection to the backend rather than the backend
-/// pulling from a Pi-served URL, so those fields are meaningless.
-/// The Pi's ingest bearer token is delivered separately via the
-/// next `/v1/cameras/pi-announce` response, not here.
-struct ProvisionSensorCameraResponse: Decodable, Sendable {
-    let cameraId: UUID
-    let patientId: UUID
-    let livekitIdentity: String
-    let livekitRoom: String
-
-    enum CodingKeys: String, CodingKey {
-        case cameraId = "camera_id"
-        case patientId = "patient_id"
-        case livekitIdentity = "livekit_identity"
-        case livekitRoom = "livekit_room"
     }
 }
 
@@ -468,5 +451,48 @@ struct SetCameraDetectorsRequest: Encodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case detectorIds = "detector_ids"
+    }
+}
+
+/// A camera as the ACCOUNT sees it, including ones no patient owns yet.
+///
+/// The installer provisions a camera against the account; who it watches
+/// is decided here, in the app. `unassigned` rows are what the sensor
+/// sheet lists as ready to set up — they are NOT discovered over the
+/// local network, so the caregiver can be anywhere.
+struct AccountCamera: Identifiable, Hashable, Sendable, Codable {
+    let id: UUID
+    let room: String
+    let iconName: String
+    let online: Bool
+    let sourceType: String
+    /// Everyone this camera watches, as equals, oldest assignment
+    /// first. Empty = unassigned. There is no primary any more: the
+    /// backend dropped `camera_patients.is_primary` (2026-08-22)
+    /// because a camera no longer publishes into a patient's room, so
+    /// there was nothing left for "first" to decide.
+    let patientIds: [UUID]
+    let unassigned: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, room, online, unassigned
+        case iconName = "icon_name"
+        case sourceType = "source_type"
+        case patientIds = "patient_ids"
+    }
+}
+
+/// Body for `POST /v1/cameras/{id}/coverage`. An EMPTY `patientIds` is
+/// legal and means "watched by nobody yet" — assignment is pure
+/// attribution now, it never starts or stops the video.
+struct CoverageBody: Encodable {
+    let room: String?
+    let iconName: String?
+    let patientIds: [UUID]
+
+    enum CodingKeys: String, CodingKey {
+        case room
+        case iconName = "icon_name"
+        case patientIds = "patient_ids"
     }
 }

@@ -73,6 +73,10 @@ struct NewPatientView: View {
                         photoRow
                     }
                     .padding(.horizontal, 20)
+                    // BASIC PROFILE sat flush against the header rule with
+                    // no top padding at all, so the eyebrow read as part of
+                    // the header instead of the start of the form.
+                    .padding(.top, NemaraSheetHandle.contentGap)
                     .padding(.bottom, 20)
                 }
 

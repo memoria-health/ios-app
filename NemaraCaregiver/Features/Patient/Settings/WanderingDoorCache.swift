@@ -106,7 +106,7 @@ final class WanderingDoorCache {
         do {
             let jpeg = try await api.doorFrame(cameraId: cameraId)
             guard let image = UIImage(data: jpeg) else {
-                return .failed("Couldn't read the camera image. Please try again.")
+                return .failed("Couldn't read the sensor image. Please try again.")
             }
             frames[cameraId] = Frame(jpeg: jpeg, image: image, capturedAt: Date())
             return .ok

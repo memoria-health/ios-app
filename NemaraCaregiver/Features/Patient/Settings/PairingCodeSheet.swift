@@ -36,10 +36,7 @@ struct PairingCodeSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Capsule()
-                .fill(NemaraColor.line)
-                .frame(width: 36, height: 4)
-                .padding(.top, 8)
+            NemaraSheetHandle()
 
             VStack(spacing: 6) {
                 Text("PAIR A NEW PHONE").nemaraEyebrow()
@@ -110,7 +107,7 @@ struct PairingCodeSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             label("1.", "Open MemoriaSensor on the wall phone.")
             label("2.", "Enter the code above when prompted.")
-            label("3.", "The camera will appear here once it's paired.")
+            label("3.", "The sensor will appear here once it's paired.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
@@ -146,7 +143,7 @@ struct PairingCodeSheet: View {
             switch source {
             case .create(let patientId, let iconName):
                 response = try await env.api.createPairingCode(
-                    forPatient: patientId, room: room, iconName: iconName,
+                    room: room, iconName: iconName, patientIds: [patientId],
                 )
             case .regenerate(let cameraId):
                 response = try await env.api.regeneratePairingCode(forCamera: cameraId)

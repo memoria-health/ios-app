@@ -611,6 +611,89 @@ final class NemaraAPIClient {
         eventsByPatient.removeValue(forKey: id)
     }
 
+    // MARK: - Account cameras (assignment)
+
+    /// Every camera on the account, assigned or not. The unassigned ones
+    /// are what the sensor sheet offers to set up.
+    func fetchAccountCameras() async throws -> [AccountCamera] {
+        try await sendNoBody(method: "GET", path: "/v1/cameras")
+    }
+
+    /// Name a camera and say which patients it watches, as equals. An
+    /// empty list is a valid save meaning "nobody yet"; the camera goes
+    /// on streaming either way, since coverage is only attribution.
+    func assignCamera(
+        _ cameraId: UUID,
+        room: String?,
+        iconName: String?,
+        patientIds: [UUID],
+    ) async throws {
+        try await sendJSONVoid(
+            method: "POST",
+            path: "/v1/cameras/\(cameraId.uuidString.lowercased())/coverage",
+            body: CoverageBody(
+                room: room, iconName: iconName, patientIds: patientIds,
+            ),
+        )
+    }
+
+    /// Take a camera off every patient. It stays on the account and KEEPS
+    /// streaming — coverage is attribution only — and the footage it
+    /// already produced is untouched.
+    func unassignCamera(_ cameraId: UUID) async throws {
+        try await sendNoBodyVoid(
+            method: "DELETE",
+            path: "/v1/cameras/\(cameraId.uuidString.lowercased())/coverage",
+        )
+    }
+
+    // MARK: - Which room to join to see a patient
+
+    /// The LiveKit room to join in order to watch `pid`, plus any of
+    /// their cameras that room does not contain. Nil room means we
+    /// don't know one yet — there is nothing to connect to.
+    ///
+    /// This used to be `patient_<pid>` and that was wrong from the
+    /// moment a camera could watch two people (2026-08-20). It is
+    /// wronger now: bridge/gateway sensors publish into
+    /// `account_<caregiver>`, shared by every sensor on the account,
+    /// while iPhone wall phones keep the `patient_<pid>` room they
+    /// were handed once at pairing and never re-read. Both shapes are
+    /// live at the same time, so the room cannot be computed from the
+    /// patient at all — it can only be read off the cameras. Guessing
+    /// connects successfully and shows an empty grid, which reads to
+    /// the caregiver as a broken sensor.
+    ///
+    /// A patient whose cameras span more than one room cannot be shown
+    /// in full, because the client holds one room at a time. A wall
+    /// phone plus a bridge sensor does exactly that; it returns the
+    /// room covering the most of their cameras and names the rest as
+    /// `unreachable` so the caller can say so instead of rendering a
+    /// permanently blank tile.
+    func liveRoom(forPatient pid: UUID) -> (room: String?, unreachable: [Camera]) {
+        let cams = camerasByPatient[pid] ?? []
+        let grouped = Dictionary(grouping: cams.filter { $0.livekitRoom != nil }) {
+            $0.livekitRoom!
+        }
+        // Nothing to go on: the list hasn't loaded, or every row is an
+        // unpaired placeholder. Nil rather than a constructed guess —
+        // the guess is a room the patient's sensors may never publish
+        // into, and joining it looks identical to a working connection.
+        guard !grouped.isEmpty else { return (nil, []) }
+        // Rank: most cameras first, then the name. Sorting on an
+        // explicit key rather than a clever comparator, so "why did it
+        // pick that one" is readable and the result never depends on
+        // dictionary order.
+        let chosen = grouped.keys.sorted { a, b in
+            let ka = (-grouped[a]!.count, a)
+            let kb = (-grouped[b]!.count, b)
+            return ka < kb
+        }.first!
+        return (chosen, cams.filter {
+            $0.livekitRoom != nil && $0.livekitRoom != chosen
+        })
+    }
+
     // MARK: - Cameras (GET / DELETE / POST pairing-code)
 
     func loadCameras(forPatient pid: UUID) async throws {
@@ -634,17 +717,46 @@ final class NemaraAPIClient {
     /// optimistically refresh the patient's camera list so the
     /// placeholder row appears (it'll flip to `online=true` once the
     /// phone connects, via Realtime).
+    /// A body with no fields. The setup-code endpoint takes none — the
+    /// account comes from the caller's own session — but the JSON helper
+    /// wants something Encodable.
+    private struct EmptyBody: Encodable {}
+
+    /// Mint the code an installer types to attach a new sensor.
+    ///
+    /// Account-scoped, not patient-scoped: a sensor belongs to the
+    /// ACCOUNT and is assigned to people afterwards, so asking which
+    /// patient it is for before it exists would be asking a question
+    /// that has no answer yet.
+    func createSensorSetupCode() async throws -> SensorSetupCodeResponse {
+        try await sendJSON(
+            method: "POST",
+            path: "/v1/gateway/pairing-code",
+            body: EmptyBody(),
+        )
+    }
+
+    /// Mint a wall-phone pairing code against the ACCOUNT.
+    ///
+    /// `patientIds` is coverage, and empty is legal: paired from the
+    /// sensor roster the phone arrives unassigned, exactly like an
+    /// installed sensor; paired from a resident's Live view it arrives
+    /// watching them. The old per-patient route made the caller name
+    /// somebody before a code could exist at all, which is why the
+    /// roster used to ask "who is this for?" before it could help.
     func createPairingCode(
-        forPatient pid: UUID,
         room: String,
         iconName: String = "tv",
+        patientIds: [UUID] = [],
     ) async throws -> CreatePairingCodeResponse {
         let response: CreatePairingCodeResponse = try await sendJSON(
             method: "POST",
-            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/pairing-code",
-            body: CreatePairingCodeRequest(room: room, iconName: iconName),
+            path: "/v1/cameras/pairing-code",
+            body: CreateAccountPairingCodeRequest(
+                room: room, iconName: iconName, patientIds: patientIds,
+            ),
         )
-        try await loadCameras(forPatient: pid)
+        for pid in patientIds { try await loadCameras(forPatient: pid) }
         return response
     }
 
@@ -661,42 +773,6 @@ final class NemaraAPIClient {
         )
     }
 
-    /// List sensor cameras that have announced themselves to the
-    /// backend but have not yet been paired to a patient. Drives the
-    /// "Sensor Camera" tab of the add-camera sheet. The backend
-    /// filters to recently-seen (within 5 minutes) unclaimed rows.
-    func listDiscoveredCameras() async throws -> [DiscoveredCamera] {
-        let resp: DiscoveredCamerasResponse = try await sendNoBody(
-            method: "GET", path: "/v1/cameras/discovered",
-        )
-        return resp.pis
-    }
-
-    /// Pair a discovered sensor camera to this patient. The discovery
-    /// ID comes from `listDiscoveredCameras`; the backend looks up
-    /// the URL from the discovery record, creates a `cameras` row
-    /// with `source_type='pi'`, and marks the discovery claimed so
-    /// it disappears from subsequent `listDiscoveredCameras` calls.
-    /// We refresh the patient's camera list so the new row shows
-    /// up immediately.
-    func provisionSensorCamera(
-        forPatient pid: UUID,
-        room: String,
-        iconName: String = "tv",
-        discoveryId: UUID,
-    ) async throws -> ProvisionSensorCameraResponse {
-        let response: ProvisionSensorCameraResponse = try await sendJSON(
-            method: "POST",
-            path: "/v1/patients/\(pid.uuidString.lowercased())/cameras/pi-provision",
-            body: ProvisionSensorCameraRequest(
-                room: room,
-                iconName: iconName,
-                discoveryId: discoveryId,
-            ),
-        )
-        try await loadCameras(forPatient: pid)
-        return response
-    }
 
     func deleteCamera(_ id: UUID) async throws {
         try await sendNoBodyVoid(method: "DELETE", path: "/v1/cameras/\(id.uuidString.lowercased())")
@@ -974,15 +1050,71 @@ final class NemaraAPIClient {
     /// with 409 `clip_not_ready` — caregiver app shows the
     /// "processing…" placeholder until Realtime flips `has_clip=true`).
     /// Throws on any other error.
+    /// Returns a LOCAL file URL, having fetched the bytes under the
+    /// caregiver's token.
+    ///
+    /// The backend used to hand back a storage-signed URL built from its
+    /// OWN address for Supabase (`host.docker.internal` in Docker, a LAN
+    /// IP natively), which a phone cannot resolve — the player just never
+    /// started, looking exactly like a corrupt clip. It now serves the
+    /// bytes itself, so they need our Authorization header, and
+    /// `AVPlayer(url:)` sends none.
+    ///
+    /// Downloaded whole rather than streamed with a resource-loader
+    /// delegate: clips are capped at 25MB server-side, and this uses only
+    /// documented API instead of the undocumented
+    /// `AVURLAssetHTTPHeaderFieldsKey` that the streaming approach needs.
     func clipURL(forEvent eventId: UUID) async throws -> URL? {
+        let id = eventId.uuidString.lowercased()
         do {
-            let response: ClipURLResponse = try await sendNoBody(
-                method: "GET",
-                path: "/v1/events/\(eventId.uuidString.lowercased())/clip-url",
+            // Still asked first: it is the call that distinguishes
+            // "processing" (409) from "gone" (404).
+            let _: ClipURLResponse = try await sendNoBody(
+                method: "GET", path: "/v1/events/\(id)/clip-url",
             )
-            return response.url
         } catch APIError.conflict {
             return nil
+        }
+
+        let request = try await makeRequest(
+            method: "GET", path: "/v1/events/\(id)/clip",
+        )
+        let (data, response) = try await runDataTask(request)
+        try mapStatus(response: response, data: data)
+
+        // Named by event id so re-opening the same clip overwrites its
+        // own file. That alone is not enough: every DISTINCT event left a
+        // file behind forever, so a few days of reviewing events grew the
+        // app's footprint without bound. Sweep the older ones first.
+        let dir = FileManager.default.temporaryDirectory
+        Self.pruneClipCache(in: dir, keeping: id)
+
+        let file = dir.appendingPathComponent("clip-\(id).mp4")
+        // .atomic: a failed or interrupted write must not leave a partial
+        // file that the player would then try to open.
+        try data.write(to: file, options: .atomic)
+        return file
+    }
+
+    /// Keep the clip cache small. Clips are capped at 25MB server-side,
+    /// so a handful is plenty — a caregiver reviews one at a time.
+    private static func pruneClipCache(in dir: URL, keeping id: String, limit: Int = 5) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+        ) else { return }
+        let clips = files
+            .filter { $0.lastPathComponent.hasPrefix("clip-") }
+            .filter { $0.lastPathComponent != "clip-\(id).mp4" }
+            .sorted {
+                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                return a > b
+            }
+        for stale in clips.dropFirst(limit) {
+            try? fm.removeItem(at: stale)
         }
     }
 
@@ -1000,12 +1132,6 @@ final class NemaraAPIClient {
 
     // MARK: - LiveKit (POST /v1/livekit/token) + Talk
 
-    /// Mint a viewer JWT for the patient's `patient_<id>` room. Used by
-    /// the Live tab to subscribe to wall-phone publishers.
-    func mintViewerToken(forPatient pid: UUID) async throws -> MintTokenResponse {
-        try await mintToken(forPatient: pid, role: "viewer")
-    }
-
     /// Mint a broadcaster JWT — same room, plus `canPublish=true` so
     /// the caregiver can stream their mic during Talk mode.
     func mintBroadcasterToken(forPatient pid: UUID) async throws -> MintTokenResponse {
@@ -1019,8 +1145,14 @@ final class NemaraAPIClient {
         guard let caregiverID = await tokenProviderCaregiverId() else {
             throw APIError.unauthorized
         }
+        // No room means none of this patient's sensors have told us
+        // where they publish. Minting for a made-up room would hand the
+        // caller a token that connects to silence instead of failing.
+        guard let room = liveRoom(forPatient: pid).room else {
+            throw APIError.notFound
+        }
         let body = MintTokenRequest(
-            room: "patient_\(pid.uuidString.lowercased())",
+            room: room,
             // LiveKit treats `identity` as a unique participant key per
             // room. The web dashboard uses `caregiver_<uuid>_web`; this
             // app uses `caregiver_<uuid>_ios` — keeping them distinct
@@ -1165,6 +1297,20 @@ final class NemaraAPIClient {
             method: "GET",
             path: "/v1/patients/\(patientId.uuidString.lowercased())/journal",
             query: [URLQueryItem(name: "date", value: date)])
+    }
+
+    /// Folded nights for the Home sleep card.
+    ///
+    /// `days` is small on purpose: the card shows last night and needs a
+    /// little history only to say whether it was better or worse than
+    /// usual. Asking for 90 would download a season to render one line.
+    func sleepNights(patientId: UUID, days: Int = 14) async throws -> [SleepNight] {
+        struct Wrapper: Decodable { let nights: [SleepNight] }
+        let w: Wrapper = try await sendNoBody(
+            method: "GET",
+            path: "/v1/patients/\(patientId.uuidString.lowercased())/sleep-nights",
+            query: [URLQueryItem(name: "days", value: String(days))])
+        return w.nights
     }
 
     // MARK: - HTTP plumbing
@@ -1565,22 +1711,38 @@ extension NemaraAPIClient {
         onCameraOnline?(identity)
     }
 
+    /// Realtime streams straight from Postgres, so it carries rows the REST
+    /// list deliberately withholds — internal detectors like the setup
+    /// self-test, which the server filters out and the row itself gives us no
+    /// way to recognize. Appending a detector we have never seen therefore
+    /// invents list membership the server never granted: that is how "Setup
+    /// test" flashed into the list the instant it passed (its fire-once
+    /// UPDATE arrived for an id we did not hold) and vanished on the next
+    /// refetch. So an unknown id refetches instead of appending, and the
+    /// server's filter stays the only thing that decides what is in the list.
+    /// Ask the server for the authoritative list. Failures are ignored: the
+    /// list simply stays as it was until the next refresh, which is the same
+    /// outcome as dropping the realtime event.
+    private func refetchDetectors(forPatient pid: UUID) {
+        Task { [weak self] in try? await self?.loadDetectors(forPatient: pid) }
+    }
+
     private func handleDetectorChange(_ action: AnyAction) {
         let dec = NemaraJSON.decoder()
         switch action {
         case .insert(let a):
             guard let d = try? a.decodeRecord(as: Detector.self, decoder: dec) else { return }
-            if detectorsByPatient[d.patientId]?.contains(where: { $0.id == d.id }) != true {
-                detectorsByPatient[d.patientId, default: []].append(d)
-            }
+            guard detectorsByPatient[d.patientId]?.contains(where: { $0.id == d.id }) != true
+            else { return }
+            refetchDetectors(forPatient: d.patientId)
         case .update(let a):
             guard let d = try? a.decodeRecord(as: Detector.self, decoder: dec) else { return }
             var arr = detectorsByPatient[d.patientId] ?? []
-            if let idx = arr.firstIndex(where: { $0.id == d.id }) {
-                arr[idx] = d
-            } else {
-                arr.append(d)
+            guard let idx = arr.firstIndex(where: { $0.id == d.id }) else {
+                refetchDetectors(forPatient: d.patientId)
+                return
             }
+            arr[idx] = d
             detectorsByPatient[d.patientId] = arr
         case .delete(let a):
             guard let id = uuid(from: a.oldRecord["id"]) else { return }

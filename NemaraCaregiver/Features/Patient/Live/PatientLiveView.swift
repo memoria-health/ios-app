@@ -46,6 +46,18 @@ struct PatientLiveView: View {
     /// without dismissing the carousel.
     @State private var lkError: String? = nil
 
+    /// Sensors covering this patient that publish into a DIFFERENT room
+    /// from the one we joined, so their tiles can never appear here.
+    ///
+    /// `liveRoom` has always reported these and nothing has ever shown
+    /// them. That was survivable while it took a shared sensor to
+    /// produce one. It does not survive account rooms: a patient with a
+    /// wall phone (`patient_<id>`) and a bridge sensor
+    /// (`account_<caregiver_id>`) is split across two rooms by
+    /// construction, so the grid would render one group and leave the
+    /// rest missing with nothing to explain it.
+    @State private var unreachableSensors: [Camera] = []
+
     /// Per-second clock for the ON AIR timer label.
     @State private var clockTick: Date = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -101,7 +113,7 @@ struct PatientLiveView: View {
     /// shown on that camera's tile after the trigger fires.
     @State private var capturingCameraId: UUID? = nil
     /// Pairing sheet, moved here with the Sensors tab.
-    @State private var showingAddCamera = false
+    @State private var showingSensors = false
     @State private var captureNote: (cameraId: UUID, text: String)? = nil
 
     var body: some View {
@@ -113,6 +125,9 @@ struct PatientLiveView: View {
                 // device.
                 if let cam = unacknowledgedSensitiveCameras.first {
                     sensitiveRoomCard(cam)
+                }
+                if !unreachableSensors.isEmpty {
+                    unreachableSensorsNotice
                 }
                 // The Live grid follows the cameras' ACTUAL live state, never
                 // the patient-level pause flag. "Disconnect all" / "Reconnect
@@ -144,15 +159,31 @@ struct PatientLiveView: View {
             .padding(.bottom, 16)
         }
         .background(NemaraColor.paper)
-        .sheet(isPresented: $showingAddCamera) {
-            AddCameraSheet(patientId: patientId)
-                .presentationDetents([.large])
-                .trackScreen("add_camera")
+        // The same destination the roster's Sensors button opens, not a
+        // second screen that does a slice of it (Aryaman 2026-08-25).
+        // This used to open the pairing sheet directly, pre-assigned to
+        // whichever patient's page you happened to be on — so a sensor
+        // silently picked up its coverage from the navigation path. The
+        // roster sheet lists every sensor, lets you rename and choose who
+        // each one watches, and reaches the same pairing sheet from its
+        // own + button, so nothing is lost by coming through it.
+        .sheet(isPresented: $showingSensors) {
+            AssignSensorSheet()
+                .environment(env)
+                .trackScreen("assign_sensor")
         }
         .navigationDestination(for: UUID.self) { cameraId in
             CameraDetailView(cameraId: cameraId, patientId: patientId)
         }
-        .task(id: patientId) { await bootstrap() }
+        // Keyed on the RESOLVED room, not just the patient. The room is
+        // read off this patient's cameras, so on a cold open there is
+        // no room yet and bootstrap does nothing. Keying on it means
+        // the task re-fires and connects the moment the real room is
+        // known, instead of sitting disconnected until something else
+        // forces a rebootstrap.
+        .task(id: "\(patientId)|\(env.api.liveRoom(forPatient: patientId).room ?? "")") {
+            await bootstrap()
+        }
         .onChange(of: patient?.camerasPaused) { oldValue, newValue in
             // Reconnect-all. `.task` keys on patientId, so it never
             // re-fires when the kill switch flips back on, and a camera
@@ -371,7 +402,20 @@ struct PatientLiveView: View {
         // simply receive no tracks and show the empty card. Gating the
         // connection on camerasPaused meant a camera that came back online
         // while "paused" had nowhere to surface (we weren't even in the room).
-        let expectedRoom = "patient_\(patientId.uuidString.lowercased())"
+        // The room the patient's CAMERAS publish into, which is never
+        // derived from the patient: a bridge sensor publishes into the
+        // account's room and a wall phone into `patient_<id>`, so the
+        // only honest source is the camera rows themselves. Nil means
+        // they haven't loaded yet — stay out of LiveKit entirely rather
+        // than join a room nothing publishes into and show a blank grid
+        // with no error to explain it. The `.task` above is keyed on
+        // this room, so it re-fires and connects once it resolves.
+        let resolved = env.api.liveRoom(forPatient: patientId)
+        unreachableSensors = resolved.unreachable
+        guard let expectedRoom = resolved.room else {
+            lkError = nil
+            return
+        }
 
         // Sub-tab return path: room is already up for this patient,
         // skip the mint+connect entirely. This is what makes
@@ -1153,6 +1197,37 @@ struct PatientLiveView: View {
     /// distinct from `emptyCard` (no sensors paired at all). Copy adapts:
     /// if the patient is paused, point at Reconnect all; otherwise point
     /// at starting a sensor. Never gates the live feed — purely a hint.
+    /// Sensors that cover this patient but publish somewhere this view
+    /// is not connected to.
+    ///
+    /// Deliberately says which ones and where to look, rather than a
+    /// generic "some sensors unavailable": the caregiver can see the
+    /// sensor exists in the sensors list, so a vague notice reads as a
+    /// bug in the app rather than an explanation of it.
+    private var unreachableSensorsNotice: some View {
+        let names = unreachableSensors.map(\.room).sorted().joined(separator: ", ")
+        return NemaraCard(padding: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "rectangle.on.rectangle.slash")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(NemaraColor.ink3)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(unreachableSensors.count == 1
+                         ? "1 sensor isn't shown here"
+                         : "\(unreachableSensors.count) sensors aren't shown here")
+                        .font(NemaraFont.bodySmallStrong)
+                        .foregroundStyle(NemaraColor.ink)
+                    Text("\(names) streams separately from the sensors above. Open it from the sensors list to watch it.")
+                        .font(NemaraFont.bodySmall)
+                        .foregroundStyle(NemaraColor.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+
     private var offlineCard: some View {
         let paused = patient?.camerasPaused ?? false
         // How many eligible sensors have the app actually CLOSED (iPhone, not
@@ -1289,7 +1364,7 @@ struct PatientLiveView: View {
                     block: true,
                     systemImage: "plus",
                 ) {
-                    showingAddCamera = true
+                    showingSensors = true
                 }
                 .tutorialTarget(.addSensor)
             }

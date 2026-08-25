@@ -8,6 +8,7 @@ struct RosterView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var showingNewPatient = false
     @State private var showingEditProfile = false
+    @State private var showingSensors = false
 
     var body: some View {
         Group {
@@ -18,14 +19,22 @@ struct RosterView: View {
                     VStack(spacing: 0) {
                         roster_largeTitle(sub: "\(greeting), \(firstName)", title: "Today") {
                             AnyView(
-                                HStack(spacing: 12) {
+                                // Four peers: same glyph size, same 32pt hit
+                                // frame, same gap. They were three loose
+                                // 20pt glyphs plus one bordered chip at 12pt,
+                                // packed 12pt apart — different sizes AND
+                                // different shapes, so nothing read as a set.
+                                HStack(spacing: NemaraHeaderIcon.gap) {
                                     SupportIconButton()
-                                    Button { showingNewPatient = true } label: {
-                                        Image(systemName: "plus")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundStyle(NemaraColor.ink)
+                                    NemaraHeaderIcon(
+                                        // `web.camera` is an obscure glyph for
+                                        // "the sensors on this account".
+                                        "sensor.tag.radiowaves.forward",
+                                        label: "Sensors",
+                                    ) { showingSensors = true }
+                                    NemaraHeaderIcon("plus", label: "Add a patient") {
+                                        showingNewPatient = true
                                     }
-                                    .buttonStyle(.plain)
                                     // Welcome-tour anchor for replays: with
                                     // patients present the empty-state button
                                     // doesn't exist, so "add a patient" points
@@ -34,8 +43,12 @@ struct RosterView: View {
                                     .tutorialTarget(.addPatient)
                                     Button { showingEditProfile = true } label: {
                                         NemaraAvatar(letter: firstName, size: 28)
+                                            .frame(width: NemaraHeaderIcon.hit,
+                                                   height: NemaraHeaderIcon.hit)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityLabel("Your profile")
                                 }
                             )
                         }
@@ -83,6 +96,11 @@ struct RosterView: View {
         .sheet(isPresented: $showingNewPatient) {
             NewPatientView()
                 .trackScreen("new_patient")
+        }
+        .sheet(isPresented: $showingSensors) {
+            AssignSensorSheet()
+                .environment(env)
+                .trackScreen("assign_sensor")
         }
         .sheet(isPresented: $showingEditProfile) {
             EditProfileView()
