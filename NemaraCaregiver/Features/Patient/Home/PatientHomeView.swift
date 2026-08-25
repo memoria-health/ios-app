@@ -29,12 +29,10 @@ struct PatientHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: NemaraSpacing.sm) {
                 pager
-                // Above the journal, and only on today. Paging back to
-                // last Tuesday should not put last night's sleep at the
-                // top of it.
-                if daysBack == 0, let last = nights.last {
-                    SleepCard(night: last, history: nights)
-                }
+                // No standalone sleep card: sleep already has a detector
+                // surface, and the numbers this showed were wrong.
+                // SleepCard.swift is kept, unused, for that surface to
+                // adopt once the signal can be trusted.
                 content
             }
             .padding(.horizontal, 14)
