@@ -55,6 +55,12 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
     var gender: String?
     var relation: Relation
     var homeAddress: String?
+    /// IANA timezone THIS HOME is in. Every day boundary shown for this
+    /// patient — journal pages, scheduled windows — is computed here, not
+    /// from the reader's device: a caregiver in New York watching a parent
+    /// in California must see the parent's day. nil = the home inherits the
+    /// caregiver's own zone, which is what every home did before this field.
+    var timezone: String?
     /// Country this home is in (ISO alpha-2), picked at onboarding. Optional for
     /// decode resilience; backend always sends it.
     var country: String?
@@ -115,6 +121,7 @@ struct Patient: Identifiable, Hashable, Sendable, Codable {
         case gender
         case relation
         case homeAddress = "home_address"
+        case timezone
         case country
         case region
         case state
@@ -177,6 +184,7 @@ extension Patient {
         dateOfBirth = try c.decodeIfPresent(Date.self, forKey: .dateOfBirth)
         gender = try c.decodeIfPresent(String.self, forKey: .gender)
         homeAddress = try c.decodeIfPresent(String.self, forKey: .homeAddress)
+        timezone = try c.decodeIfPresent(String.self, forKey: .timezone)
         country = try c.decodeIfPresent(String.self, forKey: .country)
         region = try c.decodeIfPresent(Region.self, forKey: .region)
         lastEventAt = try c.decodeIfPresent(Date.self, forKey: .lastEventAt)
@@ -246,6 +254,8 @@ struct UpdatePatientRequest: Encodable, Sendable {
     var gender: String?
     var relation: Patient.Relation?
     var homeAddress: String?
+    /// Move this home to another zone. Every day boundary shifts with it.
+    var timezone: String?
     var camerasPaused: Bool?
     var audioCaptureEnabled: Bool?
     var emailAlertsEnabled: Bool?
@@ -266,6 +276,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         case gender
         case relation
         case homeAddress = "home_address"
+        case timezone
         case camerasPaused = "cameras_paused"
         case audioCaptureEnabled = "audio_capture_enabled"
         case emailAlertsEnabled = "email_alerts_enabled"
@@ -286,6 +297,7 @@ struct UpdatePatientRequest: Encodable, Sendable {
         try c.encodeIfPresent(gender, forKey: .gender)
         try c.encodeIfPresent(relation, forKey: .relation)
         try c.encodeIfPresent(homeAddress, forKey: .homeAddress)
+        try c.encodeIfPresent(timezone, forKey: .timezone)
         try c.encodeIfPresent(camerasPaused, forKey: .camerasPaused)
         try c.encodeIfPresent(audioCaptureEnabled, forKey: .audioCaptureEnabled)
         try c.encodeIfPresent(emailAlertsEnabled, forKey: .emailAlertsEnabled)
